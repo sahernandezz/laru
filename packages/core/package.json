@@ -1,0 +1,15 @@
+{
+  "name": "@laru/core",
+  "version": "0.1.0-beta.1",
+  "license": "FSL-1.1-ALv2",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@laru/detect": "workspace:*",
+    "yaml": "^2.9.1",
+    "@laru/diagrams": "workspace:*"
+  }
+}

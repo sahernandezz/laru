@@ -1,0 +1,9 @@
+{
+  "compilerOptions": {
+    "baseUrl": "/ks",
+    "paths": {
+      "@laru/flow": ["/ks/packages/trace/src/flow.ts"],
+      "@support/*": ["/ks/ws/support/*"]
+    }
+  }
+}

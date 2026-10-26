@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="es">
+<head><meta charset="utf-8"><title>Auditoría</title>
+<style>body{font:15px system-ui;background:#111;color:#ddd;margin:2rem}table{border-collapse:collapse}td,th{border-bottom:1px solid #333;padding:.4rem .8rem;text-align:left}</style></head>
+<body>
+<h1>Auditoría</h1>
+<p id="gateway">Gateway: comprobando…</p>
+<table><thead><tr><th>Fichero</th><th>Veredicto</th><th>En VaultFlow</th><th>Cuándo</th></tr></thead><tbody id="rows"></tbody></table>
+<script>
+  // The VaultFlow session comes in the address (#token=…), never in a request to this page.
+  const token = new URLSearchParams(location.hash.slice(1)).get('token') ?? '';
+  const auth = token ? { authorization: 'Bearer ' + token } : {};
+  const cell = (t) => { const td = document.createElement('td'); td.textContent = t; return td; };
+  async function load() {
+    try {
+      const { entries } = await (await fetch('/api/entries', { headers: auth })).json();
+      document.getElementById('rows').replaceChildren(...entries.map((e) => {
+        const tr = document.createElement('tr');
+        tr.append(cell(e.name), cell(e.status), cell(e.file?.scanStatus ?? e.file?.error ?? '—'), cell(new Date(e.at).toLocaleTimeString('es')));
+        return tr;
+      }));
+    } catch { /* the next poll tries again */ }
+    setTimeout(load, 1000);
+  }
+  fetch('/api/gateway-health', { headers: auth }).then((r) => r.json()).then((h) => { document.getElementById('gateway').textContent = 'Gateway: ' + h.status + (h.user ? ' · ' + h.user : ''); }, () => {});
+  load();
+</script>
+</body>
+</html>

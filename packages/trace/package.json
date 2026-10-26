@@ -1,0 +1,8 @@
+{
+  "name": "@laru/trace",
+  "version": "0.1.0-beta.1",
+  "license": "FSL-1.1-ALv2",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts", "./assemble": "./src/assemble.ts", "./summarize": "./src/summarize.ts", "./chain": "./src/chain.ts", "./behavior": "./src/behavior.ts" }
+}

@@ -1,0 +1,41 @@
+openapi: 3.0.3
+info: { title: Partner payments, version: '1' }
+paths:
+  /v1/refunds:
+    post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Refund' }
+      responses:
+        '201':
+          content:
+            application/json:
+              example: { id: re_123, status: pending }
+        '409': { description: already refunded }
+  /v1/refunds/{id}:
+    get:
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { name: expand, in: query, required: true, schema: { type: string } }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string, example: re_123 }
+                  amount: { type: integer, minimum: 100 }
+                  status: { type: string, enum: [pending, succeeded] }
+components:
+  schemas:
+    Refund:
+      type: object
+      required: [payment_intent, amount]
+      additionalProperties: false
+      properties:
+        payment_intent: { type: string }
+        amount: { type: integer }
+        reason: { type: string, enum: [duplicate, requested_by_customer] }

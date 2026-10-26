@@ -1,0 +1,537 @@
+name: ks-vaultflow-local
+services:
+  antivirus-service-real:
+    build:
+      context: /snap/vaultflow/antivirus-service
+      dockerfile: Dockerfile
+      labels:
+        keelson.workspace: abc123def0
+        keelson.app: vaultflow
+        keelson.service: antivirus-service
+    depends_on:
+      clamav-real:
+        condition: service_healthy
+        required: true
+      kafka:
+        condition: service_healthy
+        required: true
+      minio-real:
+        condition: service_healthy
+        required: true
+      ks-tap:
+        condition: service_healthy
+        required: true
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+    labels:
+      keelson.workspace: abc123def0
+      keelson.app: vaultflow
+      keelson.env: local
+      keelson.service: antivirus-service
+    networks:
+      ks:
+        aliases:
+          - antivirus-service-real
+    image: ks-vaultflow/antivirus-service:k4
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget -qSO/dev/null http://127.0.0.1:8083/ 2>&1 | grep -q HTTP/
+      interval: 5s
+      timeout: 5s
+      retries: 3
+      start_period: 240s
+      start_interval: 2s
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "3"
+  api-gateway-real:
+    build:
+      context: /snap/vaultflow/api-gateway
+      dockerfile: Dockerfile
+      labels:
+        keelson.workspace: abc123def0
+        keelson.app: vaultflow
+        keelson.service: api-gateway
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: true
+      ks-tap:
+        condition: service_healthy
+        required: true
+    environment:
+      JWT_SECRET: ${KS_API_GATEWAY__JWT_SECRET}
+      SPRING_PROFILES_ACTIVE: docker
+    labels:
+      keelson.workspace: abc123def0
+      keelson.app: vaultflow
+      keelson.env: local
+      keelson.service: api-gateway
+    networks:
+      ks:
+        aliases:
+          - api-gateway-real
+    image: ks-vaultflow/api-gateway:k1
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget -qSO/dev/null http://127.0.0.1:8080/ 2>&1 | grep -q HTTP/
+      interval: 5s
+      timeout: 5s
+      retries: 3
+      start_period: 240s
+      start_interval: 2s
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "3"
+  batch-service-real:
+    build:
+      context: /snap/vaultflow/batch-service
+      dockerfile: Dockerfile
+      labels:
+        keelson.workspace: abc123def0
+        keelson.app: vaultflow
+        keelson.service: batch-service
+    depends_on:
+      kafka:
+        condition: service_healthy
+        required: true
+      minio-real:
+        condition: service_healthy
+        required: true
+      postgres:
+        condition: service_healthy
+        required: true
+      ks-tap:
+        condition: service_healthy
+        required: true
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+    labels:
+      keelson.workspace: abc123def0
+      keelson.app: vaultflow
+      keelson.env: local
+      keelson.service: batch-service
+    networks:
+      ks:
+        aliases:
+          - batch-service-real
+    image: ks-vaultflow/batch-service:k3
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget -qSO/dev/null http://127.0.0.1:8082/ 2>&1 | grep -q HTTP/
+      interval: 5s
+      timeout: 5s
+      retries: 3
+      start_period: 240s
+      start_interval: 2s
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "3"
+  clamav-real:
+    healthcheck:
+      interval: 30s
+      retries: 10
+      start_period: 180s
+      test:
+        - CMD
+        - clamdscan
+        - --ping
+        - "3"
+      timeout: 10s
+    image: clamav/clamav-debian:latest
+    volumes:
+      - source: clamav-data
+        target: /var/lib/clamav
+        type: volume
+        volume: {}
+    labels:
+      keelson.workspace: abc123def0
+      keelson.app: vaultflow
+      keelson.env: local
+      keelson.service: clamav
+    networks:
+      ks:
+        aliases:
+          - clamav-real
+    depends_on:
+      ks-tap:
+        condition: service_healthy
+        required: true
+    mem_limit: 2g
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "3"
+  file-service-real:
+    build:
+      context: /snap/vaultflow/file-service
+      dockerfile: Dockerfile
+      labels:
+        keelson.workspace: abc123def0
+        keelson.app: vaultflow
+        keelson.service: file-service
+    depends_on:
+      kafka:
+        condition: service_healthy
+        required: true
+      minio-real:
+        condition: service_healthy
+        required: true
+      postgres:
+        condition: service_healthy
+        required: true
+      ks-tap:
+        condition: service_healthy
+        required: true
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+    labels:
+      keelson.workspace: abc123def0
+      keelson.app: vaultflow
+      keelson.env: local
+      keelson.service: file-service
+    networks:
+      ks:
+        aliases:
+          - file-service-real
+    image: ks-vaultflow/file-service:k2
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget -qSO/dev/null http://127.0.0.1:8081/ 2>&1 | grep -q HTTP/
+      interval: 5s
+      timeout: 5s
+      retries: 3
+      start_period: 240s
+      start_interval: 2s
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "3"
+  frontend-real:
+    build:
+      context: /snap/vaultflow/frontend
+      dockerfile: Dockerfile
+      labels:
+        keelson.workspace: abc123def0
+        keelson.app: vaultflow
+        keelson.service: frontend
+    depends_on:
+      api-gateway-real:
+        condition: service_started
+        required: true
+      ks-tap:
+        condition: service_healthy
+        required: true
+    labels:
+      keelson.workspace: abc123def0
+      keelson.app: vaultflow
+      keelson.env: local
+      keelson.service: frontend
+    networks:
+      ks:
+        aliases:
+          - frontend-real
+    image: ks-vaultflow/frontend:k6
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget -qSO/dev/null http://127.0.0.1:80/ 2>&1 | grep -q HTTP/
+      interval: 5s
+      timeout: 5s
+      retries: 3
+      start_period: 240s
+      start_interval: 2s
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "3"
+  kafka:
+    environment:
+      CLUSTER_ID: VaultFlowKafkaCluster0001
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,HOST://127.0.0.1:19092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,HOST://0.0.0.0:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,HOST:PLAINTEXT
+      KAFKA_LOG_DIRS: /tmp/kraft-combined-logs
+      KAFKA_NODE_ID: 1
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+    healthcheck:
+      interval: 10s
+      retries: 5
+      start_period: 30s
+      test:
+        - CMD-SHELL
+        - /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list || exit 1
+      timeout: 10s
+    image: apache/kafka:3.7.0
+    labels:
+      keelson.workspace: abc123def0
+      keelson.app: vaultflow
+      keelson.env: local
+      keelson.service: kafka
+    networks:
+      ks:
+        aliases:
+          - kafka
+    ports:
+      - 127.0.0.1:19092:29092
+      - 127.0.0.1:19092:29092
+    depends_on:
+      ks-tap:
+        condition: service_healthy
+        required: true
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "3"
+  minio-real:
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_PASSWORD: ${KS_MINIO__MINIO_ROOT_PASSWORD:-minioadmin123}
+      MINIO_ROOT_USER: ${KS_MINIO__MINIO_ROOT_USER:-minioadmin}
+    healthcheck:
+      interval: 5s
+      retries: 5
+      test:
+        - CMD
+        - mc
+        - ready
+        - local
+      timeout: 5s
+    image: cgr.dev/chainguard/minio:latest
+    volumes:
+      - source: minio-data
+        target: /data
+        type: volume
+        volume: {}
+    labels:
+      keelson.workspace: abc123def0
+      keelson.app: vaultflow
+      keelson.env: local
+      keelson.service: minio
+    networks:
+      ks:
+        aliases:
+          - minio-real
+    depends_on:
+      ks-tap:
+        condition: service_healthy
+        required: true
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "3"
+  minio-init:
+    depends_on:
+      minio-real:
+        condition: service_healthy
+        required: true
+      ks-tap:
+        condition: service_healthy
+        required: true
+    entrypoint: |
+      /bin/sh -c "
+        mc alias set vaultflow http://minio:9000 minioadmin minioadmin123;
+        mc mb --ignore-existing vaultflow/files;
+        mc mb --ignore-existing vaultflow/quarantine;
+        mc mb --ignore-existing vaultflow/thumbnails;
+        mc mb --ignore-existing vaultflow/reports;
+        echo '✅ MinIO buckets created successfully';
+      "
+    image: minio/mc:latest
+    labels:
+      keelson.workspace: abc123def0
+      keelson.app: vaultflow
+      keelson.env: local
+      keelson.service: minio-init
+    networks:
+      ks:
+        aliases:
+          - minio-init
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "3"
+  notification-service-real:
+    build:
+      context: /snap/vaultflow/notification-service
+      dockerfile: Dockerfile
+      labels:
+        keelson.workspace: abc123def0
+        keelson.app: vaultflow
+        keelson.service: notification-service
+    depends_on:
+      kafka:
+        condition: service_healthy
+        required: true
+      ks-tap:
+        condition: service_healthy
+        required: true
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+    labels:
+      keelson.workspace: abc123def0
+      keelson.app: vaultflow
+      keelson.env: local
+      keelson.service: notification-service
+    networks:
+      ks:
+        aliases:
+          - notification-service-real
+    image: ks-vaultflow/notification-service:k5
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget -qSO/dev/null http://127.0.0.1:8084/ 2>&1 | grep -q HTTP/
+      interval: 5s
+      timeout: 5s
+      retries: 3
+      start_period: 240s
+      start_interval: 2s
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "3"
+  postgres:
+    environment:
+      POSTGRES_DB: ${KS_POSTGRES__POSTGRES_DB:-vaultflow}
+      POSTGRES_PASSWORD: ${KS_POSTGRES__POSTGRES_PASSWORD:-vaultflow_secret}
+      POSTGRES_USER: ${KS_POSTGRES__POSTGRES_USER:-vaultflow}
+    healthcheck:
+      interval: 5s
+      retries: 5
+      test:
+        - CMD-SHELL
+        - pg_isready -U vaultflow
+      timeout: 5s
+    image: postgres:16-alpine
+    volumes:
+      - source: postgres-data
+        target: /var/lib/postgresql/data
+        type: volume
+        volume: {}
+      - bind:
+          create_host_path: true
+        source: /snap/vaultflow/infrastructure/postgres/init.sql
+        target: /docker-entrypoint-initdb.d/init.sql
+        type: bind
+    labels:
+      keelson.workspace: abc123def0
+      keelson.app: vaultflow
+      keelson.env: local
+      keelson.service: postgres
+    networks:
+      ks:
+        aliases:
+          - postgres
+    ports:
+      - 127.0.0.1:15432:5432
+    depends_on:
+      ks-tap:
+        condition: service_healthy
+        required: true
+    command:
+      - postgres
+      - -c
+      - log_min_duration_statement=0
+      - -c
+      - log_line_prefix=%m|%h|%p|%u|%d|
+      - -c
+      - log_parameter_max_length=256
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "3"
+  ks-tap:
+    image: node:24-alpine
+    command:
+      - node
+      - /ks/packages/runtime/tap/tap.ts
+      - /ks/env
+    user: 501:20
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: "0"
+    volumes:
+      - /ks/pkgs:/ks/packages:ro
+      - /ws/.laru/envs/local/tap:/ks/env
+    labels:
+      keelson.workspace: abc123def0
+      keelson.app: vaultflow
+      keelson.env: local
+      keelson.service: ks-tap
+    networks:
+      ks:
+        ipv4_address: 172.30.7.254
+        aliases:
+          - antivirus-service
+          - api-gateway
+          - batch-service
+          - clamav
+          - file-service
+          - frontend
+          - minio
+          - notification-service
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget -qO- http://127.0.0.1:7999/__ks/health
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 10s
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "3"
+    ports:
+      - 127.0.0.1:4180:7999
+networks:
+  ks:
+    name: ks-vaultflow-local
+    labels:
+      keelson.workspace: abc123def0
+      keelson.app: vaultflow
+      keelson.env: local
+    ipam:
+      config:
+        - subnet: 172.30.7.0/24
+volumes:
+  clamav-data:
+    name: ks-vaultflow-cache-clamav-data
+    external: true
+  minio-data:
+    name: ks-vaultflow-local_minio-data
+    labels:
+      keelson.workspace: abc123def0
+      keelson.app: vaultflow
+      keelson.env: local
+  postgres-data:
+    name: ks-vaultflow-local_postgres-data
+    labels:
+      keelson.workspace: abc123def0
+      keelson.app: vaultflow
+      keelson.env: local

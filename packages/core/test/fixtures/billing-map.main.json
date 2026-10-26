@@ -1,0 +1,394 @@
+{
+ "version": 1,
+ "app": "acme",
+ "repos": [
+  {
+   "name": "billing",
+   "commit": "328c138f2c45e2b0023654b8dd20c8ea311dd1dd",
+   "ref": "origin/main"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "app:acme",
+   "type": "application",
+   "name": "Acme"
+  },
+  {
+   "id": "repo:billing",
+   "type": "repository",
+   "name": "billing",
+   "kind": "service",
+   "attrs": {
+    "url": "file://<tmp>/remotes/billing.git",
+    "branch": "main",
+    "commit": "328c138f2c45e2b0023654b8dd20c8ea311dd1dd",
+    "ref": "origin/main"
+   }
+  },
+  {
+   "id": "svc:billing-api",
+   "type": "service",
+   "name": "billing-api",
+   "kind": "quarkus",
+   "repo": "billing",
+   "attrs": {
+    "dir": "api",
+    "tech": "quarkus",
+    "tests": {
+     "unit": 0,
+     "integration": 2,
+     "e2e": 0
+    },
+    "ports": [
+     8081
+    ]
+   },
+   "anchor": {
+    "repo": "billing",
+    "commit": "328c138f2c45e2b0023654b8dd20c8ea311dd1dd",
+    "path": "api"
+   }
+  },
+  {
+   "id": "ds:postgres",
+   "type": "datastore",
+   "name": "postgres",
+   "kind": "relational",
+   "attrs": {
+    "image": "postgres:16",
+    "ports": [
+     {
+      "host": 5432,
+      "container": 5432
+     }
+    ]
+   },
+   "anchor": {
+    "repo": "billing",
+    "commit": "328c138f2c45e2b0023654b8dd20c8ea311dd1dd",
+    "path": "docker-compose.yml",
+    "line": 2
+   }
+  },
+  {
+   "id": "ds:kafka",
+   "type": "datastore",
+   "name": "kafka",
+   "kind": "queue",
+   "attrs": {
+    "image": "apache/kafka:3.8.0",
+    "ports": [
+     {
+      "host": 9092,
+      "container": 9092
+     }
+    ]
+   },
+   "anchor": {
+    "repo": "billing",
+    "commit": "328c138f2c45e2b0023654b8dd20c8ea311dd1dd",
+    "path": "docker-compose.yml",
+    "line": 5
+   }
+  },
+  {
+   "id": "ep:billing-api:GET /orders/{id}/payment",
+   "type": "endpoint",
+   "name": "GET /orders/{id}/payment",
+   "service": "svc:billing-api",
+   "repo": "billing",
+   "attrs": {
+    "method": "GET",
+    "path": "/orders/{id}/payment",
+    "handler": "PaymentResource.payment"
+   },
+   "anchor": {
+    "repo": "billing",
+    "commit": "328c138f2c45e2b0023654b8dd20c8ea311dd1dd",
+    "path": "api/src/main/java/acme/PaymentResource.java",
+    "line": 3,
+    "symbol": "PaymentResource.payment"
+   }
+  },
+  {
+   "id": "ep:billing-api:POST /refunds",
+   "type": "endpoint",
+   "name": "POST /refunds",
+   "service": "svc:billing-api",
+   "repo": "billing",
+   "attrs": {
+    "method": "POST",
+    "path": "/refunds",
+    "handler": "RefundResource.create"
+   },
+   "anchor": {
+    "repo": "billing",
+    "commit": "328c138f2c45e2b0023654b8dd20c8ea311dd1dd",
+    "path": "api/src/main/java/acme/RefundResource.java",
+    "line": 5,
+    "symbol": "RefundResource.create"
+   }
+  },
+  {
+   "id": "ext:api.stripe.com",
+   "type": "external",
+   "name": "api.stripe.com",
+   "kind": "service",
+   "attrs": {}
+  },
+  {
+   "id": "dep:maven:acme:shared-model",
+   "type": "dependency",
+   "name": "acme:shared-model",
+   "kind": "maven",
+   "attrs": {}
+  },
+  {
+   "id": "tbl:billing.refunds",
+   "type": "table",
+   "name": "billing.refunds",
+   "attrs": {
+    "schema": "billing"
+   }
+  },
+  {
+   "id": "var:STRIPE_WEBHOOK_SECRET",
+   "type": "env-var",
+   "name": "STRIPE_WEBHOOK_SECRET"
+  },
+  {
+   "id": "topic:refund.requested",
+   "type": "topic",
+   "name": "refund.requested"
+  },
+  {
+   "id": "var:STRIPE_API_URL",
+   "type": "env-var",
+   "name": "STRIPE_API_URL"
+  }
+ ],
+ "facts": [
+  {
+   "s": "app:acme",
+   "p": "contains",
+   "o": "repo:billing",
+   "origin": "declared"
+  },
+  {
+   "s": "repo:billing",
+   "p": "contains",
+   "o": "svc:billing-api",
+   "origin": "extracted",
+   "anchor": {
+    "repo": "billing",
+    "commit": "328c138f2c45e2b0023654b8dd20c8ea311dd1dd",
+    "path": "api"
+   }
+  },
+  {
+   "s": "app:acme",
+   "p": "contains",
+   "o": "ds:postgres",
+   "origin": "extracted",
+   "anchor": {
+    "repo": "billing",
+    "commit": "328c138f2c45e2b0023654b8dd20c8ea311dd1dd",
+    "path": "docker-compose.yml",
+    "line": 2
+   }
+  },
+  {
+   "s": "app:acme",
+   "p": "contains",
+   "o": "ds:kafka",
+   "origin": "extracted",
+   "anchor": {
+    "repo": "billing",
+    "commit": "328c138f2c45e2b0023654b8dd20c8ea311dd1dd",
+    "path": "docker-compose.yml",
+    "line": 5
+   }
+  },
+  {
+   "s": "svc:billing-api",
+   "p": "uses",
+   "o": "ds:postgres",
+   "origin": "extracted",
+   "anchor": {
+    "repo": "billing",
+    "commit": "328c138f2c45e2b0023654b8dd20c8ea311dd1dd",
+    "path": "docker-compose.yml",
+    "line": 8
+   },
+   "note": "compose depends_on"
+  },
+  {
+   "s": "svc:billing-api",
+   "p": "uses",
+   "o": "ds:kafka",
+   "origin": "extracted",
+   "anchor": {
+    "repo": "billing",
+    "commit": "328c138f2c45e2b0023654b8dd20c8ea311dd1dd",
+    "path": "docker-compose.yml",
+    "line": 8
+   },
+   "note": "compose depends_on"
+  },
+  {
+   "s": "svc:billing-api",
+   "p": "exposes",
+   "o": "ep:billing-api:GET /orders/{id}/payment",
+   "origin": "extracted",
+   "anchor": {
+    "repo": "billing",
+    "commit": "328c138f2c45e2b0023654b8dd20c8ea311dd1dd",
+    "path": "api/src/main/java/acme/PaymentResource.java",
+    "line": 3,
+    "symbol": "PaymentResource.payment"
+   }
+  },
+  {
+   "s": "svc:billing-api",
+   "p": "exposes",
+   "o": "ep:billing-api:POST /refunds",
+   "origin": "extracted",
+   "anchor": {
+    "repo": "billing",
+    "commit": "328c138f2c45e2b0023654b8dd20c8ea311dd1dd",
+    "path": "api/src/main/java/acme/RefundResource.java",
+    "line": 5,
+    "symbol": "RefundResource.create"
+   }
+  },
+  {
+   "s": "svc:billing-api",
+   "p": "uses",
+   "o": "ds:postgres",
+   "origin": "extracted",
+   "anchor": {
+    "repo": "billing",
+    "commit": "328c138f2c45e2b0023654b8dd20c8ea311dd1dd",
+    "path": "api/src/main/resources/application.properties",
+    "line": 2
+   },
+   "note": "config quarkus.datasource.jdbc.url"
+  },
+  {
+   "s": "svc:billing-api",
+   "p": "uses",
+   "o": "ext:api.stripe.com",
+   "origin": "extracted",
+   "anchor": {
+    "repo": "billing",
+    "commit": "328c138f2c45e2b0023654b8dd20c8ea311dd1dd",
+    "path": "api/src/main/resources/application.properties",
+    "line": 3
+   },
+   "note": "config quarkus.rest-client.stripe.url"
+  },
+  {
+   "s": "svc:billing-api",
+   "p": "uses",
+   "o": "ds:kafka",
+   "origin": "extracted",
+   "anchor": {
+    "repo": "billing",
+    "commit": "328c138f2c45e2b0023654b8dd20c8ea311dd1dd",
+    "path": "api/src/main/resources/application.properties",
+    "line": 4
+   },
+   "note": "config kafka.bootstrap.servers"
+  },
+  {
+   "s": "svc:billing-api",
+   "p": "depends-on",
+   "o": "dep:maven:acme:shared-model",
+   "origin": "extracted",
+   "anchor": {
+    "repo": "billing",
+    "commit": "328c138f2c45e2b0023654b8dd20c8ea311dd1dd",
+    "path": "api/pom.xml"
+   }
+  },
+  {
+   "s": "svc:billing-api",
+   "p": "maps-table",
+   "o": "tbl:billing.refunds",
+   "origin": "extracted",
+   "anchor": {
+    "repo": "billing",
+    "commit": "328c138f2c45e2b0023654b8dd20c8ea311dd1dd",
+    "path": "api/src/main/java/acme/Refund.java",
+    "line": 1,
+    "symbol": "Refund"
+   }
+  },
+  {
+   "s": "ds:postgres",
+   "p": "contains",
+   "o": "tbl:billing.refunds",
+   "origin": "derived",
+   "note": "billing-api maps it through its datasource"
+  },
+  {
+   "s": "svc:billing-api",
+   "p": "reads-var",
+   "o": "var:STRIPE_WEBHOOK_SECRET",
+   "origin": "extracted",
+   "anchor": {
+    "repo": "billing",
+    "commit": "328c138f2c45e2b0023654b8dd20c8ea311dd1dd",
+    "path": "api/src/main/java/acme/RefundResource.java",
+    "line": 3
+   },
+   "note": "overrides stripe.webhook-secret"
+  },
+  {
+   "s": "svc:billing-api",
+   "p": "publishes",
+   "o": "topic:refund.requested",
+   "origin": "extracted",
+   "anchor": {
+    "repo": "billing",
+    "commit": "328c138f2c45e2b0023654b8dd20c8ea311dd1dd",
+    "path": "api/src/main/java/acme/RefundResource.java",
+    "line": 4
+   }
+  },
+  {
+   "s": "ds:kafka",
+   "p": "contains",
+   "o": "topic:refund.requested",
+   "origin": "derived"
+  },
+  {
+   "s": "svc:billing-api",
+   "p": "reads-var",
+   "o": "var:STRIPE_API_URL",
+   "origin": "extracted",
+   "anchor": {
+    "repo": "billing",
+    "commit": "328c138f2c45e2b0023654b8dd20c8ea311dd1dd",
+    "path": "api/src/main/resources/application.properties",
+    "line": 3
+   },
+   "note": "has a default"
+  },
+  {
+   "s": "svc:billing-api",
+   "p": "uses",
+   "o": "ext:api.stripe.com",
+   "origin": "extracted",
+   "anchor": {
+    "repo": "billing",
+    "commit": "328c138f2c45e2b0023654b8dd20c8ea311dd1dd",
+    "path": "api/src/main/java/acme/StripeClient.java",
+    "line": 2,
+    "symbol": "StripeClient.refund"
+   },
+   "note": "POST /v1/refunds, rest client stripe"
+  }
+ ]
+}

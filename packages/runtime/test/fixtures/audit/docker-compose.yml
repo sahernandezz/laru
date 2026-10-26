@@ -1,0 +1,47 @@
+# Auditoría: a small project that talks to VaultFlow. audit-worker records every scan verdict VaultFlow publishes
+# (file.clean, file.infected); audit-api lists them with what VaultFlow's gateway says of each file (by name), and
+# asks the gateway whose session it is on the port VaultFlow publishes (host.docker.internal:8080); audit-web shows both.
+# Run alone, VaultFlow is not there: the list stays empty and the gateway reads as down.
+services:
+  audit-web:
+    build: ./web
+    ports: ["8090:80"]
+    depends_on: [audit-api]
+  audit-api:
+    build: ./api
+    environment:
+      DATABASE_URL: postgres://audit:audit@postgres:5432/audit
+      FILES_URL: http://api-gateway:8080
+      GATEWAY_URL: http://host.docker.internal:8080
+    depends_on:
+      postgres: { condition: service_healthy }
+  audit-worker:
+    build: ./worker
+    environment:
+      DATABASE_URL: postgres://audit:audit@postgres:5432/audit
+      KAFKA_BROKERS: kafka:9092
+    depends_on:
+      postgres: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+  postgres:
+    image: postgres:16-alpine
+    environment: { POSTGRES_USER: audit, POSTGRES_PASSWORD: audit, POSTGRES_DB: audit }
+    ports: ["5433:5432"]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U audit"], interval: 2s, retries: 30 }
+    volumes: [audit-data:/var/lib/postgresql/data]
+  kafka:
+    image: apache/kafka:3.7.0
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_HEAP_OPTS: -Xmx256m -Xms256m
+    ports: ["9094:9092"]
+    healthcheck: { test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list"], interval: 5s, timeout: 10s, retries: 30, start_period: 20s }
+volumes:
+  audit-data: {}

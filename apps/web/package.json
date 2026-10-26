@@ -1,0 +1,28 @@
+{
+  "name": "@laru/web",
+  "version": "0.1.0-beta.1",
+  "license": "FSL-1.1-ALv2",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@excalidraw/excalidraw": "0.18.1",
+    "lucide-react": "^1.61.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@laru/core": "workspace:*",
+    "@laru/diagrams": "workspace:*",
+    "@laru/runtime": "workspace:*",
+    "@laru/trace": "workspace:*",
+    "@types/node": "^24.10.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "vite": "^8.3.5"
+  }
+}

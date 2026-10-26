@@ -1,0 +1,382 @@
+{
+  "name": "vaultflow",
+  "networks": {
+    "vaultflow-network": {
+      "driver": "bridge",
+      "name": "vaultflow_vaultflow-network"
+    }
+  },
+  "services": {
+    "antivirus-service": {
+      "build": {
+        "context": "/snap/vaultflow/antivirus-service",
+        "dockerfile": "Dockerfile"
+      },
+      "container_name": "vaultflow-antivirus-service",
+      "depends_on": {
+        "clamav": {
+          "condition": "service_healthy",
+          "required": true
+        },
+        "kafka": {
+          "condition": "service_healthy",
+          "required": true
+        },
+        "minio": {
+          "condition": "service_healthy",
+          "required": true
+        }
+      },
+      "environment": {
+        "SPRING_PROFILES_ACTIVE": "docker"
+      },
+      "networks": {
+        "vaultflow-network": null
+      },
+      "ports": [
+        {
+          "mode": "ingress",
+          "protocol": "tcp",
+          "published": "8083",
+          "target": 8083
+        }
+      ]
+    },
+    "api-gateway": {
+      "build": {
+        "context": "/snap/vaultflow/api-gateway",
+        "dockerfile": "Dockerfile"
+      },
+      "container_name": "vaultflow-api-gateway",
+      "depends_on": {
+        "postgres": {
+          "condition": "service_healthy",
+          "required": true
+        }
+      },
+      "environment": {
+        "JWT_SECRET": "${JWT_SECRET}",
+        "SPRING_PROFILES_ACTIVE": "docker"
+      },
+      "networks": {
+        "vaultflow-network": null
+      },
+      "ports": [
+        {
+          "mode": "ingress",
+          "protocol": "tcp",
+          "published": "8080",
+          "target": 8080
+        }
+      ]
+    },
+    "batch-service": {
+      "build": {
+        "context": "/snap/vaultflow/batch-service",
+        "dockerfile": "Dockerfile"
+      },
+      "container_name": "vaultflow-batch-service",
+      "depends_on": {
+        "kafka": {
+          "condition": "service_healthy",
+          "required": true
+        },
+        "minio": {
+          "condition": "service_healthy",
+          "required": true
+        },
+        "postgres": {
+          "condition": "service_healthy",
+          "required": true
+        }
+      },
+      "environment": {
+        "SPRING_PROFILES_ACTIVE": "docker"
+      },
+      "networks": {
+        "vaultflow-network": null
+      },
+      "ports": [
+        {
+          "mode": "ingress",
+          "protocol": "tcp",
+          "published": "8082",
+          "target": 8082
+        }
+      ]
+    },
+    "clamav": {
+      "container_name": "vaultflow-clamav",
+      "healthcheck": {
+        "interval": "30s",
+        "retries": 10,
+        "start_period": "180s",
+        "test": [
+          "CMD",
+          "clamdscan",
+          "--ping",
+          "3"
+        ],
+        "timeout": "10s"
+      },
+      "image": "clamav/clamav-debian:latest",
+      "networks": {
+        "vaultflow-network": null
+      },
+      "ports": [
+        {
+          "mode": "ingress",
+          "protocol": "tcp",
+          "published": "3310",
+          "target": 3310
+        }
+      ],
+      "volumes": [
+        {
+          "source": "clamav-data",
+          "target": "/var/lib/clamav",
+          "type": "volume",
+          "volume": {}
+        }
+      ]
+    },
+    "file-service": {
+      "build": {
+        "context": "/snap/vaultflow/file-service",
+        "dockerfile": "Dockerfile"
+      },
+      "container_name": "vaultflow-file-service",
+      "depends_on": {
+        "kafka": {
+          "condition": "service_healthy",
+          "required": true
+        },
+        "minio": {
+          "condition": "service_healthy",
+          "required": true
+        },
+        "postgres": {
+          "condition": "service_healthy",
+          "required": true
+        }
+      },
+      "environment": {
+        "SPRING_PROFILES_ACTIVE": "docker"
+      },
+      "networks": {
+        "vaultflow-network": null
+      },
+      "ports": [
+        {
+          "mode": "ingress",
+          "protocol": "tcp",
+          "published": "8081",
+          "target": 8081
+        }
+      ]
+    },
+    "frontend": {
+      "build": {
+        "context": "/snap/vaultflow/frontend",
+        "dockerfile": "Dockerfile"
+      },
+      "container_name": "vaultflow-frontend",
+      "depends_on": {
+        "api-gateway": {
+          "condition": "service_started",
+          "required": true
+        }
+      },
+      "networks": {
+        "vaultflow-network": null
+      },
+      "ports": [
+        {
+          "mode": "ingress",
+          "protocol": "tcp",
+          "published": "4200",
+          "target": 80
+        }
+      ]
+    },
+    "kafka": {
+      "container_name": "vaultflow-kafka",
+      "environment": {
+        "CLUSTER_ID": "VaultFlowKafkaCluster0001",
+        "KAFKA_ADVERTISED_LISTENERS": "PLAINTEXT://kafka:9092",
+        "KAFKA_CONTROLLER_LISTENER_NAMES": "CONTROLLER",
+        "KAFKA_CONTROLLER_QUORUM_VOTERS": "1@kafka:9093",
+        "KAFKA_LISTENERS": "PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093",
+        "KAFKA_LISTENER_SECURITY_PROTOCOL_MAP": "PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT",
+        "KAFKA_LOG_DIRS": "/tmp/kraft-combined-logs",
+        "KAFKA_NODE_ID": 1,
+        "KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR": 1,
+        "KAFKA_PROCESS_ROLES": "broker,controller"
+      },
+      "healthcheck": {
+        "interval": "10s",
+        "retries": 5,
+        "start_period": "30s",
+        "test": [
+          "CMD-SHELL",
+          "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list || exit 1"
+        ],
+        "timeout": "10s"
+      },
+      "image": "apache/kafka:3.7.0",
+      "networks": {
+        "vaultflow-network": null
+      },
+      "ports": [
+        {
+          "mode": "ingress",
+          "protocol": "tcp",
+          "published": "9092",
+          "target": 9092
+        }
+      ]
+    },
+    "minio": {
+      "command": "server /data --console-address \":9001\"",
+      "container_name": "vaultflow-minio",
+      "environment": {
+        "MINIO_ROOT_PASSWORD": "${MINIO_ROOT_PASSWORD:-minioadmin123}",
+        "MINIO_ROOT_USER": "${MINIO_ROOT_USER:-minioadmin}"
+      },
+      "healthcheck": {
+        "interval": "5s",
+        "retries": 5,
+        "test": [
+          "CMD",
+          "mc",
+          "ready",
+          "local"
+        ],
+        "timeout": "5s"
+      },
+      "image": "minio/minio:latest",
+      "networks": {
+        "vaultflow-network": null
+      },
+      "ports": [
+        {
+          "mode": "ingress",
+          "protocol": "tcp",
+          "published": "9000",
+          "target": 9000
+        },
+        {
+          "mode": "ingress",
+          "protocol": "tcp",
+          "published": "9001",
+          "target": 9001
+        }
+      ],
+      "volumes": [
+        {
+          "source": "minio-data",
+          "target": "/data",
+          "type": "volume",
+          "volume": {}
+        }
+      ]
+    },
+    "minio-init": {
+      "container_name": "vaultflow-minio-init",
+      "depends_on": {
+        "minio": {
+          "condition": "service_healthy",
+          "required": true
+        }
+      },
+      "entrypoint": "/bin/sh -c \"\n  mc alias set vaultflow http://minio:9000 minioadmin minioadmin123;\n  mc mb --ignore-existing vaultflow/files;\n  mc mb --ignore-existing vaultflow/quarantine;\n  mc mb --ignore-existing vaultflow/thumbnails;\n  mc mb --ignore-existing vaultflow/reports;\n  echo '✅ MinIO buckets created successfully';\n\"\n",
+      "image": "minio/mc:latest",
+      "networks": {
+        "vaultflow-network": null
+      }
+    },
+    "notification-service": {
+      "build": {
+        "context": "/snap/vaultflow/notification-service",
+        "dockerfile": "Dockerfile"
+      },
+      "container_name": "vaultflow-notification-service",
+      "depends_on": {
+        "kafka": {
+          "condition": "service_healthy",
+          "required": true
+        }
+      },
+      "environment": {
+        "SPRING_PROFILES_ACTIVE": "docker"
+      },
+      "networks": {
+        "vaultflow-network": null
+      },
+      "ports": [
+        {
+          "mode": "ingress",
+          "protocol": "tcp",
+          "published": "8084",
+          "target": 8084
+        }
+      ]
+    },
+    "postgres": {
+      "container_name": "vaultflow-postgres",
+      "environment": {
+        "POSTGRES_DB": "${POSTGRES_DB:-vaultflow}",
+        "POSTGRES_PASSWORD": "${POSTGRES_PASSWORD:-vaultflow_secret}",
+        "POSTGRES_USER": "${POSTGRES_USER:-vaultflow}"
+      },
+      "healthcheck": {
+        "interval": "5s",
+        "retries": 5,
+        "test": [
+          "CMD-SHELL",
+          "pg_isready -U vaultflow"
+        ],
+        "timeout": "5s"
+      },
+      "image": "postgres:16-alpine",
+      "networks": {
+        "vaultflow-network": null
+      },
+      "ports": [
+        {
+          "mode": "ingress",
+          "protocol": "tcp",
+          "published": "5432",
+          "target": 5432
+        }
+      ],
+      "volumes": [
+        {
+          "source": "postgres-data",
+          "target": "/var/lib/postgresql/data",
+          "type": "volume",
+          "volume": {}
+        },
+        {
+          "bind": {
+            "create_host_path": true
+          },
+          "source": "/snap/vaultflow/infrastructure/postgres/init.sql",
+          "target": "/docker-entrypoint-initdb.d/init.sql",
+          "type": "bind"
+        }
+      ]
+    }
+  },
+  "volumes": {
+    "clamav-data": {
+      "name": "vaultflow_clamav-data"
+    },
+    "minio-data": {
+      "name": "vaultflow_minio-data"
+    },
+    "postgres-data": {
+      "name": "vaultflow_postgres-data"
+    }
+  }
+}

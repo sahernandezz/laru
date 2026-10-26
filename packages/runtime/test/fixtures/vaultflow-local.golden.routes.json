@@ -1,0 +1,90 @@
+[
+  {
+    "svc": "antivirus-service",
+    "aliases": [
+      "antivirus-service"
+    ],
+    "ports": [
+      8083
+    ],
+    "upstream": "antivirus-service-real",
+    "proto": "http"
+  },
+  {
+    "svc": "api-gateway",
+    "aliases": [
+      "api-gateway"
+    ],
+    "ports": [
+      8080
+    ],
+    "upstream": "api-gateway-real",
+    "proto": "http"
+  },
+  {
+    "svc": "batch-service",
+    "aliases": [
+      "batch-service"
+    ],
+    "ports": [
+      8082
+    ],
+    "upstream": "batch-service-real",
+    "proto": "http"
+  },
+  {
+    "svc": "clamav",
+    "aliases": [
+      "clamav"
+    ],
+    "ports": [
+      3310
+    ],
+    "upstream": "clamav-real",
+    "proto": "tcp"
+  },
+  {
+    "svc": "file-service",
+    "aliases": [
+      "file-service"
+    ],
+    "ports": [
+      8081
+    ],
+    "upstream": "file-service-real",
+    "proto": "http"
+  },
+  {
+    "svc": "frontend",
+    "aliases": [
+      "frontend"
+    ],
+    "ports": [
+      80
+    ],
+    "upstream": "frontend-real",
+    "proto": "http"
+  },
+  {
+    "svc": "minio",
+    "aliases": [
+      "minio"
+    ],
+    "ports": [
+      9000
+    ],
+    "upstream": "minio-real",
+    "proto": "http"
+  },
+  {
+    "svc": "notification-service",
+    "aliases": [
+      "notification-service"
+    ],
+    "ports": [
+      8084
+    ],
+    "upstream": "notification-service-real",
+    "proto": "http"
+  }
+]

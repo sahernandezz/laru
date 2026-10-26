@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.laru/
+.env
+.env.*
+!.env.example
+*.db
+*.sqlite
+.DS_Store
+apps/web/dist/
