@@ -6,6 +6,19 @@ Todos los cambios de Laru que importan a quien lo usa quedan aquí. El formato s
 
 ## [Sin publicar]
 
+## [0.1.0-beta.2] - 2026-10-26
+
+### Seguridad
+
+- **`laru.yaml`:** un `laru.yaml` compartido ya no puede hacer que `git` ejecute un comando.
+  - Las URL y ramas de los proyectos se validan al leerlo y al añadir un proyecto.
+  - `git clone` recibe la URL después de `--`.
+  - Antes, una URL como `--upload-pack=<comando>` ejecutaba ese comando al sincronizar.
+- **Dependencias:** las transitivas con avisos de seguridad pasan a versiones corregidas: `nanoid`, `lodash-es` y `katex` de Excalidraw, y `body-parser` del SDK de MCP. `pnpm audit` sale limpio.
+- **Imágenes por digest:** la imagen del tap y la base del runner se fijan por digest.
+- **Interfaz:** se sirve solo desde su propia carpeta.
+- **Política de seguridad:** nuevo `SECURITY.md`, con cómo avisar de una vulnerabilidad y qué protege Laru.
+
 ## [0.1.0-beta.1] - 2026-10-26
 
 Primera beta pública.
@@ -39,5 +52,6 @@ Primera beta pública.
   - `CLAUDE.md` y `AGENTS.md` generados.
   - Hooks para Claude Code.
 
-[Sin publicar]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.1...HEAD
+[Sin publicar]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.2...HEAD
+[0.1.0-beta.2]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.1...v0.1.0-beta.2
 [0.1.0-beta.1]: https://github.com/sahernandezz/laru/releases/tag/v0.1.0-beta.1

@@ -178,7 +178,8 @@ function classify(c: ContainerState | undefined, s: Service): Health {
 const OK = new Set<Health>(['healthy', 'running', 'done', 'host']);
 const FAILED = new Set<Health>(['unhealthy', 'exited', 'oom']);
 
-const normImage = (i: string) => { const x = i.replace(/^docker\.io\/(library\/)?/, ''); return /:[^/]+$/.test(x) || x.includes('@') ? x : `${x}:latest`; };
+// a reference pinned by digest is that digest, whatever tag it also names (`node:24-alpine@sha256:…` is `node@sha256:…`)
+const normImage = (i: string) => { const x = i.replace(/^docker\.io\/(library\/)?/, '').replace(/:[^/@]+@/, '@'); return /:[^/]+$/.test(x) || x.includes('@') ? x : `${x}:latest`; };
 
 async function lastLines(id: string, n = 30): Promise<string[]> {
   const lines: string[] = [];
@@ -524,7 +525,8 @@ export async function up(ws: Workspace, opts: UpOptions): Promise<UpResult> {
 
       // 5. Pull missing images, build missing tags. Cache volumes are created once and survive destroys.
       const env = { COMPOSE_PROJECT_NAME: project, COMPOSE_PARALLEL_LIMIT: '2', ...inj.values };
-      const have = new Set((await docker(['image', 'ls', '--format', '{{.Repository}}:{{.Tag}}'])).split('\n').filter(Boolean).map(normImage));
+      // by tag and by digest: an image pinned by digest that is already here is not pulled again
+      const have = new Set((await docker(['image', 'ls', '--digests', '--format', '{{.Repository}}:{{.Tag}} {{.Repository}}@{{.Digest}}'])).split(/\s+/).filter((x) => x && !x.endsWith('<none>')).map(normImage));
       const built: Record<string, Built> = {};
       const toBuild: string[] = [];
       const fresh = new Set<string>(); // compose keys built again without the cache

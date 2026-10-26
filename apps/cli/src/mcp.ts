@@ -17,7 +17,7 @@ const asking = <T>(again: string, p: Promise<T>): Promise<T | { content: Array<{
 export function createServer(root: Workspace['root']): McpServer {
   const ws = () => loadWorkspace(root);
   // the guide any client gets on connecting, whether or not it reads CLAUDE.md or AGENTS.md
-  const server = new McpServer({ name: 'laru', version: '0.1.0-beta.1' }, { instructions: agentGuide(ws()) });
+  const server = new McpServer({ name: 'laru', version: '0.1.0-beta.2' }, { instructions: agentGuide(ws()) });
   const budget = z.number().int().min(300).max(20000).default(2000).describe('Token budget for the answer');
 
   server.registerTool('context', {

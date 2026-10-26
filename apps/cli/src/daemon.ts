@@ -41,7 +41,7 @@ export function traceViewerDir(): string | null {
   } catch { viewerDir = null; }
   return viewerDir;
 }
-export const VERSION = '0.1.0-beta.1';
+export const VERSION = '0.1.0-beta.2';
 
 
 export interface Daemon { url: string; port: number; token: string | null; close: () => Promise<void> }
@@ -727,7 +727,8 @@ export async function startDaemon(port = 4100, webDist = WEB_DIST, o: { token?: 
       if (!authed) { res.writeHead(401, { 'content-type': 'text/plain; charset=utf-8' }).end('Open the address printed by `laru serve` (it carries a one-time token).'); return; }
       // Static: the built interface, with index.html for every other path.
       const file = normalize(join(webDist, url.pathname));
-      const target = file.startsWith(resolve(webDist)) && existsSync(file) && statSync(file).isFile() ? file : join(webDist, 'index.html');
+      // inside the built folder itself, not a sibling whose name starts the same (dist-old/…)
+      const target = file.startsWith(resolve(webDist) + '/') && existsSync(file) && statSync(file).isFile() ? file : join(webDist, 'index.html');
       if (!existsSync(target)) { res.writeHead(503).end('The interface is not built: run `pnpm --filter @laru/web build`.'); return; }
       res.writeHead(200, { 'content-type': TYPES[extname(target)] ?? 'application/octet-stream', 'cache-control': target.endsWith('index.html') ? 'no-store' : 'public, max-age=31536000, immutable' });
       res.end(readFileSync(target));

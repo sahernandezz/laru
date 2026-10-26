@@ -83,7 +83,8 @@ const NET = 'ks';
 /** the normal network of a closed env: where the tap and the stores meet the outside */
 const OUT = 'ks-out';
 const TAP = 'ks-tap';
-const TAP_IMAGE = 'node:24-alpine';
+// pinned by digest: the tap sees every request and secret of the env, so a re-pushed tag never becomes it unnoticed
+const TAP_IMAGE = 'node:24-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53';
 const INTERP = /(?<!\$)\$\{([A-Za-z_][A-Za-z0-9_]*)((?::?[-?+])[^}]*)?\}/g;
 
 /** `${X:-d}` → `${KS_SVC__X:-d}` in every string of a service: values reach compose only through its own environment. */

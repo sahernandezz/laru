@@ -61,6 +61,16 @@ export const stateDir = (ws: Pick<Workspace, 'root'>): string => either(join(ws.
 export const workspaceKey = (ws: Pick<Workspace, 'root'>): string => createHash('sha1').update(ws.root).digest('hex').slice(0, 10);
 
 const ID = /^[a-z0-9][a-z0-9-]*$/;
+/**
+ * A repo URL and a branch reach git as arguments, from a laru.yaml anyone on the team may have written: one that starts
+ * with `-` would be read as an option (`--upload-pack=<command>` runs that command), and `<transport>::` URLs call
+ * a program. Neither is a place to clone from, so neither gets that far.
+ */
+export const gitUrlError = (url: string): string | undefined =>
+  !url.trim() ? 'required' : /^\s*-/.test(url) ? 'a URL cannot start with "-"' : /^[a-z][a-z0-9+.-]*::/i.test(url) ? 'a remote-helper transport (<name>::) is not a repository address' : /[\0-\x1f]/.test(url) ? 'a URL has no control characters' : undefined;
+/** Only what would reach git as something else: any name git itself accepts (`release/1.2`, `feat/ñandú+x`) still loads. */
+export const branchError = (branch: string): string | undefined =>
+  !branch.trim() ? 'required' : /^\s*-/.test(branch) ? 'a branch cannot start with "-"' : /[\0-\x1f\x7f]/.test(branch) ? 'a branch has no control characters' : undefined;
 
 export function findWorkspace(from: string = process.cwd()): string | null {
   for (let dir = resolve(from); ; dir = dirname(dir)) {
@@ -83,7 +93,10 @@ export function loadWorkspace(root: string): Workspace {
     if (source === 'folder' && r.url !== undefined) throw new WorkspaceError('a folder project has no url', `repos.${name}.url`);
     if (source === 'folder' && r.branch !== undefined) throw new WorkspaceError('a folder project has no branch', `repos.${name}.branch`);
     if (source === 'git' && r?.ignore !== undefined) throw new WorkspaceError('only a folder project ignores paths', `repos.${name}.ignore`);
-    if (source === 'git' && !r?.url) throw new WorkspaceError('required', `repos.${name}.url`);
+    const urlIssue = source === 'git' ? gitUrlError(String(r?.url ?? '')) : undefined;
+    if (urlIssue) throw new WorkspaceError(urlIssue, `repos.${name}.url`);
+    const branchIssue = source === 'git' && r?.branch !== undefined ? branchError(String(r.branch)) : undefined;
+    if (branchIssue) throw new WorkspaceError(branchIssue, `repos.${name}.branch`);
     const ignore = r?.ignore;
     if (ignore !== undefined && (!Array.isArray(ignore) || ignore.some((x) => typeof x !== 'string'))) throw new WorkspaceError('a list of paths in gitignore syntax', `repos.${name}.ignore`);
     const role = (r?.role ?? 'service') as RepoRole;

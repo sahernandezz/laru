@@ -7,7 +7,7 @@ import { homedir } from 'node:os';
 import { basename, join, relative, resolve } from 'node:path';
 import { gitOf, scanFolder } from './folder.ts';
 import { git, normalizeUrl, repoNameFromUrl, tryGit } from './git.ts';
-import { appHome, saveCheckouts, saveRepo, stateDir, WorkspaceError, type RepoConfig, type RepoRole, type Workspace } from './workspace.ts';
+import { appHome, branchError, gitUrlError, saveCheckouts, saveRepo, stateDir, WorkspaceError, type RepoConfig, type RepoRole, type Workspace } from './workspace.ts';
 
 export interface RepoStatus {
   name: string;
@@ -94,9 +94,12 @@ export async function addRepo(ws: Workspace, source: string, opts: { name?: stri
     url = remote; checkout = (await git(asDir, ['rev-parse', '--show-toplevel']));
     checkPlace(ws, opts.name ?? '', checkout);
   } else {
+    const issue = gitUrlError(source);
+    if (issue) throw new WorkspaceError(`${issue}: ${source}`);
     url = source;
     checkout = managedPath(ws, opts.name ?? repoNameFromUrl(source));
   }
+  if (opts.branch && branchError(opts.branch)) throw new WorkspaceError(`${branchError(opts.branch)}: ${opts.branch}`);
   const name = opts.name ?? (existsSync(asDir) ? basename(checkout) : repoNameFromUrl(url)).toLowerCase().replace(/[^a-z0-9-]/g, '-');
   const clash = ws.repos.find((r) => r.name !== name && r.source === 'git' && normalizeUrl(r.url) === normalizeUrl(url));
   if (clash) throw new WorkspaceError(`${url} is already in this workspace as "${clash.name}"`);
@@ -125,7 +128,8 @@ async function addFolder(ws: Workspace, dir: string, opts: { name?: string; bran
 
 async function clone(url: string, dir: string) {
   mkdirSync(resolve(dir, '..'), { recursive: true });
-  await git(resolve(dir, '..'), ['clone', '--quiet', url, dir]);
+  // `--`: whatever the URL says, git reads it as a repository, never as an option
+  await git(resolve(dir, '..'), ['clone', '--quiet', '--', url, dir]);
 }
 
 /** Points a repo at a clone you already have (refusing a clone of a different remote), or a folder project at its folder. */

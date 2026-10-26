@@ -107,6 +107,33 @@ test('laru.yaml errors name the field', () => {
   assert.ok(existsSync(join(ws.root, '.gitignore')));
 });
 
+test('a laru.yaml from someone else cannot make git run a command: no URL or branch that git would read as an option or a program', async () => {
+  const fx = makeFixture();
+  const ws = initWorkspace(join(fx.tmp, 'shared'), { app: 'ok-app' });
+  const file = join(ws.root, 'laru.yaml');
+  const pwned = join(fx.tmp, 'pwned');
+  for (const [repo, at] of [
+    [`{ url: "--upload-pack=touch ${pwned}" }`, 'repos.x.url'],
+    ['{ url: "ext::sh -c touch% /tmp/x" }', 'repos.x.url'],
+    ['{ url: "https://example.com/x.git", branch: "--output=/tmp/x" }', 'repos.x.branch'],
+  ]) {
+    writeFileSync(file, `app: ok-app\nrepos:\n  x: ${repo}\n`);
+    assert.throws(() => loadWorkspace(ws.root), (e: WorkspaceError) => e.at === at, repo);
+  }
+  for (const url of ['https://github.com/org/x.git', 'git@github.com:org/x.git', 'ssh://git@host/org/x', fx.billingUrl]) {
+    writeFileSync(file, `app: ok-app\nrepos:\n  x: { url: "${url}", branch: release/1.2 }\n`);
+    assert.equal(loadWorkspace(ws.root).repos[0].url, url);
+  }
+  // any branch git accepts still opens: only a leading - or a control character is refused
+  for (const branch of ['feat/ñandú+x', 'v1.0@hotfix', 'JIRA-12_fix#2', 'main']) {
+    writeFileSync(file, `app: ok-app\nrepos:\n  x: { url: "https://example.com/x.git", branch: "${branch}" }\n`);
+    assert.equal(loadWorkspace(ws.root).repos[0].branch, branch);
+  }
+  writeFileSync(file, 'app: ok-app\n');
+  await assert.rejects(addRepo(loadWorkspace(ws.root), `--upload-pack=touch ${pwned}`), WorkspaceError);
+  assert.ok(!existsSync(pwned), 'git never ran the command');
+});
+
 test('an agent finds the same guide in CLAUDE.md and AGENTS.md: the loop, the standard of the documentation, and the shell commands for one with no MCP client', async () => {
   const { mkdtempSync, readFileSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
