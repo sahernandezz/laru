@@ -715,7 +715,7 @@ function Player({ run, slug, trace, story, flow, g, view: asked, onView, k, arch
       <div role="tabpanel" id={`${vid}-panel`} aria-labelledby={`${vid}-tab-${shown}`} className="diagram-panel">
         {journey ? <Journey trace={trace} ctx={ctx} lanes={layout.lanes} sel={selected?.id} onPick={(id) => { c.pause(); pickEx(id); }} hot={hot} time={clock} />
           : view === 'seq' ?<SeqView layout={layout} now={c.now} sel={sel} onPick={pickSeq} wrap={wrap} onStep={mode === 'step' ? stepSeq : undefined} folded={folded} />
-          : arch && lit ? <FlowMap lay={arch.lay} pieces={arch.pieces} lit={lit} sel={row?.ex.id} hot={hot} path={path} trace={trace} needs={flow?.needs} onPick={pickEdge} />
+          : arch && lit ? <FlowMap lay={arch.lay} pieces={arch.pieces} lit={lit} sel={row?.ex.id} hot={hot} path={path} onPick={pickEdge} />
           : <p className="empty flow-map">Sin mapa: pulsa «Releer el código» en <a className="rowlink" href={href('repos')}>Proyectos</a>.</p>}
       </div>
     </div>
@@ -890,10 +890,10 @@ export const EdgeLegend = ({ extra }: { extra?: ReactNode }) => (
 /** The most packets that run on a map at once: more than this is a swarm, not a path. */
 export const MAX_PACKETS = 24;
 
-export function FlowMap({ lay, pieces, lit, sel, hot, path, trace, needs, onPick, expected }: {
+export function FlowMap({ lay, pieces, lit, sel, hot, path, onPick, expected }: {
   lay: Layout<MapEdge>; pieces: MapNode[]; lit: Pick<Lit, 'edges' | 'nodes' | 'quiet'>; sel?: string; hot?: Set<string>;
   /** «Paso a paso»: the exchanges the current hop came through */
-  path?: Set<string>; trace?: Trace; needs?: string[]; onPick?: (e: FlowEdge) => void; expected?: boolean;
+  path?: Set<string>; onPick?: (e: FlowEdge) => void; expected?: boolean;
 }) {
   const name = (id: string) => lay.nodes.find((p) => p.node.id === id)?.node.name ?? id;
   const col = new Map(lay.nodes.map((p) => [p.node.id, p]));
@@ -904,10 +904,7 @@ export function FlowMap({ lay, pieces, lit, sel, hot, path, trace, needs, onPick
   const selEdge = sel ? edges.find((e) => e.ex.includes(sel)) : undefined;
   const bad = edges.filter((e) => e.bad).length;
   const said = (e: FlowEdge) => `${name(e.from)} a ${name(e.to)}${e.label ? `: ${(e.kind === 'call' && e.n ? e.label.replace(/^\d+/, plural(e.n, 'petición', 'peticiones')) : e.label).replaceAll(' · ', ', ')}` : ''}`;
-  const seen = trace ? [...new Set(trace.participants.flatMap((p) => (p.node ? [p.node] : [])))] : [];
-  const bare = (ids: string[]) => ids.map((id) => id.replace(/^(svc|ds|ext):/, '')).join(', ');
-  const undeclared = needs && trace ? seen.filter((id) => !needs.includes(id)) : [], unseen = needs && trace ? needs.filter((id) => !seen.includes(id)) : [];
-  const used = pieces.filter((p) => lit.nodes.has(p.id)), untouched = pieces.filter((p) => !lit.nodes.has(p.id));
+  const used = pieces.filter((p) => lit.nodes.has(p.id));
   const onPath = (e: FlowEdge) => Boolean(path && e !== selEdge && e.ex.some((id) => path.has(id)));
   return (
     <div className="flow-map">
@@ -938,10 +935,6 @@ export function FlowMap({ lay, pieces, lit, sel, hot, path, trace, needs, onPick
           return <NodeBox key={node.id} node={node} x={x} y={y} className={on ? 'static' : 'static untouched'} sub={!on ? (expected ? 'no lo usaría' : 'no lo usó') : node.kind === 'actor' ? 'actor' : KIND[node.kind ?? ''] ?? node.kind ?? ''} />;
         })}
       </MapCanvas>
-      <p className="map-note">
-        {expected ? `Según sus Pasos y el código usaría ${used.length} de ${plural(pieces.length, 'pieza', 'piezas')}` : `Esta prueba recorrió ${used.length} de ${plural(pieces.length, 'pieza', 'piezas')}`}{untouched.length ? `; no ${expected ? 'tocaría' : 'tocó'}: ${untouched.map((p) => p.name).join(', ')}.` : '.'}
-        {undeclared.length > 0 && <> Visto y no declarado en «Necesita»: {bare(undeclared)}.</>}{unseen.length > 0 && <> Declarado y no visto: {bare(unseen)}.</>}
-      </p>
       <EdgeLegend extra={expected ? <span>«esperado»: lo dice el código; ningún run lo ha visto</span> : <><span><span className="err-ink">rojo y «falló»</span>: el salto que falló</span><span>atenuado y «no lo usó»: esta prueba no pasó por ahí</span></>} />
     </div>
   );

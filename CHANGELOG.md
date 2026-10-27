@@ -6,6 +6,16 @@ Todos los cambios de Laru que importan a quien lo usa quedan aquí. El formato s
 
 ## [Sin publicar]
 
+## [0.1.0-beta.5] - 2026-10-27
+
+### Añadido
+
+- **Zoom en los mapas:** el del sistema, el de cada prueba y el de las sesiones en vivo se acercan y se alejan con sus botones o con ⌘/Ctrl y la rueda (o pellizcando en el trackpad), alrededor del puntero. «Ver el mapa entero» lo encaja en la caja, y un mapa más pequeño que su caja queda centrado.
+
+### Corregido
+
+- **El mapa de una prueba ya no pierde altura con muchos servicios:** sin la nota de debajo, que listaba las piezas que no tocó (el mapa ya las marca con «no lo usó»).
+
 ## [0.1.0-beta.4] - 2026-10-27
 
 ### Corregido
@@ -100,7 +110,8 @@ Primera beta pública.
   - `CLAUDE.md` y `AGENTS.md` generados.
   - Hooks para Claude Code.
 
-[Sin publicar]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.4...HEAD
+[Sin publicar]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.5...HEAD
+[0.1.0-beta.5]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.4...v0.1.0-beta.5
 [0.1.0-beta.4]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.3...v0.1.0-beta.4
 [0.1.0-beta.3]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.2...v0.1.0-beta.3
 [0.1.0-beta.2]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.1...v0.1.0-beta.2

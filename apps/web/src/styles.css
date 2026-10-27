@@ -604,7 +604,15 @@ ul.plain { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; fon
 /* depth: the grid under a map moves at half the speed of what is drawn on it (the box sets --gx and --gy as it scrolls) */
 .mapcanvas { background-image: linear-gradient(var(--line-1) 1px, transparent 1px), linear-gradient(90deg, var(--line-1) 1px, transparent 1px); background-size: 40px 40px; background-position: var(--gx, 0) var(--gy, 0); }
 .mapcanvas.with-sheet { max-height: 360px; }
-.mapcanvas > svg { display: block; }
+.mapcanvas { display: flex; }
+/* margin: auto centres a drawing smaller than its box and, unlike centring the flex line, never cuts off one that is larger */
+.mapcanvas > svg { display: block; flex: none; margin: auto; }
+.mapwrap { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.flow-map > .mapwrap { flex: 1; }
+.expected .flow-map > .mapwrap { flex: none; }
+.mapzoom { position: absolute; top: 8px; right: 8px; display: flex; align-items: center; gap: 2px; padding: 2px; background: var(--bg-200); border: 1px solid var(--line-1); border-radius: var(--r-md, 8px); }
+.mapzoom-v { min-width: 48px; height: 28px; padding: 0 4px; font: inherit; font-size: var(--t-12); color: var(--ink-2); background: none; border: 0; border-radius: 6px; cursor: pointer; font-variant-numeric: tabular-nums; }
+.mapzoom-v:hover { background: var(--fill-1); color: var(--ink-1); }
 .sysmap text { font-family: var(--sans); }
 .sysmap .col-h { font-size: 12px; fill: var(--ink-3); font-weight: 500; }
 .sysmap .n rect { fill: var(--bg-200); stroke: var(--line-2); }
@@ -1183,7 +1191,6 @@ details.passing[open] > summary { border-bottom: 1px solid var(--line-1); }
 .flow-map .mapcanvas { flex: 1; max-height: none; min-height: 0; }
 .flow-map > .legend { border-top: 1px solid var(--line-1); }
 p.flow-map { margin: 0; justify-content: center; }
-.map-note { margin: 0; padding: 8px 12px; font-size: var(--t-12); color: var(--ink-2); border-top: 1px solid var(--line-1); }
 .sysmap .n.static { cursor: default; }
 .sysmap .fe, .sysmap .fe-l { cursor: pointer; outline: none; }
 .sysmap .fe .hit { fill: none; stroke: transparent; stroke-width: 12; }

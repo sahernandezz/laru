@@ -322,7 +322,7 @@ function LiveViews({ trace, g, base, open, sel, setSel }: { trace: Trace; g: Ind
       {view === 'journey' ? <Journey trace={trace} ctx={ctx} lanes={layout.lanes} sel={layout.rows[sel]?.ex.id} onPick={(id) => setSel(layout.rows.findIndex((r) => r.ex.id === id && !r.reply))} hot={open ? hot : undefined} time={(t) => clock(t, base)} follow={open} />
         : view === 'seq' ? (layout.rows.length ? <><SeqView layout={layout} now={now} sel={sel} onPick={setSel} wrap={wrap} still={!open} />{layout.rows[sel] && <LiveHop ex={layout.rows[sel].ex} base={base} names={new Map(layout.lanes.map((l) => [l.id, l.name]))} />}</> : <div className="empty">Todavía no ha pasado nada.</div>)
         : !g ? <div className="empty">Sin map no hay mapa: lee el código en Proyectos o con <code>laru map</code>.</div>
-        : arch ? <div className="live-map"><FlowMap lay={arch.lay} pieces={arch.pieces} lit={arch.lit} hot={hot} trace={trace} /></div>
+        : arch ? <div className="live-map"><FlowMap lay={arch.lay} pieces={arch.pieces} lit={arch.lit} hot={hot} /></div>
         : <div className="empty">Todavía no ha pasado nada.</div>}
     </div>
   );

@@ -22,7 +22,7 @@ export function createServer(root: Workspace['root']): McpServer {
   const guide = existsSync(join(w0.root, 'CLAUDE.md')) || existsSync(join(w0.root, 'AGENTS.md'))
     ? 'Laru: this workspace\'s guide (the loop, how the documentation is written, how flows are tested) is in CLAUDE.md and AGENTS.md at its root; follow it. Start with `context` on what you will change, and `impact` after it.'
     : agentGuide(w0);
-  const server = new McpServer({ name: 'laru', version: '0.1.0-beta.4' }, { instructions: guide });
+  const server = new McpServer({ name: 'laru', version: '0.1.0-beta.5' }, { instructions: guide });
   // Every tool is kept by name, so the ones for stores this application does not have can be left out of the list.
   const tools = new Map<string, ReturnType<McpServer['registerTool']>>();
   const register = server.registerTool.bind(server);
