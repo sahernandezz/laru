@@ -37,7 +37,8 @@ export function pieceSections(ws: Workspace, k: Knowledge, g: Graph | null, p: L
   const fields = std.fields.map((fd) => { const v = fieldLine(p, fd.name); return v ? `- ${fd.name}: ${v}` : null; }).filter(Boolean) as string[];
   const facets = childrenOf(k, p.id).filter((c) => !isContainer(c.type)).map((c) => pieceSummaryLine(k, c, ws));
   const kids = childrenOf(k, p.id).filter((c) => isContainer(c.type)).map((c) => pieceSummaryLine(k, c, ws));
-  const inherited = [...chain].reverse().flatMap((a) => childrenOf(k, a.id).filter((c) => c.type === 'convention').map((c) => `- ${c.id} (from ${a.id}) ${c.title}: ${clip(String(c.fields.rule ?? ''), 200)}`));
+  // Conventions rule code: they go with what code is written under (a container), not with a guide, a decision or a flow.
+  const inherited = !isContainer(p.type) ? [] : [...chain].reverse().flatMap((a) => childrenOf(k, a.id).filter((c) => c.type === 'convention').map((c) => `- ${c.id} (from ${a.id}) ${c.title}: ${clip(String(c.fields.rule ?? ''), 200)}`));
   const cov = isContainer(p.type) ? coverage(ws, k, g, p).filter((c) => c.required || c.state !== 'na').map((c) => `- ${c.stage}: ${c.state}${c.required ? '' : ' (not required)'} — ${c.reasons.map((r) => r.text).join('; ')}`) : [];
   const resolve = anchorResolver(ws);
   const code = (p.anchors ?? []).map((a) => `- ${a} → ${(resolve(a) ?? []).length} files`);
@@ -46,19 +47,25 @@ export function pieceSections(ws: Workspace, k: Knowledge, g: Graph | null, p: L
   // The live sections of the sheet: what it owes, and what its code says (names only, never values).
   const note = isContainer(p.type) ? sheetNote(ws, k, g, p) : null;
   const owed = note ? [`- document ${note.doc}${note.sheet !== null ? `, sheet ${note.sheet}` : ''}`, ...note.owed.map((i) => `- ${i.kind === 'structure' ? 'structure' : 'contrast'}: ${owedLine(i)}`)] : [];
-  const live = p.anchors?.length || p.type === 'flow' ? liveOf(ws, k, g, p) : null;
+  // What the code says: a container's or a flow's own, never a facet's anchors (a convention's are where its rule applies).
+  const live = (isContainer(p.type) && p.anchors?.length) || p.type === 'flow' ? liveOf(ws, k, g, p) : null;
   const tests = live ? live.tests.map((t) => `- ${t.file} (${t.level}): ${t.cases.slice(0, 6).map((c) => `${c.name}:${c.line}`).join(', ')}${t.cases.length > 6 ? `, … ${t.cases.length - 6} more` : ''}`) : [];
-  const vars = live ? live.vars.map((v) => `- ${v.name}${v.secret ? ' (secret)' : ''} at ${v.file}${v.line ? `:${v.line}` : ''}`) : [];
-  const gaps = live ? [...live.endpoints.filter((e) => !e.declared).map((e) => `- ${e.method} ${e.path} is in the code and in no contract`), ...live.declaredOnly.map((o) => `- ${o.method} ${o.path} is in ${o.contract} and not in the code`)] : [];
+  // One line per file, as tests: the path once, then each name with its line.
+  const varFiles = new Map<string, string[]>();
+  for (const v of live?.vars ?? []) (varFiles.get(v.file) ?? varFiles.set(v.file, []).get(v.file)!).push(`${v.name}${v.secret ? ' (secret)' : ''}${v.line ? `:${v.line}` : ''}`);
+  const vars = [...varFiles].map(([file, names]) => `- ${file}: ${names.join(', ')}`);
+  const undeclared = [...new Set((live?.endpoints ?? []).filter((e) => !e.declared).map((e) => `- ${e.method} ${e.path}`))];
+  const unbuilt = [...new Set((live?.declaredOnly ?? []).map((o) => `- ${o.method} ${o.path} (${o.contract})`))];
   return {
     header,
     sections: [
       { title: 'What it owes', lines: owed },
-      { title: 'Interface gaps', lines: gaps },
-      { title: 'Tests of its code', lines: tests },
-      { title: 'Variables its code reads', lines: vars },
       { title: 'Declared', lines: fields },
       { title: 'Coverage by stage', lines: cov },
+      { title: 'Endpoints in the code and in no contract', lines: undeclared },
+      { title: 'Endpoints in a contract and not in the code', lines: unbuilt },
+      { title: 'Tests of its code', lines: tests },
+      { title: 'Variables its code reads', lines: vars },
       { title: 'Facets', lines: facets, more: 'context <id>' },
       { title: 'Conventions inherited', lines: inherited },
       { title: 'Inside it', lines: kids },

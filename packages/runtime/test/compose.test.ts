@@ -193,3 +193,12 @@ test('egress: closed makes the env network internal, and only the tap and what p
   assert.equal(open.networks!.ks.internal, undefined);
   assert.deepEqual(Object.keys(open.networks!), ['ks'], 'an open env is as it was');
 });
+
+test('when Docker does not answer, Laru says what to do, inside WSL2 too (Docker Engine with no daemon started, a socket the user cannot use)', async () => {
+  const { dockerHint } = await import('../src/docker.ts');
+  assert.match(dockerHint('Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?', true)!, /sudo service docker start.*systemd=true/);
+  assert.match(dockerHint('Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?', false)!, /start Docker Desktop/);
+  assert.match(dockerHint('permission denied while trying to connect to the Docker daemon socket at unix:///var/run/docker.sock', true)!, /usermod -aG docker/);
+  assert.match(dockerHint('spawn docker ENOENT', true)!, /install Docker Engine in it.*WSL integration/);
+  assert.equal(dockerHint('Error response from daemon: something else', true), undefined, 'anything else is shown as Docker said it');
+});

@@ -5,7 +5,7 @@
  * repo was last verified.
  */
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { isMap, isSeq, parse, parseDocument, stringify } from 'yaml';
@@ -57,6 +57,16 @@ export const envOf = (name: string): string | undefined => process.env[`LARU_${n
 export const laruHome = (): string => envOf('HOME') ?? either(join(homedir(), '.laru'), join(homedir(), LEGACY.state));
 export const appHome = (app: string): string => join(laruHome(), app);
 export const stateDir = (ws: Pick<Workspace, 'root'>): string => either(join(ws.root, '.laru'), join(ws.root, LEGACY.state));
+/** The copy of each folder project that git shares with the team (folder.ts). */
+export const sharedFolder = (ws: Pick<Workspace, 'root'>, repo: string): string => join(ws.root, 'projects', repo);
+/**
+ * `base/…parts` as a real path when nothing below `base` is a link, else undefined: git checks a link out as one, and a
+ * link anywhere in the way would make Laru read or write outside the workspace.
+ * Known limit: a check, then a use, as runner-file.ts; a folder swapped for a link in between gets through.
+ */
+export function plainPath(base: string, ...parts: string[]): string | undefined {
+  try { const path = join(realpathSync(base), ...parts); return realpathSync(path) === path ? path : undefined; } catch { return undefined; }
+}
 /** A short, stable id of the workspace on this machine: two clones of the same app never share containers. */
 export const workspaceKey = (ws: Pick<Workspace, 'root'>): string => createHash('sha1').update(ws.root).digest('hex').slice(0, 10);
 
@@ -112,6 +122,11 @@ export function loadWorkspace(root: string): Workspace {
   });
   // Only the projects this laru.yaml names: another workspace with this app id shares the file.
   const checkouts = Object.fromEntries(Object.entries(readCheckouts(app)).filter(([name]) => repos.some((r) => r.name === name)));
+  // A folder not linked on this machine is read from the copy the workspace carries, as a teammate's clone has it.
+  for (const r of repos) {
+    const copy = r.source === 'folder' && !(checkouts[r.name] && existsSync(checkouts[r.name])) ? plainPath(root, 'projects', r.name) : undefined;
+    if (copy) checkouts[r.name] = copy;
+  }
   const lockFile = either(join(root, LOCK_FILE), join(root, LEGACY.lock));
   const lock = existsSync(lockFile) ? (((parse(readFileSync(lockFile, 'utf8')) ?? {}) as { repos?: Record<string, string> }).repos ?? {}) : {};
   const stages = ['plan', 'design', 'build', 'test', 'deploy', 'operate'];

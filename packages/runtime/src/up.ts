@@ -13,7 +13,7 @@ import { writeMaskFile } from '@laru/trace';
 import { closure, importCompose, interpolations, renderCompose, type ComposeDoc, type RenderContext, type Service, type Target } from './compose.ts';
 import { readConfig } from './config.ts';
 import { prune } from './disk.ts';
-import { destroyByLabel, docker, dockerStream, envLock, hold, inspectEnv, LABEL, machineLock, stats, withLock, workspaceKey, type ContainerState, type DestroyReport } from './docker.ts';
+import { destroyByLabel, docker, dockerStream, envLock, hold, inspectEnv, LABEL, machineLock, recentStats, stats, withLock, workspaceKey, type ContainerState, type DestroyReport } from './docker.ts';
 import { checkShare, envDir, envKeys, envMasker, forgetValues, isInstance, jointSpec, loadEnvSpec, projectName, readState, translateSpec, writeState, type EnvState } from './env.ts';
 import { joinComposes, jointRouting } from './join.ts';
 import { nameOf, provisional } from './names.ts';
@@ -750,7 +750,7 @@ export async function status(ws: Workspace, env: string, opts: { stats?: boolean
   if (!state || !existsSync(composePath)) return { env, project, state: 'absent', services: [], addresses: [] };
   const doc = parse(readFileSync(composePath, 'utf8')) as ComposeDoc;
   const cs = (await inspectEnv(ws, env)).filter((c) => !c.labels[LABEL.run]);
-  const st = opts.stats ? await stats(cs.filter((c) => c.state === 'running').map((c) => c.id)) : [];
+  const st = opts.stats ? await recentStats(cs.filter((c) => c.state === 'running').map((c) => c.id)) : [];
   const services: ServiceStatus[] = Object.entries(doc.services).map(([k, s]) => {
     const c = cs.find((x) => x.labels['com.docker.compose.service'] === k);
     const health = c ? classify(c, s) : 'absent';

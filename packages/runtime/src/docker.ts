@@ -4,6 +4,7 @@
  * and everything Laru removes is selected by those labels — never by a project name, never by `compose down`.
  */
 import { execFile, spawn } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { laruHome, withLock, workspaceKey, type Workspace } from '@laru/core';
 
@@ -62,7 +63,28 @@ export const dockerJson = async <T>(args: string[]): Promise<T> => JSON.parse(aw
 
 export async function dockerAvailable(): Promise<{ ok: boolean; server?: string; error?: string }> {
   try { return { ok: true, server: (await docker(['version', '--format', '{{.Server.Version}}'], { timeoutMs: 10_000 })).trim() }; }
-  catch (e) { return { ok: false, error: (e as Error).message }; }
+  catch (e) { const msg = (e as Error).message, hint = dockerHint(msg, inWsl()); return { ok: false, error: hint ? `${msg.split('\n')[0]}. ${hint}` : msg }; }
+}
+
+/** Linux inside WSL2: Docker there is Docker Desktop's integration or Docker Engine installed in the distribution. */
+export const inWsl = (): boolean => {
+  try { return process.platform === 'linux' && /microsoft/i.test(readFileSync('/proc/version', 'utf8')); } catch { return false; }
+};
+
+/**
+ * What to do when Docker does not answer, from what it said. Inside WSL2 without Docker Desktop, Docker Engine lives in
+ * the distribution itself: nothing starts its daemon unless systemd does, and the socket is root's until the user
+ * joins the docker group.
+ */
+export function dockerHint(error: string, wsl: boolean): string | undefined {
+  if (/ENOENT|not found|command not found/i.test(error)) return wsl
+    ? 'Docker is not installed in this WSL distribution: install Docker Engine in it (docs.docker.com/engine/install/ubuntu) or turn on Docker Desktop\'s WSL integration for it'
+    : 'Docker is not installed, or not on PATH: install Docker Desktop or Docker Engine';
+  if (/permission denied/i.test(error)) return 'your user cannot use the Docker socket: run `sudo usermod -aG docker $USER`, then open a new terminal';
+  if (/cannot connect to the docker daemon|is the docker daemon running|error during connect|no such file or directory.*docker\.sock/i.test(error)) return wsl
+    ? 'the Docker daemon is not running in this WSL distribution: start it with `sudo service docker start`; to have WSL start it, set `[boot] systemd=true` in /etc/wsl.conf, run `wsl --shutdown` from Windows, then `sudo systemctl enable --now docker`'
+    : 'the Docker daemon is not running: start Docker Desktop, or `sudo systemctl start docker`';
+  return undefined;
 }
 
 /** `--filter label=…` arguments for this workspace, optionally narrowed to an env and a run. */
@@ -142,6 +164,26 @@ export async function stats(ids: string[]): Promise<ContainerStats[]> {
   if (!ids.length) return [];
   const out = await docker(['stats', '--no-stream', '--format', '{{json .}}', ...ids]).catch(() => '');
   return out.split('\n').filter(Boolean).map((l) => { const j = JSON.parse(l); const [used, limit] = String(j.MemUsage).split('/'); return { id: String(j.ID ?? ''), name: j.Name, cpu: parseFloat(j.CPUPerc) || 0, memBytes: sizeBytes(used), memLimit: sizeBytes(limit ?? '') }; });
+}
+
+/**
+ * The same, for screens that show it: `docker stats` samples for about two seconds, so a page waiting on it waits that
+ * long on every refresh. The last sample of those containers comes back at once and a new one is taken behind it when
+ * it is older than `fresh`; only the first ask of a set waits. Decisions (admission, room for an env) keep `stats`.
+ */
+const sampled = new Map<string, { at: number; value: ContainerStats[]; pending?: Promise<ContainerStats[]> }>();
+export function recentStats(ids: string[], fresh = 10_000): Promise<ContainerStats[]> {
+  const key = [...ids].sort().join(','), now = Date.now(), hit = sampled.get(key);
+  for (const [k, v] of sampled) if (now - v.at > 600_000 && !v.pending && k !== key) sampled.delete(k);
+  const take = () => {
+    const pending = stats(ids).then((value) => { sampled.set(key, { at: Date.now(), value }); return value; }, () => { sampled.set(key, { at: Date.now(), value: hit?.value ?? [] }); return hit?.value ?? []; });
+    sampled.set(key, { at: hit?.at ?? 0, value: hit?.value ?? [], pending });
+    return pending;
+  };
+  if (!hit) return take();
+  if (!hit.at && hit.pending) return hit.pending;
+  if (now - hit.at > fresh && !hit.pending) void take();
+  return Promise.resolve(hit.value);
 }
 
 // Locks live in core (folder projects hash under one too), as files under ~/.laru/locks/.

@@ -8,7 +8,7 @@ import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { appendFileSync, closeSync, existsSync, fstatSync, mkdirSync, openSync, readdirSync, readSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, relative } from 'node:path';
-import { loadGraph, loadKnowledge, parseLimit, stateDir, type Row, type Workspace } from '@laru/core';
+import { loadGraph, loadKnowledge, parseLimit, shareEvidence, stateDir, type Row, type Workspace } from '@laru/core';
 import { parse } from 'yaml';
 import { interpolations } from './compose.ts';
 import { ksVar, type TrafficRecord } from './types.ts';
@@ -594,6 +594,8 @@ export async function runFlows(ws: Workspace, o: RunOptions): Promise<RunInfo> {
     run.endedAt = new Date().toISOString();
     save();
   }
+  // Each flow that passed becomes its shared evidence (evidence/<flow>/), the one git carries to the team.
+  for (const [slug, r] of Object.entries(run.results)) if (r.status === 'passed') try { shareEvidence(ws, id, slug); } catch { /* the run stands without it */ }
   // Retention runs after every run; this one is the newest of its flows, so it stays.
   await prune(ws, { what: ['runs'] }).catch(() => undefined);
   return run;

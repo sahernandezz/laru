@@ -11,7 +11,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, sta
 import { dirname, join } from 'node:path';
 import { appHome, envOf, git, gitOf, loadExtraction, stateDir, treeNow, WorkspaceError, type Graph, type Workspace } from '@laru/core';
 import { isMap, parse, parseDocument, stringify } from 'yaml';
-import { withLock } from './docker.ts';
+import { inWsl, withLock } from './docker.ts';
 import { ENV_NAME, listEnvs, loadEnvSpec } from './env.ts';
 import { ksVar, type VaultInjection } from './types.ts';
 
@@ -187,7 +187,8 @@ export function keyStore(): Store {
     return forced;
   }
   detected ??= process.platform === 'darwin' ? 'keychain'
-    : process.platform === 'linux' && !spawnSync('secret-tool', ['--version'], { stdio: 'ignore', timeout: 10_000 }).error ? 'secret-tool'
+    // WSL2 rarely runs a secret service: secret-tool installed there with no session bus to reach one fails every lookup
+    : process.platform === 'linux' && !(inWsl() && !process.env.DBUS_SESSION_BUS_ADDRESS) && !spawnSync('secret-tool', ['--version'], { stdio: 'ignore', timeout: 10_000 }).error ? 'secret-tool'
     : 'file';
   return detected;
 }

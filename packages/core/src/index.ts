@@ -3,7 +3,7 @@ import { buildSystemMap } from './build.ts';
 import { extractRepo, type ExtractStats } from './extract.ts';
 import { saveMap } from './graph.ts';
 import type { SystemMap } from './model.ts';
-import { keepTree } from './folder.ts';
+import { keepTree, shareFolder } from './folder.ts';
 import { saveLock, type Workspace } from './workspace.ts';
 
 export * from './model.ts';
@@ -16,9 +16,10 @@ export { IMAGE_KINDS, targetsIn, type Target } from './build.ts';
 export { agentGuide, initWorkspace, writeAgentFiles } from './init.ts';
 export { LIMIT_MAX, LIMIT_MIN, parseLimit } from './limit.ts';
 export { git } from './git.ts';
+export { evidenceDir, importEvidence, shareEvidence, withEvidence } from './evidence.ts';
 export { withLock } from './lock.ts';
 export { appOf, byCwd, idOf, loadRegistry, realRoot, register, resolveId, resolveRoot, touch, unregister, type Registered } from './registry.ts';
-export { DEFAULT_IGNORE, gitOf, keepTree, refOf, scanFolder, shadowDir, shadowEnv, treeNow, type FolderScan } from './folder.ts';
+export { DEFAULT_IGNORE, gitOf, keepTree, refOf, scanFolder, shadowDir, shareFolder, shadowEnv, treeNow, type FolderScan } from './folder.ts';
 
 /** Reads every repo at its reference branch and rebuilds the map. Unchanged files are not read again. */
 export async function refreshMap(ws: Workspace): Promise<{ map: SystemMap; stats: ExtractStats[]; ms: number }> {
@@ -26,8 +27,11 @@ export async function refreshMap(ws: Workspace): Promise<{ map: SystemMap; stats
   const results = await Promise.all(ws.repos.map((r) => extractRepo(ws, r)));
   const map = buildSystemMap(ws, results.map((r) => r.extraction));
   saveMap(ws, map);
-  // A folder's tree stays in its shadow while the map points at it.
-  for (const r of ws.repos.filter((x) => x.source === 'folder')) { const ex = results.find((x) => x.extraction.repo === r.name); if (ex) await keepTree(ws, r.name, 'map', ex.extraction.commit); }
+  // A folder's tree stays in its shadow while the map points at it, and its copy in projects/ is what the team reads.
+  for (const r of ws.repos.filter((x) => x.source === 'folder')) {
+    const ex = results.find((x) => x.extraction.repo === r.name);
+    if (ex) { await keepTree(ws, r.name, 'map', ex.extraction.commit); await shareFolder(ws, r.name, ex.extraction.commit); }
+  }
   return { map, stats: results.map((r) => r.stats), ms: Math.round(performance.now() - t0) };
 }
 

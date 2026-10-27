@@ -418,3 +418,20 @@ test('on the flow maps of runs 42 and 44 and the system map, no line runs behind
     }
   }
 });
+
+test('a system where no service calls another (they only publish, consume and store) is laid out: every node has its place, no column is left empty', () => {
+  const ns: MapNode[] = [
+    { id: 'svc:orders', type: 'service', name: 'orders' }, { id: 'svc:billing', type: 'service', name: 'billing' }, { id: 'svc:mailer', type: 'service', name: 'mailer' },
+    { id: 'ds:postgres', type: 'datastore', name: 'postgres' },
+  ];
+  const es: MapEdge[] = [['store', 'svc:orders', 'ds:postgres'], ['store', 'svc:billing', 'ds:postgres'], ['event', 'svc:mailer', 'svc:billing']]
+    .map(([kind, from, to]) => ({ id: `${kind}|${from}|${to}`, kind: kind as MapEdge['kind'], from, to, label: '', origin: 'observed', facts: [] }));
+  const lay = layout(index(ns, []), es, { keep: true });
+  assert.equal(lay.nodes.length, ns.length);
+  for (const n of lay.nodes) assert.ok(Number.isFinite(n.x) && Number.isFinite(n.y), `${n.node.id} at ${n.x},${n.y}`);
+  assert.ok(Number.isFinite(lay.width) && Number.isFinite(lay.height));
+  for (const e of lay.edges) assert.ok(!e.d.includes('NaN'), e.id);
+  const xs = new Set(lay.nodes.map((n) => n.x));
+  assert.equal(Math.min(...xs), 24, 'the first column holds a node: none is left empty at the left');
+  assert.deepEqual(lay.columns.map((c) => c.title), ['Servicios, nivel 1', 'Datos e infraestructura'], 'each column keeps the title of what it holds');
+});

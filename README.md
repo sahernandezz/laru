@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Versión" src="https://img.shields.io/badge/versi%C3%B3n-0.1.0--beta.2-22D3EE">
+  <img alt="Versión" src="https://img.shields.io/badge/versi%C3%B3n-0.1.0--beta.3-22D3EE">
   <img alt="Licencia" src="https://img.shields.io/badge/licencia-FSL--1.1--ALv2-0E3B45">
   <img alt="Node" src="https://img.shields.io/badge/node-%E2%89%A5%2024-3c873a">
   <img alt="Local" src="https://img.shields.io/badge/todo%20corre-en%20tu%20m%C3%A1quina-444">
@@ -117,6 +117,17 @@ Al terminar, la sesión se guarda como un run y se convierte en el borrador de u
 
 <img src="docs/images/en-vivo.png" alt="Una sesión en vivo: el recorrido de la petición de login con su cuerpo y su respuesta">
 
+### Compartido con tu equipo por git
+
+El workspace es un repositorio git más: súbelo y tu equipo trabaja sobre la misma documentación.
+- **Va en git:** la documentación, los entornos, los mocks y, en `evidence/`, el último run que pasó de cada flujo, con su traza y su vídeo.
+- **Los proyectos:** un proyecto con git va solo como referencia (su URL y su rama en `laru.yaml`, y el commit verificado en `laru.lock`), porque su código ya está en su repositorio. Una carpeta sin git va como copia en `projects/<nombre>/`: cada `laru map` la actualiza sin `.env`, sin lo ignorado y sin ficheros de más de 50 MB.
+- **Se queda en tu máquina:** los runs fallidos o antiguos, las capturas en bruto, los datos de los entornos y los secretos sin cifrar.
+
+Quien clona el workspace ejecuta `laru sync` para clonar los proyectos con git y `laru map` para leerlos; una carpeta la lee de su copia en `projects/`, salvo que la enlace a la suya con `laru repo link`. Al abrirlo, ve cada flujo con su último resultado y abre su estudio sin haberlo ejecutado.
+
+Cada flujo que pasa sustituye su evidencia en `evidence/`. Para un workspace que ya tenía runs, `laru runs share` comparte el último que pasó de cada flujo.
+
 ### Todos tus aplicativos en un solo sitio
 
 Un servicio local sirve todos tus workspaces, cada uno en su dirección. También dice cuánta memoria
@@ -136,7 +147,7 @@ Abre `claude` (o Codex) en el workspace y ya sabe dónde está todo:
 
 ### Requisitos
 
-- **Sistema:** macOS o Linux. En Windows, dentro de WSL2.
+- **Sistema:** macOS o Linux. En Windows, dentro de WSL2 (ver [En Windows](#en-windows)).
 - **Node.js 24** o superior y **pnpm 10**.
 - **Docker** con Docker Compose.
 - **Git.**
@@ -172,6 +183,26 @@ laru map
 # 4. La interfaz, en tu navegador
 laru open
 ```
+
+### En Windows
+
+Laru corre **dentro de WSL2**, no en PowerShell ni en `cmd`. Si lo lanzas desde Windows, te lo dice y te indica los pasos.
+
+1. **Instala WSL2 con Ubuntu:** en PowerShell, `wsl --install -d Ubuntu`. A partir de aquí, todo se hace en la terminal de Ubuntu.
+2. **Instala Docker**, de una de estas dos formas:
+   - **Docker Desktop:** activa *Settings → Resources → WSL integration* para tu distribución.
+   - **Docker Engine dentro de Ubuntu,** sin Docker Desktop:
+     - Instálalo siguiendo [la guía de Docker para Ubuntu](https://docs.docker.com/engine/install/ubuntu/).
+     - Después de instalar Laru (paso 5), ejecuta `laru doctor --fix`. Deja Docker configurado para WSL:
+       - activa systemd en `/etc/wsl.conf`, para que WSL arranque Docker solo;
+       - arranca el demonio;
+       - añade tu usuario al grupo `docker`.
+
+       Enseña cada comando con `sudo` antes de ejecutarlo. Si activa systemd, ejecuta `wsl --shutdown` en PowerShell y vuelve a abrir Ubuntu.
+3. **Instala Node 24 y pnpm** en Ubuntu.
+4. **Guarda Laru y tus workspaces en el disco de Linux** (`~/…`), no en `/mnt/c`. Ahí git, Docker y la lectura del código van mucho más rápido.
+5. **Comprueba la instalación:** `laru doctor` revisa Docker, WSL y lo demás, aunque todavía no tengas un workspace. Si algo falla, dice cómo arreglarlo, y `laru doctor --fix` arregla Docker.
+6. **Abre la interfaz** en el navegador de Windows. La dirección que da `laru open` (`http://127.0.0.1:4100/…`) funciona tal cual, porque WSL reenvía los puertos.
 
 `laru open` arranca el servicio local si no está en marcha y te da la dirección del workspace,
 por ejemplo `http://127.0.0.1:4100/w/mi-app/`. Desde ahí:

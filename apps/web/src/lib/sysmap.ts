@@ -88,6 +88,10 @@ export function layout<E extends MapEdge>(g: Indexed, edges: E[], o: { keep?: bo
   }
   const lastService = Math.max(0, ...services.map((s) => rank.get(s.id) ?? 0));
   for (const s of stores) rank.set(s.id, lastService + 1);
+  // Ranks no node took become no column: when no service calls another, none ranks 0, and a hole in `cols` (which
+  // map() skips) would leave its sizes undefined and every position NaN.
+  const taken = [...new Set(rank.values())].sort((a, b) => a - b);
+  for (const [id, r] of rank) rank.set(id, taken.indexOf(r));
 
   const cols: MapNode[][] = [];
   for (const n of [...services, ...stores]) (cols[rank.get(n.id)!] ??= []).push(n);
@@ -218,9 +222,10 @@ export function layout<E extends MapEdge>(g: Indexed, edges: E[], o: { keep?: bo
     ...e, d: pts.map(([x, y], k) => (!k ? `M${x} ${y}` : y === pts[k - 1][1] ? `H${x}` : `V${y}`)).join(' '), lx: label[i].x + w / 2, ly: label[i].y + 11, lw: w,
   }));
 
+  // titled by the rank each column stands for, not by its place once the empty ones are gone
   const columns = cols.map((c, ci) => ({
     x: colX[ci],
-    title: ci === lastService + 1 ? 'Datos e infraestructura' : ci === 0 ? 'Entrada' : `Servicios, nivel ${ci}`,
+    title: taken[ci] === lastService + 1 ? 'Datos e infraestructura' : taken[ci] === 0 ? 'Entrada' : `Servicios, nivel ${taken[ci]}`,
   })).filter((_, ci) => cols[ci]?.length);
   return { nodes: [...placed.values()], edges: routed, width, height: bottom + 24 + under * UNDER, columns };
 }

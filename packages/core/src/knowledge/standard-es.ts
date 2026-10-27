@@ -121,7 +121,10 @@ export const EXAMPLE_ES: Record<string, Example> = {
   },
   datastore: {
     title: 'postgres', summary: 'La base de datos relacional de la tienda, un esquema por servicio que la usa.',
-    fields: { ownership: 'Equipo de plataforma. Cada servicio escribe solo en su propio esquema.', contents: [{ part: 'esquema shop', owner: 'svc:shop-api' }] },
+    fields: {
+      ownership: 'Equipo de plataforma. Cada servicio escribe solo en su propio esquema.', contents: [{ part: 'esquema shop', owner: 'svc:shop-api' }],
+      dataflow: '```mermaid\n---\ntitle: Datos de los pedidos\n---\nflowchart LR\n  portal[Portal] -->|pedido| api[shop-api]\n  api -->|INSERT orders| db[(esquema shop)]\n  db -->|exportación nocturna| bi[Informes]\n```',
+    },
   },
   external: {
     title: 'Stripe', summary: 'El proveedor externo que cobra y reembolsa tarjetas para que nunca guardemos datos de tarjeta.',
@@ -221,6 +224,7 @@ export const EXAMPLE_ES: Record<string, Example> = {
     title: 'Arquitectura de la tienda', summary: 'Cómo está montada la tienda: servicios, almacenes y las decisiones detrás.',
     fields: {
       components: [{ component: 'shop-api', role: 'Pedidos y pagos', tech: 'Spring Boot' }, { component: 'postgres', role: 'Almacén de pedidos', tech: 'PostgreSQL' }],
+      views: '```mermaid\nC4Container\n  title Tienda, contenedores\n  Person(customer, "Cliente")\n  System_Boundary(shop, "Tienda") {\n    Container(api, "shop-api", "Spring Boot", "Pedidos y pagos")\n    ContainerDb(db, "postgres", "PostgreSQL", "Pedidos")\n  }\n  System_Ext(stripe, "Stripe", "Pagos con tarjeta")\n  Rel(customer, api, "Pide y paga", "HTTPS")\n  Rel(api, db, "Lee y escribe", "JDBC")\n  Rel(api, stripe, "Cobra", "REST")\n```',
       decisions: ['dec:refunds-are-asynchronous'],
       risks: [{ risk: 'Una sola base de datos para todos los servicios', mitigation: 'Un esquema por servicio' }],
     },
@@ -232,6 +236,7 @@ export const EXAMPLE_ES: Record<string, Example> = {
         { pattern: 'main', purpose: 'Siempre publicable', from: '-', lifetime: 'permanente' },
         { pattern: 'feature/*', purpose: 'Un cambio', from: 'main', lifetime: '5 días' },
       ],
+      graph: '```mermaid\n---\ntitle: Ramas de la tienda\n---\ngitGraph\n  commit id: "inicio"\n  branch feature/devoluciones\n  commit id: "devoluciones parciales"\n  checkout main\n  merge feature/devoluciones tag: "v1.4.0"\n  branch hotfix/reembolso\n  commit id: "redondeo del reembolso"\n  checkout main\n  merge hotfix/reembolso tag: "v1.4.1"\n```',
       numbering: 'Semántico: un cambio incompatible de la API sube la versión mayor.',
       releases: 'Una etiqueta vX.Y.Z en main publica las imágenes.',
       changelog: 'CHANGELOG.md, escrito en la pull request.',
@@ -255,7 +260,7 @@ export const EXAMPLE_ES: Record<string, Example> = {
     fields: {
       envs: [{ env: 'prod', url: 'https://shop.example', purpose: 'Clientes', deploys: 'Equipo de plataforma', data: 'Reales' }],
       topology: '```mermaid\n---\ntitle: Topología de producción\n---\nflowchart LR\n  subgraph region[\"Región eu-west-1\"]\n    k8s@{ icon: \"logos:kubernetes\", form: \"square\", label: \"Clúster\", pos: \"b\" }\n    db@{ icon: \"logos:postgresql\", form: \"square\", label: \"PostgreSQL gestionado\", pos: \"b\" }\n  end\n  k8s -->|JDBC| db\n```',
-      network: 'Solo el ingress es público; los servicios se hablan por la red del clúster.',
+      network: 'Solo el ingress es público; los servicios se hablan por la red del clúster.\n\n```mermaid\n---\ntitle: Zonas de la tienda\n---\nflowchart LR\n  internet((Internet))\n  subgraph public["Zona pública"]\n    ingress[Ingress]\n  end\n  subgraph cluster["Red del clúster"]\n    api[shop-api]\n    db[(postgres)]\n  end\n  internet -->|HTTPS 443| ingress\n  ingress -->|HTTP| api\n  api -->|JDBC 5432| db\n```',
       observability: 'Logs a Loki, métricas a Prometheus, alertas a la guardia de plataforma.',
     },
   },

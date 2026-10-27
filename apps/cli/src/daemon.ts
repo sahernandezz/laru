@@ -16,13 +16,13 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { dirname, extname, join, normalize, relative, resolve } from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import { combineScreens, flowEnvDown, flowEnvStatus, flowEnvUp, instanceOf, instancesOf, prepareInstance, diskReport, dirBytes, dockerSizes, envLock, heldByEnvs, prune, readConfig, readRunnerFile, runnerFile, runnerFiles, snapshotRows, stats, docker, withLock, workspaceKey, writeConfig, type PruneWhat } from '@laru/runtime';
+import { combineScreens, flowEnvDown, flowEnvStatus, flowEnvUp, instanceOf, instancesOf, prepareInstance, diskReport, dirBytes, dockerSizes, envLock, heldByEnvs, prune, readConfig, readRunnerFile, runnerFile, runnerFiles, snapshotRows, recentStats, docker, withLock, workspaceKey, writeConfig, type PruneWhat } from '@laru/runtime';
 import { mail, sqs, envFor, envProjects, flowDir, flowProjects, runDir, proposeJoint, maskJson, mockContracts, sweepOrphans, readRules, saveFaults, setFaults, setMockMode, kafka, storage, mongo, rabbit, redis, cancelRun, compareRuns, failedFlows, markSession, openSessionBrowser, screenOf, sessionToFlow, sessionToScenario, approveBehavior, behaviorIn, readApproved, fidelity, applyScenario, provisionScenario, appliedOn, listScenarios, scenarioState, ScenarioConfirm, shown, sessionBrowser, sessionTrace, startSession, stopSession, listFlows, listRuns, readRun, readTrace, runsDir, startRun, connection, query as dbQuery, reset as dbReset, rows as dbRows, schema as dbSchema, snapshot as dbSnapshot, storeOf, stores as dbStores, storePassword, updateRow, updateSql, type Browse, type RowUpdate, down, envDir, envMasker, missingVars, listEnvs, loadEnvSpec, logs, revealVar, varValues, mountAll, mountedOf, rebuildText, setVar, status, unsetVar, up, varTable, importEnvFile, type Level } from '@laru/runtime';
 import { endpointMatcher, flowLast, seenIn, type EndpointMatch, type FlowLast, type Seen, type Trace } from '@laru/trace';
 import { affected, brokersOf, doctorChecks, runEnv, screenFindings, vaultServices, writeJoint } from './env-cli.ts';
 import { appHome, byCwd, envOf, idOf, initWorkspace, isWorkspace, laruHome, loadRegistry, realRoot, register, resolveId, stateDir, touch, unregister } from '@laru/core';
 import { drawModel } from '@laru/diagrams';
-import { acceptFinding, addRepo, queueContracts, CONTAINERS, coverage, DEFAULT_IGNORE, docsLang, documentNote, deriveDiagram, derivedList, evaluateConventions, freshness, liveOf, serviceTests, sheetNote, git, gitOf, isContainer, knowledgeShape, knowledgeWrite, linkRepo, loadExtraction, loadGraph, loadKnowledge, loadWorkspace, PIECE_TYPES, refreshMap, repoStatus, syncRepos, verifyPiece, writeAgentFiles, WorkspaceError, type RepoRole, type Workspace, type WriteInput } from '@laru/core';
+import { acceptFinding, withEvidence, shareEvidence, addRepo, queueContracts, CONTAINERS, coverage, DEFAULT_IGNORE, docsLang, documentNote, deriveDiagram, derivedList, evaluateConventions, freshness, liveOf, serviceTests, sheetNote, git, gitOf, isContainer, knowledgeShape, knowledgeWrite, linkRepo, loadExtraction, loadGraph, loadKnowledge, loadWorkspace, PIECE_TYPES, refreshMap, repoStatus, syncRepos, verifyPiece, writeAgentFiles, WorkspaceError, type RepoRole, type Workspace, type WriteInput } from '@laru/core';
 
 const WEB_DIST = fileURLToPath(new URL('../../web/dist/', import.meta.url));
 const TYPES: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.json': 'application/json', '.png': 'image/png', '.ttf': 'font/ttf', '.webmanifest': 'application/manifest+json' };
@@ -41,7 +41,7 @@ export function traceViewerDir(): string | null {
   } catch { viewerDir = null; }
   return viewerDir;
 }
-export const VERSION = '0.1.0-beta.2';
+export const VERSION = '0.1.0-beta.3';
 
 
 export interface Daemon { url: string; port: number; token: string | null; close: () => Promise<void> }
@@ -65,7 +65,7 @@ type Stream = (req: IncomingMessage, url: URL, res: ServerResponse) => void;
 
 /** One workspace's routes, as they were when the service served one workspace: only where `ws()` comes from changed. */
 export function makeApi(root: Workspace['root']): { api: Record<string, Handler>; streams: Record<string, Stream> } {
-  const ws = () => loadWorkspace(root);
+  const ws = () => withEvidence(loadWorkspace(root));
 
   const envMembers = async (w: Workspace) => Promise.all(listEnvs(w).map(async (e) => ({ env: e, services: (await status(w, e)).services.map((s) => s.service) })));
   const graph = (w: Workspace) => { try { return loadGraph(w); } catch { return null; } };
@@ -274,7 +274,7 @@ export function makeApi(root: Workspace['root']): { api: Record<string, Handler>
       let size = 0, over = false;
       req.on('data', (c: Buffer) => { size += c.length; if (size > 2 ** 30 && !over) { over = true; req.destroy(); out.destroy(); } });
       req.pipe(out);
-      out.on('finish', () => { if (over || !size) { rmSync(tmp, { force: true }); return json(res, over ? 413 : 400, { error: over ? 'a video over 1 GiB is not kept' : 'no video in the request' }); } renameSync(tmp, file); json(res, 200, { ok: true, bytes: size, video: `video-${screen}.webm` }); });
+      out.on('finish', () => { if (over || !size) { rmSync(tmp, { force: true }); return json(res, over ? 413 : 400, { error: over ? 'a video over 1 GiB is not kept' : 'no video in the request' }); } renameSync(tmp, file); try { shareEvidence(w, id, flow); } catch { /* the video is kept all the same */ } json(res, 200, { ok: true, bytes: size, video: `video-${screen}.webm` }); });
       out.on('error', () => { rmSync(tmp, { force: true }); if (!res.headersSent) json(res, 500, { error: 'could not keep the video' }); });
     },
     'GET /api/run-file': (req, url, res) => {
@@ -917,7 +917,7 @@ function machineApi(port: () => number): Record<string, Handler> {
         heldByEnvs().catch(() => []),
       ]);
       const persistent = held.filter((h) => !h.run);
-      const usage = await stats(persistent.flatMap((h) => h.ids)).catch(() => []);
+      const usage = await recentStats(persistent.flatMap((h) => h.ids)).catch(() => []);
       const all = loadRegistry();
       const byKey = new Map(all.map((x) => [workspaceKey(x), x.root]));
       return {

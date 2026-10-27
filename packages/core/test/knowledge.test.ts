@@ -180,3 +180,12 @@ test('a flow\'s timeout is a duration: a bad one is an error that names the fiel
   assert.deepEqual(keys(undefined), []);
   for (const bad of ['soon', '0s', '3h', '30']) assert.deepEqual(keys(bad), ['bad-timeout'], bad);
 });
+
+test('versioning, architecture, data stores and infrastructure owe their diagram, like modules and processes', () => {
+  const owed = (type: Piece['type'], fields: Record<string, FieldValue>) =>
+    documentNote({ id: `${STANDARD[type].prefix}:x`, type, title: 'X', status: 'active', summary: 'x', fields }).owed.filter((o) => o.key === 'diagram-missing').map((o) => o.at);
+  assert.deepEqual(owed('versioning', { branches: [{ pattern: 'main', purpose: 'p' }] }), ['fields.graph']);
+  assert.deepEqual(owed('architecture', { components: [{ component: 'a', role: 'r' }] }), ['fields.views']);
+  assert.deepEqual(owed('datastore', { ownership: 'o' }), ['fields.dataflow']);
+  assert.deepEqual(owed('infrastructure', { network: 'Solo el ingress es público.' }), ['fields.topology', 'fields.network']);
+});

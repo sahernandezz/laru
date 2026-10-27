@@ -4,12 +4,12 @@
  */
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import {
-  addRepo, changesFromWorktrees, evaluateConventions, freshness, initWorkspace, knowledgeWrite, linkRepo, loadGraph, loadKnowledge, loadWorkspace, preEdit, refreshMap, repoStatus, verify, WorkspaceError, writeAgentFiles,
+  addRepo, changesFromWorktrees, context, evaluateConventions, freshness, initWorkspace, knowledgeWrite, linkRepo, loadGraph, loadKnowledge, loadWorkspace, preEdit, refreshMap, repoStatus, scanFolder, shareFolder, verify, WorkspaceError, writeAgentFiles,
 } from '../src/index.ts';
 import { locate } from '../src/hooks.ts';
 import { BILLING, makeFixture, snapshotOf } from './fixture.ts';
@@ -106,6 +106,31 @@ test('a git project and a folder project: names, hosts across projects, anchors 
     assert.ok(!files.includes('.env') && !files.some((f) => f.startsWith('node_modules/')));
   });
 
+  await t.test('the map leaves a copy of the folder in projects/, without what it leaves out; a teammate with no link reads it', async () => {
+    const copy = join(ws.root, 'projects', 'audit');
+    assert.equal(readFileSync(join(copy, 'docker-compose.yml'), 'utf8'), AUDIT['docker-compose.yml']);
+    assert.ok(existsSync(join(copy, '.env.example')) && !existsSync(join(copy, '.env')) && !existsSync(join(copy, 'node_modules')));
+    const theirs = join(fx.tmp, 'theirs');
+    mkdirSync(theirs);
+    for (const f of ['laru.yaml', 'projects']) cpSync(join(ws.root, f), join(theirs, f), { recursive: true });
+    const home = process.env.LARU_HOME;
+    process.env.LARU_HOME = join(fx.tmp, 'their-home');
+    try {
+      const w = loadWorkspace(theirs);
+      assert.equal(w.checkouts.audit, join(realpathSync(theirs), 'projects', 'audit'));
+      assert.equal(w.checkouts.shop, undefined, 'a git project is cloned by laru sync, never carried');
+      const { tree } = await scanFolder(w, 'audit');
+      assert.equal(await shareFolder(w, 'audit', tree), false, 'the copy is never written over itself');
+      // the author's folder emptied: the map still runs and the team's copy stays
+      const empty = join(fx.tmp, 'code', 'emptied');
+      mkdirSync(empty);
+      await linkRepo(ws, 'audit', empty);
+      assert.equal(await shareFolder(ws, 'audit', (await scanFolder(ws, 'audit')).tree), false);
+      assert.ok(existsSync(join(copy, 'docker-compose.yml')));
+      await linkRepo(ws, 'audit', audit);
+    } finally { process.env.LARU_HOME = home; }
+  });
+
   await t.test('a piece anchored in the folder goes stale after an edit and a map; impact sees M, A and D', async () => {
     const w = (x: Parameters<typeof knowledgeWrite>[1]) => { const r = knowledgeWrite(ws, x, g); assert.ok(r.ok, JSON.stringify(r.issues)); };
     w({ type: 'application', title: 'Tienda', kind: 'product', status: 'active', summary: 'Tienda.', fields: { purpose: 'Vender.', users: [{ actor: 'Cliente', need: 'Comprar' }], scope: ['Auditoría'] } });
@@ -130,6 +155,16 @@ test('a git project and a folder project: names, hosts across projects, anchors 
     assert.equal((await repoStatus(ws, ws.repos[1])).sinceVerified, 0);
     writeFileSync(join(audit, 'api/src/main/java/audit/Entry.java'), 'public class Entry { int n; }\n');
     assert.equal((await repoStatus(ws, ws.repos[1])).sinceVerified, 1);
+  });
+
+  await t.test('a piece\'s context gives what it declares first, and the code only where code is written', () => {
+    const g2 = loadGraph(ws);
+    const mod = context(g2, ws, 'mod:auditoria', 20000);
+    assert.ok(mod.indexOf('## Declared') < mod.indexOf('## Endpoints in the code and in no contract') && mod.includes('- GET /audit'), mod);
+    assert.match(mod, /## Facets[^#]*conv:/, 'its own convention, among its facets');
+    const conv = context(g2, ws, (loadKnowledge(ws).pieces.find((p) => p.type === 'convention'))!.id, 20000);
+    assert.match(conv, /## Declared/);
+    assert.doesNotMatch(conv, /Endpoints|Conventions inherited|Tests of its code/, 'a convention is not where code is written');
   });
 
   await t.test('hooks find the longest checkout holding a file', () => {

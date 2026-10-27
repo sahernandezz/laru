@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { ToolListChangedNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
 import { makeFixture } from '../../../packages/core/test/fixture.ts';
-import { knowledgeWrite, loadGraph, loadWorkspace } from '@laru/core';
+import { knowledgeWrite, loadGraph, loadWorkspace, mapFile } from '@laru/core';
 import { listFlows, loadEnvSpec } from '@laru/runtime';
 import { run } from '../src/cli.ts';
 import { findingsOf, runEnv, writeJoint } from '../src/env-cli.ts';
@@ -53,9 +54,26 @@ test('the MCP server answers through the real SDK client', async () => {
   const listed = (await client.listTools()).tools, tools = listed.map((t) => t.name).sort();
   const peek = listed.find((t) => t.name === 'queue_peek')!;
   assert.deepEqual([peek.annotations?.readOnlyHint, /marks each one redelivered/.test(peek.description ?? '')], [false, true], 'a RabbitMQ peek is not a pure read, and says so');
-  assert.deepEqual(tools, ['ask', 'behavior_approve', 'behavior_diff', 'check', 'context', 'db_query', 'db_schema', 'db_write', 'env_down', 'env_list', 'env_logs', 'env_reset', 'env_status', 'env_up', 'fault_set', 'fidelity', 'findings', 'flow_env', 'flow_list', 'flow_run', 'flow_scaffold', 'impact', 'knowledge_shape', 'knowledge_verify', 'knowledge_write', 'mail_clear', 'mail_enable', 'mail_list', 'map_refresh', 'mock_list', 'mock_mode', 'mongo_collections', 'mongo_dbs', 'mongo_find', 'mongo_get', 'path', 'queue_peek', 'queue_publish', 'queue_topics', 'redis_del', 'redis_get', 'redis_keys', 'repo_status', 'repo_sync', 'run_cancel', 'run_evidence', 'run_status', 'scenario_apply', 'scenario_list', 'service_exec', 'session_events', 'session_mark', 'session_start', 'session_stop', 'session_to_flow', 'session_to_scenario', 'sms', 'storage_ls', 'tree', 'vars_list', 'where']);
+  assert.deepEqual(tools, ['ask', 'behavior_approve', 'behavior_diff', 'check', 'context', 'db_query', 'db_schema', 'db_write', 'env_down', 'env_list', 'env_logs', 'env_reset', 'env_status', 'env_up', 'fault_set', 'fidelity', 'findings', 'flow_env', 'flow_list', 'flow_run', 'flow_scaffold', 'impact', 'knowledge_shape', 'knowledge_verify', 'knowledge_write', 'mail_clear', 'mail_enable', 'mail_list', 'map_refresh', 'mock_list', 'mock_mode', 'path', 'queue_peek', 'queue_publish', 'queue_topics', 'repo_status', 'repo_sync', 'run_cancel', 'run_evidence', 'run_status', 'scenario_apply', 'scenario_list', 'service_exec', 'session_events', 'session_mark', 'session_start', 'session_stop', 'session_to_flow', 'session_to_scenario', 'sms', 'storage_ls', 'tree', 'vars_list', 'where']);
+  // what every session pays before it does anything: no store tools the map has no store for, no SDK boilerplate, no guide twice
+  assert.ok(!tools.some((t) => /^(mongo|redis)_/.test(t)), 'no MongoDB or Redis in this application: no tools for them');
+  assert.ok(listed.every((t) => !('$schema' in (t.inputSchema as object)) && !('execution' in t)), 'the list carries no schema dialect nor task-support note');
+  assert.ok(existsSync(join(root, 'CLAUDE.md')) && (client.getInstructions() ?? '').length < 400, 'with CLAUDE.md and AGENTS.md there, the instructions only point to them');
+  // the map gains a MongoDB (a `laru map` from the CLI, say): the next listing offers its tools, and the client was told to list again
+  let told = 0;
+  client.setNotificationHandler(ToolListChangedNotificationSchema, async () => { told++; });
+  const file = mapFile(loadWorkspace(root)), m = JSON.parse(readFileSync(file, 'utf8'));
+  m.nodes.push({ id: 'ds:catalog', type: 'datastore', kind: 'document', name: 'catalog' });
+  writeFileSync(file, JSON.stringify(m));
+  utimesSync(file, new Date(), new Date(Date.now() + 5000));
+  assert.ok((await client.listTools()).tools.some((t) => t.name === 'mongo_find'), 'a store the map gained brings its tools back');
+  await new Promise((r) => setTimeout(r, 50));
+  assert.ok(told > 0, 'the client is told the list changed');
   const text = async (name: string, args: Record<string, unknown>) => ((await client.callTool({ name, arguments: args })).content as Array<{ text: string }>)[0].text;
   assert.match(await text('tree', {}), /svc:billing-api \(quarkus, api\)/);
+  // the shape says each thing once: the hint in the docs language, required only where it is, the example as knowledge_write takes it
+  const shape = JSON.parse(await text('knowledge_shape', { type: 'module' }));
+  assert.deepEqual([shape.fields.some((f: object) => 'hintEs' in f || ('required' in f && !(f as { required: boolean }).required)), typeof shape.example.fields, shape.example.markdown], [false, 'object', undefined]);
   assert.match(await text('context', { target: 'ep:billing-api:POST /refunds' }), /is called by svc:portal/);
   assert.match(await text('path', { from: 'portal', to: 'tbl:billing.refunds' }), /maps table/);
   await client.close();
@@ -127,4 +145,38 @@ test('two projects from the CLI: a folder project, a joint env written validated
   const named = capture();
   assert.equal(await run(['env', 'init', '../escape', '--from', 'ledger:docker-compose.yml'], named.io, root), 1);
   assert.match(named.err.join('\n'), /env names are kebab-case/);
+});
+
+test('laru doctor on a fresh machine checks the machine; a workspace asked for by name that is not there is still an error', async () => {
+  const fx = makeFixture();
+  const c = capture();
+  const code = await run(['doctor'], c.io, fx.tmp);
+  assert.ok(c.out.some((l) => /docker/.test(l)), 'the machine is checked with no workspace');
+  assert.ok(!c.err.some((l) => /not inside a Laru workspace/.test(l)), String(code));
+  const bad = capture();
+  assert.notEqual(await run(['doctor', '--ws', 'no-such-ws'], bad.io, fx.tmp), 0);
+  assert.match(bad.err.join('\n'), /no-such-ws/, 'it says which workspace it did not find');
+});
+
+test('--fix turns systemd on in /etc/wsl.conf inside the [boot] there is, never a second one', async () => {
+  const { withSystemd } = await import('../src/env-cli.ts');
+  assert.equal(withSystemd(''), '[boot]\nsystemd=true\n');
+  assert.equal(withSystemd('[network]\nhostname=x'), '[network]\nhostname=x\n[boot]\nsystemd=true\n');
+  assert.equal(withSystemd('[boot]\ncommand=service ssh start\n[user]\ndefault=ana\n'), '[boot]\nsystemd=true\ncommand=service ssh start\n[user]\ndefault=ana\n');
+  assert.equal(withSystemd('[boot]\nsystemd=false\n'), '[boot]\nsystemd=true\n');
+  const on = '[boot]\nsystemd=true\n';
+  assert.equal(withSystemd(on), on, 'already on: nothing to write');
+  assert.equal(withSystemd('[user]\nsystemd=true\n'), '[user]\nsystemd=true\n[boot]\nsystemd=true\n', 'a systemd key in another section is not [boot]\'s');
+  // a file there but unreadable is never taken for an empty one (which would be written over)
+  const { readWslConf } = await import('../src/env-cli.ts');
+  const { mkdtempSync, chmodSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const dir = mkdtempSync(join(tmpdir(), 'wslconf-'));
+  assert.equal(readWslConf(join(dir, 'none.conf')), '');
+  const locked = join(dir, 'wsl.conf');
+  writeFileSync(locked, '[network]\nhostname=x\n');
+  chmodSync(locked, 0o000);
+  if (process.getuid?.() !== 0) assert.equal(readWslConf(locked), null);
+  chmodSync(locked, 0o600);
+  assert.equal(readWslConf(locked), '[network]\nhostname=x\n');
 });

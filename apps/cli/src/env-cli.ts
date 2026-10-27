@@ -1,11 +1,12 @@
 /** The runtime commands: environments, logs, hybrid runs and the doctor. Values never travel on argv. */
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { userInfo } from 'node:os';
 import { join } from 'node:path';
-import { acceptFinding, changesFromWorktrees, computeFindings, findWorkspace, impact, loadGraph, loadKnowledge, loadWorkspace, postEdit, preEdit, renderImpact, scaffoldSpec, specPath, workspaceChanges, WorkspaceError, type Impact, type Workspace } from '@laru/core';
+import { acceptFinding, shareEvidence, changesFromWorktrees, computeFindings, findWorkspace, impact, loadGraph, loadKnowledge, loadWorkspace, postEdit, preEdit, renderImpact, scaffoldSpec, specPath, workspaceChanges, WorkspaceError, type Impact, type Workspace } from '@laru/core';
 import { endpointMatcher, sessionSummary, summarize } from '@laru/trace';
 import { flowEnvDown, flowEnvStatus, flowEnvUp, instanceOf,
-  connection, docker, dockerAvailable, down, envMasker, mongo, rabbit, redis, query as dbQuery, reset as dbReset, schema as dbSchema, snapshot as dbSnapshot, storeOf, stores as dbStores, storePassword, envDir, envFile, EnvError, exportKey, hybridEnv, importEnvFile, importKey, interpolations, listEnvs, logs, missingVars, readState, revealVar,
+  connection, docker, dockerAvailable, dockerHint, inWsl, down, envMasker, mongo, rabbit, redis, query as dbQuery, reset as dbReset, schema as dbSchema, snapshot as dbSnapshot, storeOf, stores as dbStores, storePassword, envDir, envFile, EnvError, exportKey, hybridEnv, importEnvFile, importKey, interpolations, listEnvs, logs, missingVars, readState, revealVar,
   sqs, mail, sweepOrphans, calibrate, writeConfig, clearFaults, readRules, saveFaults, setFaults, setMockMode, kafka, storage, cancelRun, compareRuns, failedFlows, markSession, openSessionBrowser, runSessionBrowser, sessionToFlow, sessionToScenario, sessionTrace, startSession, stopSession, applyScenario, listScenarios, provisionScenario, ScenarioConfirm, scenarioState, approveBehavior, behaviorIn, readApproved, fidelity, fidelityText, listFlows, listRuns, readRun, readTrace, runFlows, runsDir, runTraces,
   rebuildText, setVar, status, unsetVar, up, varTable, vaultKey, envFor, envProjects, flowProjects, loadEnvSpec, specFrom, ENV_NAME, diskReport, prune, heldByEnvs, envLock, runnerFiles, withLock, workspaceKey, type ComposeDoc, type EnvEvent, type EnvStatus, type Level, type PruneWhat, type VaultService,
 } from '@laru/runtime';
@@ -159,7 +160,8 @@ export function writeJoint(w: Workspace, name: string, members: string[], share:
 export interface Check { name: string; ok: boolean; note: string }
 
 /** What this machine needs for envs: Docker, compose, memory, the vault key, and each env's subnet and entrance. */
-export async function doctorChecks(w: Workspace): Promise<Check[]> {
+/** `w` absent: only the machine (Docker, WSL), what a fresh install checks before it has a workspace. */
+export async function doctorChecks(w?: Workspace): Promise<Check[]> {
   const d = await dockerAvailable();
   const checks: Check[] = [{ name: 'docker', ok: d.ok, note: d.ok ? `engine ${d.server}` : d.error ?? 'not running' }];
   if (d.ok) {
@@ -172,16 +174,77 @@ export async function doctorChecks(w: Workspace): Promise<Check[]> {
   // Laru inside WSL2: the Linux filesystem, the file key store, and the interface reached from Windows.
   const wsl = process.platform === 'linux' && existsSync('/proc/version') && /microsoft/i.test(readFileSync('/proc/version', 'utf8'));
   if (wsl) {
-    const onWindows = [w.root, ...Object.values(w.checkouts)].filter((p) => p.startsWith('/mnt/'));
+    // with no workspace yet, where one would be made: the folder this runs in
+    const onWindows = (w ? [w.root, ...Object.values(w.checkouts)] : [process.cwd()]).filter((p) => p.startsWith('/mnt/'));
     checks.push({ name: 'wsl2', ok: !onWindows.length, note: onWindows.length ? `on a Windows drive: ${onWindows.join(', ')}. Move them into the Linux filesystem (~/…): git, file watching and Docker bind mounts are many times slower on /mnt` : 'running inside WSL2; open the interface from Windows at http://localhost:<port> (WSL forwards localhost)' });
     checks.push({ name: 'wsl2 docker', ok: Boolean(process.env.DOCKER_HOST) || existsSync('/var/run/docker.sock'), note: existsSync('/var/run/docker.sock') ? 'docker socket present (Docker Desktop integration or Docker Engine in WSL)' : 'no docker socket: enable Docker Desktop\'s WSL integration for this distro or install Docker Engine in WSL' });
   }
+  if (!w) return checks;
   const k = await vaultKey(w).catch(() => null);
   checks.push({ name: 'vault key', ok: !k?.warning, note: k ? `in ${k.store}` : 'none yet (the first secret creates it)' });
   for (const env of listEnvs(w)) { const st = readState(w, env); if (st) checks.push({ name: `env ${env}`, ok: true, note: `subnet 172.30.${st.subnet}.0/24, entrance :${st.entrance || '-'}` }); }
   // What the envs running on this machine hold now: an up of another env moves off these.
   if (d.ok) for (const h of await heldByEnvs().catch(() => [])) checks.push({ name: `held ${h.app}/${h.env}${h.run ? ` run ${h.run}` : ''}`, ok: true, note: `${h.key === workspaceKey(w) ? 'this workspace' : `workspace ${h.key}`}: subnets ${h.subnets.join(', ') || '-'}, ports ${h.ports.join(', ') || '-'}` });
   return checks;
+}
+
+/** What a config file holds: '' when there is none, null when it is there but cannot be read (never mistaken for empty). */
+export function readWslConf(file: string): string | null {
+  try { return readFileSync(file, 'utf8'); } catch (e) { return (e as NodeJS.ErrnoException).code === 'ENOENT' ? '' : null; }
+}
+
+/** /etc/wsl.conf with `systemd=true` in its [boot] section: added to the one there is (never a second [boot]), or as one. */
+export function withSystemd(conf: string): string {
+  const lines = conf.split('\n');
+  const boot = lines.findIndex((l) => /^\s*\[boot\]\s*$/i.test(l));
+  if (boot < 0) return `${conf}${conf && !conf.endsWith('\n') ? '\n' : ''}[boot]\nsystemd=true\n`;
+  let end = lines.findIndex((l, i) => i > boot && /^\s*\[.+\]\s*$/.test(l));
+  if (end < 0) end = lines.length;
+  const at = lines.findIndex((l, i) => i > boot && i < end && /^\s*systemd\s*=/i.test(l));
+  if (at >= 0) { if (/=\s*true\s*$/i.test(lines[at])) return conf; lines[at] = 'systemd=true'; }
+  else lines.splice(boot + 1, 0, 'systemd=true');
+  return lines.join('\n');
+}
+
+/**
+ * `laru doctor --fix`: Docker Engine inside Linux (WSL2 above all, with no Docker Desktop), set up so it answers and keeps
+ * answering. Every command is printed before it runs and asks for sudo itself; nothing is installed from the internet.
+ */
+async function fixDocker(io: Out): Promise<number> {
+  const d = await dockerAvailable();
+  if (d.ok) { io.log('✓ docker already answers: nothing to fix'); return 0; }
+  if (process.platform !== 'linux') { io.err(`docker does not answer: ${d.error}`); return 1; }
+  const sh = (cmd: string, args: string[], input?: string) => {
+    io.log(`→ sudo ${cmd} ${args.join(' ')}`);
+    const r = spawnSync('sudo', [cmd, ...args], { stdio: [input === undefined ? 'inherit' : 'pipe', 'inherit', 'inherit'], input });
+    return r.status === 0;
+  };
+  const err = d.error ?? '';
+  if (/ENOENT|not found/i.test(err)) { io.err(`docker is not installed here. ${dockerHint(err, inWsl()) ?? ''}`); return 1; }
+  const systemd = (() => { try { return readFileSync('/proc/1/comm', 'utf8').trim() === 'systemd'; } catch { return false; } })();
+  if (inWsl() && !systemd) {
+    // the file is rewritten whole, so what it holds must be read first: a file there but unreadable is left alone
+    const conf = readWslConf('/etc/wsl.conf');
+    if (conf === null) io.err('  /etc/wsl.conf is there but could not be read: add `systemd=true` under its [boot] section yourself.');
+    else {
+      const next = withSystemd(conf);
+      if (next !== conf) {
+        if (conf && !sh('cp', ['-p', '/etc/wsl.conf', '/etc/wsl.conf.laru-backup'])) return 1;
+        if (!sh('tee', ['/etc/wsl.conf'], next)) return 1;
+        if (conf) io.log('  the previous one is kept as /etc/wsl.conf.laru-backup');
+      }
+      io.log('  WSL starts Docker by itself from the next start: run `wsl --shutdown` in PowerShell and open this terminal again.');
+    }
+  }
+  if (/permission denied/i.test(err)) {
+    if (!sh('usermod', ['-aG', 'docker', userInfo().username])) return 1;
+    io.log('  you are in the docker group from the next terminal you open (or run `newgrp docker` in this one).');
+    return 0;
+  }
+  if (!(systemd ? sh('systemctl', ['enable', '--now', 'docker']) : sh('service', ['docker', 'start']))) return 1;
+  const again = await dockerAvailable();
+  io.log(again.ok ? `✓ docker answers: engine ${again.server}` : `✕ docker still does not answer: ${again.error}`);
+  return again.ok ? 0 : 1;
 }
 
 /** A scenario that would delete data of a persistent env says what, and how to say yes: nothing ran, and `undefined` comes back. */
@@ -553,13 +616,22 @@ export async function runtimeCommand(cmd: string, args: string[], o: Opts, ws: (
         io.log(summarize(r, traces, { flow: o.flow as string, step: o.step ? Number(o.step) : undefined, exchange: o.exchange as string, service: o.service as string, case: o.case as string | undefined, budget: Number(o.budget ?? 900) }));
         return 0;
       }
+      if (sub === 'share') {
+        // The last pass of each flow becomes its shared evidence (evidence/<flow>/): for runs from before Laru kept it.
+        const f = join(runsDir(w), 'index.jsonl');
+        const last = new Map<string, string>();
+        if (existsSync(f)) for (const l of readFileSync(f, 'utf8').split('\n').filter(Boolean)) { const x = JSON.parse(l); if (x.status === 'passed' && (!args[1] || args.slice(1).includes(x.flow))) last.set(x.flow, x.run); }
+        for (const [flow, run] of last) io.log(`${shareEvidence(w, run, flow) ? '✓' : '='} ${flow}  run ${run}`);
+        io.log(last.size ? `evidence/: commit it to share the last pass of each flow with the team` : 'no flow has passed yet');
+        return 0;
+      }
       if (sub === 'cancel' && args[1]) { io.log((await cancelRun(w, args[1])) ? `run ${args[1]} cancelled` : `run ${args[1]} is not running`); return 0; }
       if (sub === 'compare' && args[1] && args[2]) {
         const c = compareRuns(w, args[1], args[2]);
         for (const x of c.exchanges) if (JSON.stringify(x.a) !== JSON.stringify(x.b)) io.log(`${x.flow}  ${x.from}→${x.to} ${x.label}: ${x.a ? `${x.a.count}× ${x.a.statuses.join('/')} p50 ${x.a.p50 ?? '-'} ms` : 'absent'}  →  ${x.b ? `${x.b.count}× ${x.b.statuses.join('/')} p50 ${x.b.p50 ?? '-'} ms` : 'absent'}`);
         return 0;
       }
-      io.err('usage: laru runs [list] | show <id> [--flow f] [--step n | --case "<title>" | --exchange id | --service s] | cancel <id> | compare <a> <b>'); return 2;
+      io.err('usage: laru runs [list] | share [flow…] | show <id> [--flow f] [--step n | --case "<title>" | --exchange id | --service s] | cancel <id> | compare <a> <b>'); return 2;
     }
     case 'impact': {
       const w = ws();
@@ -796,7 +868,11 @@ export async function runtimeCommand(cmd: string, args: string[], o: Opts, ws: (
       return 0;
     }
     case 'doctor': {
-      const checks = await doctorChecks(ws());
+      // a fresh machine has no workspace yet: the machine's checks still run
+      // a workspace asked for by name must exist; only when none was asked is "none here" the machine's checks alone
+      const w = o.ws || o.workspace || process.env.LARU_WORKSPACE ? ws() : (() => { try { return ws(); } catch (e) { if (e instanceof WorkspaceError) return undefined; throw e; } })();
+      if (o.fix) { const code = await fixDocker(io); if (code) return code; }
+      const checks = await doctorChecks(w);
       for (const c of checks) io.log(`${c.ok ? '✓' : '✕'} ${c.name.padEnd(12)} ${c.note}`);
       return checks.every((c) => c.ok) ? 0 : 1;
     }

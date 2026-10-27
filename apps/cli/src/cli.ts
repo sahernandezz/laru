@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import { existsSync, openSync, readFileSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import {
-  addRepo, ask, checkWorkspace, context, docsTree, documentNote, envOf, isContainer, isWorkspace, owedLine, scaffoldPieces, sheetNote, loadKnowledge, migrateWorkspace, movePiece, newPiece, renamePiece, idOf, laruHome, knowledgeShape, knowledgeWrite, loadRegistry, PIECE_TYPES, realRoot, register, resolveId, resolveRoot, unregister, verifyPiece, type PieceType, type WriteInput, initWorkspace, linkRepo, loadGraph, loadWorkspace, path, refreshMap,
+  addRepo, ask, checkWorkspace, context, docsTree, documentNote, envOf, isContainer, isWorkspace, owedLine, scaffoldPieces, sheetNote, loadKnowledge, migrateWorkspace, movePiece, newPiece, renamePiece, idOf, laruHome, knowledgeShape, knowledgeWrite, loadRegistry, PIECE_TYPES, realRoot, register, resolveId, resolveRoot, unregister, verifyPiece, type PieceType, type WriteInput, initWorkspace, linkRepo, loadGraph, loadWorkspace, withEvidence, path, refreshMap,
   repoStatus, ROLES, syncRepos, tree, verify, WorkspaceError, writeAgentFiles, type RepoRole, type RepoStatus, type Workspace,
 } from '@laru/core';
 import { runtimeCommand } from './env-cli.ts';
@@ -65,6 +65,7 @@ const HELP = `laru — a workspace around your application's repositories
   laru session to-scenario <id> --in <mod:x|app:y> [--title t]  the session as the draft of a scenario there: scenario.md and its setup
   laru session browser <id>             the session's own browser: installed Chrome with no window, shown in «En vivo» (video and your actions, never what you type), until the session is saved
   laru runs [list] | show <id> [--flow f] [--step n | --case "<title>" | --exchange id] | cancel <id> | compare <a> <b>
+  laru runs share [flow…]              the last pass of each flow to evidence/, the folder git shares with the team
   laru fault [list] | set <service> [--latency ms] [--status n] [--abort] [--timeout] [--code n] [--p 0.2] [--from svc] | clear | save   (a mail or SMS sink: --method is the stage CONNECT|AUTH|MAIL|RCPT|DATA|DELIVERY|POST, --path the recipient)
   laru mail [list [--kind mail|sms] [--q "de:x asunto:y"]] | status | read <id> [--part text|html|source|headers] | wait [--to x] [--within s] | clear [id…] [--yes] | enable [env] [--as name] [--yes]   what the env's mail and SMS sinks received; nothing leaves the machine
   laru sms status <id> sent|delivered|undelivered|failed [--code 30003] | reply <from> <text…>   mark an SMS the sink kept, or answer it from a phone (both stay inside the env)
@@ -78,7 +79,7 @@ const HELP = `laru — a workspace around your application's repositories
   laru vault key [export | import]      move the vault key to another machine (stdin/stdout)
   laru where [--json] [--run <id>]     where this workspace keeps each thing on this machine, with sizes
   laru prune [runs] [snapshots] [images] [shadow] [--dry-run]   retention now: what goes is listed first with --dry-run
-  laru doctor
+  laru doctor [--fix]                  what this machine needs (Docker, WSL2, the vault key); --fix sets up Docker Engine in Linux and WSL2 so it answers (each sudo command shown first)
   laru mcp                             MCP server over stdio, for Claude Code
   laru serve [--port 4100] [--quiet] [--token] | serve --stop   one service for every workspace, on 127.0.0.1 only; --token asks for a sign-in
   laru open                            start the service if it is not running and print this workspace's address
@@ -94,7 +95,7 @@ export async function run(argv: string[], io: Out = stdio, cwd = process.cwd()):
       app: { type: 'string' }, title: { type: 'string' }, 'docs-language': { type: 'string' }, name: { type: 'string' }, branch: { type: 'string' },
       role: { type: 'string' }, port: { type: 'string' }, workspace: { type: 'string', short: 'C' }, budget: { type: 'string' }, depth: { type: 'string' }, json: { type: 'boolean' }, 'no-fetch': { type: 'boolean' }, help: { type: 'boolean', short: 'h' },
       worklist: { type: 'boolean' }, from: { type: 'string' }, status: { type: 'string' }, hybrid: { type: 'string' }, rebuild: { type: 'string' }, services: { type: 'string' }, worktree: { type: 'boolean' }, verbose: { type: 'boolean', short: 'v' },
-      'dry-run': { type: 'boolean' }, caches: { type: 'boolean' }, env: { type: 'string' }, service: { type: 'string' }, follow: { type: 'boolean', short: 'f' }, tail: { type: 'string' }, level: { type: 'string' }, secret: { type: 'boolean' }, write: { type: 'boolean' }, limit: { type: 'string' }, ephemeral: { type: 'boolean' }, retries: { type: 'string' }, 'pw-trace': { type: 'boolean' }, run: { type: 'string' },
+      'dry-run': { type: 'boolean' }, fix: { type: 'boolean' }, caches: { type: 'boolean' }, env: { type: 'string' }, service: { type: 'string' }, follow: { type: 'boolean', short: 'f' }, tail: { type: 'string' }, level: { type: 'string' }, secret: { type: 'boolean' }, write: { type: 'boolean' }, limit: { type: 'string' }, ephemeral: { type: 'boolean' }, retries: { type: 'string' }, 'pw-trace': { type: 'boolean' }, run: { type: 'string' },
       flow: { type: 'string' }, last: { type: 'string' }, step: { type: 'string' }, exchange: { type: 'string' }, affected: { type: 'boolean' }, failed: { type: 'boolean' }, workers: { type: 'string' }, runs: { type: 'string' }, case: { type: 'string' }, key: { type: 'string' }, recursive: { type: 'boolean' }, latency: { type: 'string' }, abort: { type: 'boolean' }, timeout: { type: 'boolean' }, bandwidth: { type: 'string' }, 'slow-after': { type: 'string' }, p: { type: 'string' }, path: { type: 'string' }, method: { type: 'string' }, 'no-cache': { type: 'boolean' }, reason: { type: 'string' }, until: { type: 'string' }, reorder: { type: 'boolean' },
       filter: { type: 'string' }, sort: { type: 'string' }, projection: { type: 'string' }, skip: { type: 'string' }, broker: { type: 'string' },
       kind: { type: 'string' }, q: { type: 'string' }, part: { type: 'string' }, to: { type: 'string' }, as: { type: 'string' }, code: { type: 'string' }, within: { type: 'string' }, join: { type: 'string' }, share: { type: 'string' }, ignore: { type: 'string' },
@@ -105,7 +106,7 @@ export async function run(argv: string[], io: Out = stdio, cwd = process.cwd()):
   const ws = (): Workspace => {
     const root = rootOf();
     void register(root).catch(() => undefined); // a workspace any command reaches is known to the service (no write when it is)
-    return loadWorkspace(root);
+    return withEvidence(loadWorkspace(root));
   };
   try {
     // `laru <command> --help`: the usage lines of that command.

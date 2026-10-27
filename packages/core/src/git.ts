@@ -27,10 +27,13 @@ export function readBlobs(cwd: string, blobs: string[], env?: Record<string, str
   return new Promise((resolve, reject) => {
     const proc = spawn('git', ['cat-file', '--batch'], { cwd, env: { ...process.env, GIT_OPTIONAL_LOCKS: '0', ...env } });
     const chunks: Buffer[] = [];
+    let stderr = '';
     proc.stdout.on('data', (c: Buffer) => chunks.push(c));
+    proc.stderr.on('data', (c: Buffer) => { stderr += c; });
     proc.on('error', reject);
     proc.on('close', (code) => {
-      if (code !== 0) return reject(new Error(`git cat-file exited with ${code}`));
+      // git's own words say why (e.g. macOS refusing to run git until the Xcode licence is accepted); the exit code alone does not.
+      if (code !== 0) return reject(new Error(`git cat-file exited with ${code}${stderr.trim() ? `: ${stderr.trim()}` : ''}`));
       const buf = Buffer.concat(chunks);
       const out = new Map<string, string>();
       let at = 0;

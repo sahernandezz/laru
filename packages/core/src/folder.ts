@@ -5,15 +5,16 @@
  * config, excludes, attributes, line endings or fsmonitor can change it, and the folder is never written.
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync, lstatSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { git } from './git.ts';
 import { withLock } from './lock.ts';
 import { resolveRef } from './repos.ts';
-import { appHome, workspaceKey, WorkspaceError, type RepoConfig, type Workspace } from './workspace.ts';
+import { appHome, plainPath, sharedFolder, workspaceKey, WorkspaceError, type RepoConfig, type Workspace } from './workspace.ts';
 
 export const DEFAULT_IGNORE = ['node_modules/', 'target/', 'build/', 'dist/', 'out/', '.gradle/', '.idea/', '.vscode/', '__pycache__/', '.venv/', 'coverage/', '.DS_Store', '*.log', '.env', '.env.*', '!.env.example', '!.env.sample', '!.env.template'];
 const BIG = 50 * 1024 * 1024;
+const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
 /** A `.env` that is not an example: never hashed, archived or extracted, whatever the folder's own .gitignore says. */
 const SECRET_FILE = /(^|\/)\.env(\.(?!example$|sample$|template$)[^/]+)?$/;
 
@@ -117,4 +118,29 @@ export async function refOf(ws: Workspace, repo: string): Promise<{ name: string
 export async function keepTree(ws: Workspace, repo: string, which: 'map' | 'lock', tree: string): Promise<void> {
   const { cwd, env } = gitOf(ws, repo);
   await git(cwd, ['update-ref', `refs/laru/${workspaceKey(ws)}/${which}`, tree], env);
+}
+
+/**
+ * Writes a folder's tree as the map read it (no .env, nothing ignored, no nested repo or big file) to `projects/<repo>/`
+ * in the workspace, which git shares: a teammate's clone reads the folder from there. Not when the folder read is that
+ * copy, nor through a link. Returns whether it wrote.
+ * Known limit: the whole copy is rewritten on every map; skip an unchanged tree if a folder gets big
+ */
+export async function shareFolder(ws: Workspace, repo: string, tree: string): Promise<boolean> {
+  const { cwd, env } = gitOf(ws, repo);
+  const dest = sharedFolder(ws, repo);
+  if (realpathSync(cwd) === plainPath(ws.root, 'projects', repo)) return false;
+  // An empty folder is more likely moved or unmounted than emptied: the copy the team has stays.
+  if (tree === EMPTY_TREE) return false;
+  if (existsSync(join(ws.root, 'projects')) && !plainPath(ws.root, 'projects')) return false;
+  mkdirSync(join(ws.root, 'projects'), { recursive: true });
+  const tmp = join(ws.root, 'projects', `.${repo}.tmp`);
+  rmSync(tmp, { recursive: true, force: true });
+  const index = { ...env, GIT_INDEX_FILE: `${env.GIT_DIR}/share-index` };
+  mkdirSync(tmp);
+  await git(cwd, ['read-tree', tree], index);
+  await git(cwd, ['checkout-index', '-a', '-f', `--prefix=${tmp}/`], index);
+  rmSync(dest, { recursive: true, force: true });
+  renameSync(tmp, dest);
+  return true;
 }
