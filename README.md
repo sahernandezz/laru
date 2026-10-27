@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Versión" src="https://img.shields.io/badge/versi%C3%B3n-0.1.0--beta.3-22D3EE">
+  <img alt="Versión" src="https://img.shields.io/badge/versi%C3%B3n-0.1.0--beta.4-22D3EE">
   <img alt="Licencia" src="https://img.shields.io/badge/licencia-FSL--1.1--ALv2-0E3B45">
   <img alt="Node" src="https://img.shields.io/badge/node-%E2%89%A5%2024-3c873a">
   <img alt="Local" src="https://img.shields.io/badge/todo%20corre-en%20tu%20m%C3%A1quina-444">
@@ -147,7 +147,7 @@ Abre `claude` (o Codex) en el workspace y ya sabe dónde está todo:
 
 ### Requisitos
 
-- **Sistema:** macOS o Linux. En Windows, dentro de WSL2 (ver [En Windows](#en-windows)).
+- **Sistema:** macOS, Linux o Windows. En Windows corre directamente en PowerShell o `cmd`, o dentro de WSL2 si lo prefieres (ver [En Windows](#en-windows)).
 - **Node.js 24** o superior y **pnpm 10**.
 - **Docker** con Docker Compose.
 - **Git.**
@@ -186,7 +186,10 @@ laru open
 
 ### En Windows
 
-Laru corre **dentro de WSL2**, no en PowerShell ni en `cmd`. Si lo lanzas desde Windows, te lo dice y te indica los pasos.
+Hay dos formas, y las dos funcionan:
+
+- **Directamente en Windows:** instala Docker Desktop, Node 24, pnpm y Git, y usa `laru` desde PowerShell o `cmd` como en macOS o Linux.
+- **Dentro de WSL2:** útil si ya trabajas en Linux o quieres Docker sin Docker Desktop. Los pasos:
 
 1. **Instala WSL2 con Ubuntu:** en PowerShell, `wsl --install -d Ubuntu`. A partir de aquí, todo se hace en la terminal de Ubuntu.
 2. **Instala Docker**, de una de estas dos formas:

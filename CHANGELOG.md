@@ -6,6 +6,12 @@ Todos los cambios de Laru que importan a quien lo usa quedan aquí. El formato s
 
 ## [Sin publicar]
 
+## [0.1.0-beta.4] - 2026-10-27
+
+### Corregido
+
+- **Windows sin WSL vuelve a funcionar.** La 0.1.0-beta.3 se negaba a arrancar en PowerShell o `cmd` y pedía usar WSL2. WSL2 es una opción más: Laru corre directamente en Windows con Docker Desktop, como antes.
+
 ## [0.1.0-beta.3] - 2026-10-27
 
 ### Añadido
@@ -94,7 +100,8 @@ Primera beta pública.
   - `CLAUDE.md` y `AGENTS.md` generados.
   - Hooks para Claude Code.
 
-[Sin publicar]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.3...HEAD
+[Sin publicar]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.4...HEAD
+[0.1.0-beta.4]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.3...v0.1.0-beta.4
 [0.1.0-beta.3]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.2...v0.1.0-beta.3
 [0.1.0-beta.2]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.1...v0.1.0-beta.2
 [0.1.0-beta.1]: https://github.com/sahernandezz/laru/releases/tag/v0.1.0-beta.1
