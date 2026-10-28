@@ -37,7 +37,7 @@ const HELP = `laru — a workspace around your application's repositories
   laru docs migrate [--dry-run]        bring a workspace to this standard: terms → glossary, notes → known traps, old headings and statuses; loses nothing
   laru docs scaffold [--dry-run]       create the pieces the application lacks (architecture, stack, versioning, infrastructure, secrets, runbooks), started from the code
   laru docs note [id] [--json]         how complete each piece is (0–100) and what it still owes
-  laru env init <name> --from <repo>:<compose file> | --join <env>,<env> [--share <svc>=<svc>]   a joint env runs several projects together
+  laru env init <name> --from <repo>:<compose file>[,<file>…] | --join <env>,<env> [--share <svc>=<svc>]   a joint env runs several projects together
   laru env list | env status [env] [--json]
   laru up [env] [--hybrid a,b] [--services a,b] [--worktree] [--rebuild a,b|all [--yes]] [--force] [-v]   build what changed, start, wait until ready (--rebuild: those images again without the cache; --force: skip the memory check)
   laru down [env] [--dry-run] [--caches]   remove the env's containers, network and volumes (by label)

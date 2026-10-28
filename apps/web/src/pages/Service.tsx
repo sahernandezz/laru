@@ -11,6 +11,7 @@ import { entitiesOf, errorsOf, eventsOf, opsOf, serviceApi, unlisted, type ApiRo
 import { KIND, lastText, MOCK_MODE, pieceLabel, plural } from '../lib/es.ts';
 import { Inline } from '../lib/md.tsx';
 import { href } from '../lib/route.ts';
+import { appsOf, groupsOf } from '../lib/sysmap.ts';
 import { useScope } from '../lib/scope.ts';
 import { AddMenu, Anchors, FacetList, facetsOf, PieceFields, Stale } from './Docs.tsx';
 import { failedOn, flowDot, walkers } from './Flows.tsx';
@@ -38,13 +39,16 @@ const dataText = (d: { tables: number; topics: number }) => [d.tables && plural(
 
 /** «Componentes»: services, stores and externals, each with what it exposes and holds and how its flows did. */
 export function Components({ g, flows, k, onOpen }: { g: Indexed; flows?: FlowInfo[]; k?: KnowledgeData; onOpen: () => void }) {
-  const nodes = g.map.nodes.filter((n) => ICON[n.type]);
+  const apps = appsOf(g);
+  // with several applications, each one's pieces together, in the order laru.yaml lists them
+  const order = apps ? groupsOf(g, []).order : [];
+  const nodes = g.map.nodes.filter((n) => ICON[n.type]).sort((a, b) => (apps ? order.indexOf(apps.get(a.id)!) - order.indexOf(apps.get(b.id)!) : 0));
   const docs = k && new Set(k.pieces.map((p) => p.id));
   return (
     <section className="panel" aria-labelledby="components-h">
       <header><h2 id="components-h">Componentes</h2><div className="meta">{plural(nodes.length, 'componente', 'componentes')}</div></header>
       <div className="scroll-x"><table className="t components">
-        <thead><tr><th>Nombre</th><th>Tipo</th><th>Dónde</th><th className="r">Endpoints</th><th>Datos</th><th>Flujos</th><th>Documentación</th></tr></thead>
+        <thead><tr><th>Nombre</th>{apps && <th>Aplicativo</th>}<th>Tipo</th><th>Dónde</th><th className="r">Endpoints</th><th>Datos</th><th>Flujos</th><th>Documentación</th></tr></thead>
         <tbody>{nodes.map((n) => {
           const Icon = ICON[n.type];
           const eps = n.type === 'service' ? g.out(n.id).filter((f) => f.p === 'exposes').length : undefined;
@@ -57,6 +61,7 @@ export function Components({ g, flows, k, onOpen }: { g: Indexed; flows?: FlowIn
                 <a className="rowlink comp-name" href={href('map', n.id)} onClick={onOpen}><Icon />{n.name}</a><span className="only-sm faint"> {kindOf(n)}</span>
                 <div className="only-sm faint sub">{[eps !== undefined && plural(eps, 'endpoint', 'endpoints'), data, fl?.length && plural(fl.length, 'flujo', 'flujos')].filter(Boolean).join(' · ')}{bad > 0 && <span className="err-ink"> · {bad} {bad === 1 ? 'falla' : 'fallan'}</span>}</div>
               </td>
+              {apps && <td>{apps.get(n.id)}</td>}
               <td>{kindOf(n)}</td>
               <td className="mono">{n.type === 'service' ? <>{n.repo}<span className="faint">/{String(n.attrs?.dir)}</span></> : <span className="faint">—</span>}</td>
               <td className="r num">{eps ?? <span className="faint">—</span>}</td>

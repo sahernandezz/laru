@@ -14,7 +14,8 @@ import { askFirst } from '../lib/ask.ts';
 import { admissionText, plural, pieceLabel, piecesLabel, PLATFORM, reasonText, STACK, STAGE, STATUS } from '../lib/es.ts';
 import { frontNodes } from '../lib/fronts.ts';
 import { href, pageOf } from '../lib/route.ts';
-import { iconOf, NoteChip, noteLevel, PieceFields } from './Docs.tsx';
+import { NoteChip, noteLevel, PieceFields } from './Docs.tsx';
+import { iconOf } from '../lib/pieceMenu.tsx';
 import { flowDot, lastWord } from './Flows.tsx';
 import { Session, Start, type Preset } from './Live.tsx';
 

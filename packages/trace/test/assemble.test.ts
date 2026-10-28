@@ -85,6 +85,17 @@ test('one trace per test, its window clipped at the next test, times from video 
   assert.ok(b.exchanges.some((e) => e.id === 'late' && e.from === 'runner'), 'Playwright requests are the test, not the browser');
 });
 
+test('another screen starts on the trace clock: by its measured offset, or by the default one when its marker could not be found', () => {
+  const withScreens = events.map((e) => (e.e === 'test-end' && e.test === 'a'
+    ? { ...e, screens: [{ name: 'luis', video: 'video-luis.webm', t0: T + 1000, marker: T + 1010 }, { name: 'ana', video: 'video-ana.webm', t0: T + 1200, marker: T + 1210 }] }
+    : e));
+  const [a] = assemble({ ...input(), events: withScreens, screenOffsets: { 'a|ana': 30 } }).traces;
+  assert.deepEqual(a.screens, [
+    { name: 'luis', video: 'video-luis.webm', offsetMs: undefined, startMs: 900 },
+    { name: 'ana', video: 'video-ana.webm', offsetMs: 30, startMs: 1080 },
+  ]);
+});
+
 test('a request reaches the most literal endpoint that matches, by the map\'s own service ids', () => {
   const { traces: [, b], observed } = assemble(input());
   const by = Object.fromEntries(b.exchanges.map((e) => [e.id, e.endpoint]));

@@ -501,7 +501,7 @@ services:
       timeout: 2s
       retries: 30
       start_period: 10s
-    restart: unless-stopped
+    restart: on-failure
     logging:
       driver: json-file
       options:

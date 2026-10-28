@@ -26,8 +26,8 @@ interface Fixtures {
   mail: Mail;
   /** the same, for the texts the app sends */
   sms: Sms;
-  /** another screen of the same test, by name (`otherScreen('luis')`): a second person's browser, with its own video on the same clock and its own lane in the trace */
-  otherScreen: (name: string) => Promise<Page>;
+  /** another screen of the same test, by name (`otherScreen('luis')`): a second person's browser, with its own video on the same clock and its own lane in the trace; `size` makes it a phone (its window and its video, 1280×720 by default) */
+  otherScreen: (name: string, size?: { width: number; height: number }) => Promise<Page>;
 }
 /** The state a flow starts from: its scenario and who its setup left able to sign in. */
 export interface Given { scenario?: string; identities: Identity[]; identity(name?: string): Identity }
@@ -200,15 +200,23 @@ function drawCaption() {
 const perFlow = JSON.parse(process.env.KS_BASE_URLS_JSON ?? '{}') as Record<string, string>;
 /** A flow's own time limit (`timeout` in its flow.md), in ms, by the name of its spec file; the runner passes them. */
 const limits = JSON.parse(process.env.KS_FLOW_TIMEOUTS_JSON ?? '{}') as Record<string, number>;
+/**
+ * story, apiCase and scenario declare their test in this file, so Playwright's `info.file` is flow.ts: each keeps the
+ * name of the spec that called it as a `spec` annotation, read from the call's stack while the spec loads.
+ */
+const callerSpec = () => new Error().stack?.match(/([\w.-]+)\.spec\.ts:\d+/)?.[1];
+const specAnnotation = () => { const spec = callerSpec(); return spec ? [{ type: 'spec', description: spec }] : []; };
+/** The flow a test belongs to: its spec's name. */
+const specOf = (info: TestInfo) => info.annotations.find((a) => a.type === 'spec')?.description ?? (info.file.split('/').pop() ?? '').replace(/\.spec\.ts$/, '');
 
 export const test = base.extend<Fixtures>({
   _limit: [async ({}, use, info) => {
-    const ms = limits[(info.file.split('/').pop() ?? '').replace(/\.spec\.ts$/, '')];
+    const ms = limits[specOf(info)];
     if (ms) info.setTimeout(ms);
     await use();
   }, { auto: true }],
   baseURL: async ({ baseURL }, use, info) => {
-    await use(perFlow[(info.file.split('/').pop() ?? '').replace(/\.spec\.ts$/, '')] ?? baseURL);
+    await use(perFlow[specOf(info)] ?? baseURL);
   },
   page: async ({ page }, use, info) => {
     // The page's video starts with the page: this instant is frame 0 for the trace.
@@ -223,12 +231,12 @@ export const test = base.extend<Fixtures>({
   },
   otherScreen: async ({ browser, baseURL }, use, info) => {
     const made: Array<{ name: string; page: Page; context: BrowserContext; t0: number; marker?: number }> = [];
-    await use(async (name) => {
+    await use(async (name, size = { width: 1280, height: 720 }) => {
       if (!/^[\w-]{1,32}$/.test(name)) throw new Error(`a screen's name is letters, digits, _ and - (up to 32): ${name}`);
       const had = made.find((m) => m.name === name);
       if (had) return had.page;
       const story = info.project.name === 'story';
-      const context = await browser.newContext({ baseURL, locale: 'es-ES', timezoneId: 'Europe/Madrid', viewport: { width: 1280, height: 720 }, ...(story ? { recordVideo: { dir: info.outputPath(`screen-${name}`), size: { width: 1280, height: 720 } } } : {}) });
+      const context = await browser.newContext({ baseURL, locale: 'es-ES', timezoneId: 'Europe/Madrid', viewport: size, ...(story ? { recordVideo: { dir: info.outputPath(`screen-${name}`), size } } : {}) });
       // The token that names the screen goes on the app's own requests only: on another origin it would turn each request into a preflight.
       // The tap reads it off and never forwards it.
       const own = baseURL ? new URL(baseURL).origin : '';
@@ -290,7 +298,7 @@ export const test = base.extend<Fixtures>({
 
 /** The recorded journey of a flow, tagged @story: the config's story project records its video. */
 export function story(title: string, fn: Parameters<typeof test>[2]) {
-  test(title, { tag: '@story' }, fn);
+  test(title, { tag: '@story', annotation: specAnnotation() }, fn);
 }
 
 /**
@@ -316,7 +324,7 @@ export interface ScenarioResult { identities?: Identity[]; signedIn?: boolean }
  * its scenario.md names. Its result goes to /ks/out/scenario.json, the page's session (when `signedIn`) beside it.
  */
 export function scenario(title: string, fn: (fx: { page: Page; api: Fixtures['api']; uniq: Fixtures['uniq']; vars: Fixtures['vars']; observed: Observed }) => Promise<ScenarioResult | void>) {
-  test(title, { tag: '@scenario' }, async ({ page, api, uniq, vars, observed }) => {
+  test(title, { tag: '@scenario', annotation: specAnnotation() }, async ({ page, api, uniq, vars, observed }) => {
     const out = (await fn({ page, api, uniq, vars, observed })) ?? {};
     mkdirSync('/ks/out', { recursive: true });
     writeFileSync('/ks/out/scenario.json', JSON.stringify({ identities: out.identities ?? [] }));
@@ -326,7 +334,7 @@ export function scenario(title: string, fn: (fx: { page: Page; api: Fixtures['ap
 
 /** A short case no person can cause from the screen, played against the API; `why` says why, and the report keeps it. */
 export function apiCase(title: string, why: string, fn: Parameters<typeof test>[2]) {
-  test(title, { tag: '@api', annotation: { type: 'api', description: why } }, fn);
+  test(title, { tag: '@api', annotation: [{ type: 'api', description: why }, ...specAnnotation()] }, fn);
 }
 
 /** Shows text on the video until the next caption or step. */
@@ -336,6 +344,7 @@ export async function caption(text: string): Promise<void> {
   await page.evaluate(([t, f]) => { sessionStorage.setItem('ks-caption', t); new Function(`(${f})()`)(); }, [text, drawCaption.toString()]).catch(() => undefined);
 }
 
+const STEP_HOLD_MS = Math.max(0, Number(process.env.KS_STEP_HOLD_MS) || 0);
 /** One row of the flow's Pasos table. A failure leaves `s<n>.png` next to the run's output. */
 export async function step<T>(title: string, fn: () => Promise<T>): Promise<T> {
   const n = ++current.n;
@@ -354,6 +363,8 @@ export async function step<T>(title: string, fn: () => Promise<T>): Promise<T> {
       const out = await fn();
       // expect.soft does not throw: a step it failed still leaves its screenshot.
       if ((current.info?.errors.length ?? 0) > softBefore) await shot();
+      // a recorded story can hold each step's last screen still (stepHoldMs in ~/.laru/config.yaml), so its video can be followed
+      if (STEP_HOLD_MS && current.info?.project.name === 'story') await new Promise((r) => setTimeout(r, STEP_HOLD_MS));
       return out;
     } catch (e) {
       await shot();

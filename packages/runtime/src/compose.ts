@@ -5,6 +5,8 @@
  * the same input gives the same bytes, so an unchanged env makes compose do nothing.
  */
 import { execFile } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { stringify } from 'yaml';
 import { dockerEnv, LABEL } from './docker.ts';
@@ -18,13 +20,38 @@ export type Service = Record<string, any>;
 export interface ComposeDoc { name?: string; services: Record<string, Service>; networks?: Record<string, any>; volumes?: Record<string, any> }
 
 /** `docker compose config` resolves paths, depends_on, extends and include; `--no-interpolate` keeps `${X}` as written. */
-export async function importCompose(file: string): Promise<ComposeDoc> {
+/** `files` merged in order, as `docker compose -f a -f b` merges them: paths in all of them are the first one's folder's. */
+export async function importCompose(files: string | string[]): Promise<ComposeDoc> {
+  const list = [files].flat();
   try {
-    const { stdout } = await run('docker', ['compose', '-f', file, 'config', '--format', 'json', '--no-interpolate'], { env: dockerEnv(), maxBuffer: 64 * 1024 * 1024 });
+    const { stdout } = await run('docker', ['compose', ...list.flatMap((f) => ['-f', f]), 'config', '--format', 'json', '--no-interpolate'], { env: dockerEnv(), maxBuffer: 64 * 1024 * 1024 });
     return JSON.parse(stdout) as ComposeDoc;
   } catch (e) {
-    throw new Error(`docker compose could not read ${file}: ${String((e as { stderr?: string }).stderr ?? e).trim().split('\n').slice(-2).join(' ')}`);
+    throw new Error(`docker compose could not read ${list.join(', ')}: ${String((e as { stderr?: string }).stderr ?? e).trim().split('\n').slice(-2).join(' ')}`);
   }
+}
+
+/**
+ * The compose files an env's `from` reads, inside the project at `dir`: the ones it lists (`docker-compose.yml,
+ * docker-compose.infra.yml`), then the override compose reads by itself beside a file of its default name
+ * (`docker-compose.override.yml` by `docker-compose.yml`), as `docker compose up` does with no -f.
+ */
+export function composeFiles(dir: string, path: string): string[] {
+  const files = path.split(',').map((p) => p.trim()).filter(Boolean);
+  const m = files[0]?.match(/^((?:.*\/)?(?:docker-)?compose)\.ya?ml$/);
+  const override = m && ['yml', 'yaml'].map((x) => `${m[1]}.override.${x}`).find((f) => existsSync(join(dir, f)));
+  return override && !files.includes(override) ? [...files, override] : files;
+}
+
+/**
+ * What the map found in the project's compose files that the env leaves out: each file it does not read, with the
+ * services there the env has none of. A file whose services the env has anyway (a dev variant) says nothing.
+ */
+export function leftOut(files: Record<string, { findings: Array<{ kind: string; name?: string }> }>, read: string[], doc: ComposeDoc): Array<{ file: string; services: string[] }> {
+  return Object.entries(files).filter(([f]) => !read.includes(f)).flatMap(([file, x]) => {
+    const services = x.findings.filter((f) => f.kind === 'compose-service' && f.name && !doc.services[f.name]).map((f) => f.name!);
+    return services.length ? [{ file, services }] : [];
+  });
 }
 
 /** What the map knows about a compose service, decided by the caller (up.ts) from the map and the compose. */
@@ -168,6 +195,8 @@ export function renderCompose(normalized: ComposeDoc, spec: EnvSpec, ctx: Render
     delete s.container_name;
     delete s.networks;
     delete s.network_mode;
+    // a profile would make compose skip the service: what runs is the env's say (its services, else all of them)
+    delete s.profiles;
     s.labels = { ...(Array.isArray(s.labels) ? Object.fromEntries(s.labels.map((l: string) => l.split('='))) : s.labels ?? {}), ...labels(name) };
     // Docker's DNS also answers for a container's hostname, so the real one keeps only its own name.
     if (!nets) s.networks = { [NET]: t ? { aliases: [`${name}-real`] } : { aliases: [alias(name)] } };
@@ -241,7 +270,10 @@ export function renderCompose(normalized: ComposeDoc, spec: EnvSpec, ctx: Render
     if (r?.memory) s.mem_limit = mem(r.memory);
     if (r?.cpus) s.cpus = r.cpus;
     s.logging = { driver: 'json-file', options: { 'max-size': '20m', 'max-file': '3' } };
+    // Docker starts an always or unless-stopped container again when it starts itself (the machine turned on): an env
+    // runs when laru up asks, so those become on-failure, which still brings back a service that crashed.
     if (ctx.run) delete s.restart;
+    else if (s.restart === 'always' || s.restart === 'unless-stopped') s.restart = 'on-failure';
     services[realName(name)] = s;
   }
 
@@ -346,7 +378,7 @@ export function renderCompose(normalized: ComposeDoc, spec: EnvSpec, ctx: Render
       networks: tapNets,
       extra_hosts: ['host.docker.internal:host-gateway'],
       healthcheck: { test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:7999/__ks/health'], interval: '2s', timeout: '2s', retries: 30, start_period: '10s' },
-      restart: ctx.run ? 'no' : 'unless-stopped',
+      restart: ctx.run ? 'no' : 'on-failure',
       logging: { driver: 'json-file', options: { 'max-size': '20m', 'max-file': '3' } },
       ...(tapPorts.length ? { ports: tapPorts } : {}),
     };

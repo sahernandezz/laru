@@ -14,7 +14,8 @@ import { pieceLabel, plural, STAGE, STATUS } from '../lib/es.ts';
 import { Diagram, Markdown } from '../lib/md.tsx';
 import { href } from '../lib/route.ts';
 import { useScope } from '../lib/scope.ts';
-import { FieldView, iconOf } from './Docs.tsx';
+import { FieldView } from './Docs.tsx';
+import { iconOf } from '../lib/pieceMenu.tsx';
 
 const CONTAINER = ['application', 'module', 'process', 'repository', 'service', 'datastore', 'external'];
 

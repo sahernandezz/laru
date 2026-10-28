@@ -8,9 +8,9 @@ import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statS
 import { connect, createServer } from 'node:net';
 import { dirname, join, relative } from 'node:path';
 import { parse } from 'yaml';
-import { IMAGE_KINDS, loadGraph, WorkspaceError, type Graph, type Workspace } from '@laru/core';
+import { IMAGE_KINDS, loadExtraction, loadGraph, WorkspaceError, type Graph, type Workspace } from '@laru/core';
 import { writeMaskFile } from '@laru/trace';
-import { closure, importCompose, interpolations, renderCompose, type ComposeDoc, type RenderContext, type Service, type Target } from './compose.ts';
+import { closure, composeFiles, importCompose, interpolations, leftOut, renderCompose, type ComposeDoc, type RenderContext, type Service, type Target } from './compose.ts';
 import { readConfig } from './config.ts';
 import { prune } from './disk.ts';
 import { destroyByLabel, docker, dockerStream, envLock, hold, inspectEnv, LABEL, machineLock, recentStats, stats, withLock, workspaceKey, type ContainerState, type DestroyReport } from './docker.ts';
@@ -328,18 +328,23 @@ export async function up(ws: Workspace, opts: UpOptions): Promise<UpResult> {
       if (!base.from && !base.join) throw new WorkspaceError('which compose to start from: `<repo>:<path>`', `envs/${opts.env}.yaml: from`);
       const joint = Boolean(base.join);
       const memberSpecs = joint ? base.join!.map((m) => ({ env: m, spec: loadEnvSpec(ws, m) })) : [{ env: opts.env, spec: base }];
-      const members: Array<{ env: string; repo: string; path: string; spec: EnvSpec; snap: Awaited<ReturnType<typeof snapshotRepo>>; composeFile: string; doc: ComposeDoc }> = [];
+      const members: Array<{ env: string; repo: string; path: string; spec: EnvSpec; snap: Awaited<ReturnType<typeof snapshotRepo>>; files: string[]; doc: ComposeDoc }> = [];
       for (const m of memberSpecs) {
         const repo = m.spec.from!.repo;
         const at = await resolveEnvRef(ws, repo, opts.worktree ? 'worktree' : base.refs[repo] ?? m.spec.refs[repo]);
         const snap = await snapshotRepo(ws, repo, at);
-        members.push({ env: m.env, repo, path: m.spec.from!.path, spec: m.spec, snap, composeFile: join(snap.dir, m.spec.from!.path), doc: { services: {} } });
+        const files = composeFiles(snap.dir, m.spec.from!.path);
+        members.push({ env: m.env, repo, path: m.spec.from!.path, spec: m.spec, snap, files, doc: { services: {} } });
       }
       phase('snapshot', members.map((m) => `${m.repo}@${m.snap.id.slice(0, 7)}`).join(' · '));
+      // A service the map found in a compose file the env does not read is said, with the file to add to from.
+      const unread: string[] = [];
       for (const m of members) {
-        if (!existsSync(m.composeFile)) throw new WorkspaceError(`${m.path} is not in ${m.repo}@${m.snap.id.slice(0, 7)}`, `envs/${m.env}.yaml: from`);
-        m.doc = await importCompose(m.composeFile);
+        for (const f of m.files) if (!existsSync(join(m.snap.dir, f))) throw new WorkspaceError(`${f} is not in ${m.repo}@${m.snap.id.slice(0, 7)}`, `envs/${m.env}.yaml: from`);
+        m.doc = await importCompose(m.files.map((f) => join(m.snap.dir, f)));
+        for (const x of leftOut(loadExtraction(ws, m.repo)?.files ?? {}, m.files, m.doc)) unread.push(`${x.services.join(', ')} ${x.services.length === 1 ? 'is' : 'are'} in ${m.repo}:${x.file}, which this env does not read: to start ${x.services.length === 1 ? 'it' : 'them'}, add that file to from in envs/${m.env}.yaml (from: ${m.repo}:${m.path},${x.file})`);
       }
+      for (const w of unread) emit({ kind: 'log', source: 'laru', line: `warning: ${w}` });
 
       // Names: a service is known by its unique name everywhere; with several projects they come from the map.
       const g = ws.repos.length > 1 ? loadGraph(ws) : tryGraph(ws);
@@ -376,7 +381,7 @@ export async function up(ws: Workspace, opts: UpOptions): Promise<UpResult> {
           : { ...(s.environment ?? {}) };
         return { name, built: Boolean(s.build), environment, interpolations: interpolations(s), ...(joined.composeOf[name] !== name ? { compose: joined.composeOf[name] } : {}), ...(joint ? { env: joined.envOf[name] } : {}) };
       });
-      const issues = members.flatMap((m) => missingVars(ws, opts.env, infos.filter((i) => memberOf(i.name) === m), g, { file: `${m.repo}:${m.path}`, lines: readFileSync(m.composeFile, 'utf8').split('\n') }));
+      const issues = members.flatMap((m) => missingVars(ws, opts.env, infos.filter((i) => memberOf(i.name) === m), g, m.files.map((f) => ({ file: `${m.repo}:${f}`, lines: readFileSync(join(m.snap.dir, f), 'utf8').split('\n') }))));
       const errors = issues.filter((i) => i.level === 'error');
       if (errors.length) throw new EnvError(`${errors.length} value${errors.length > 1 ? 's are' : ' is'} missing:\n  ${errors.map((i) => i.message).join('\n  ')}`, { issues });
       const inj = await injection(ws, opts.env, infos, g);
@@ -694,7 +699,7 @@ export async function up(ws: Workspace, opts: UpOptions): Promise<UpResult> {
       emit({ kind: 'ready', ms });
       const services: ServiceStatus[] = last.map(({ k, c, health }) => ({ service: svcOf(k), compose: k, mode: k === 'ks-tap' ? 'tap' : health === 'done' ? 'job' : 'container', health, built: built[svcOf(k)], image: real(k).image, container: c }));
       for (const h of spec.hybrid) services.push({ service: h, compose: h, mode: 'host', health: 'waiting', note: 'start it with laru run' });
-      return { env: opts.env, project, ms, timings, changed, services, addresses: addressesOf(ws.app, tapCfg, state), warnings: [...rendered.warnings, ...issues.filter((i) => i.level !== 'error').map((i) => i.message), ...consumerWarnings] };
+      return { env: opts.env, project, ms, timings, changed, services, addresses: addressesOf(ws.app, tapCfg, state), warnings: [...unread, ...rendered.warnings, ...issues.filter((i) => i.level !== 'error').map((i) => i.message), ...consumerWarnings] };
     }, (holder) => emit({ kind: 'log', source: 'laru', line: `waiting for ${holder} to finish` }), envLock(ws, opts.env, opts.run));
   } catch (e) {
     release?.();

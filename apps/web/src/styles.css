@@ -627,6 +627,10 @@ ul.plain { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; fon
 .sysmap .e.event { stroke-dasharray: 5 4; }
 .sysmap .e.store { stroke-dasharray: 1.5 3.5; }
 .sysmap .e.across { stroke-dasharray: 8 3; }
+/* one application depending on another: thicker as well as coloured, never told apart by colour alone */
+.sysmap .e.xapp { stroke: var(--run); stroke-width: 2.25; opacity: 1; }
+.sysmap .band rect { fill: var(--fill-1); stroke: var(--line-1); }
+.sysmap .band text { font-size: 12px; font-weight: 600; fill: var(--ink-2); }
 .sysmap .e.derived { opacity: .55; }
 .sysmap .e.hot { stroke: var(--accent); stroke-width: 2; opacity: 1; }
 .sysmap .e.dim { opacity: .12; }
@@ -1827,8 +1831,16 @@ ul.cases { font-size: var(--t-13); color: var(--ink-2); }
 .other-screens .peer { position: relative; }
 .other-screens .novideo { border-radius: var(--r-md); font-size: var(--t-12); }
 .novideo { pointer-events: none; }
-.other-screens video { width: 100%; border-radius: var(--r-md); background: #000; display: block; }
+.other-screens video { width: 100%; max-height: 460px; object-fit: contain; border-radius: var(--r-md); background: #000; display: block; }
 .other-screens figcaption { font-size: var(--t-12); color: var(--ink-3); padding-top: 4px; }
+.peer .open-float { position: absolute; top: 6px; right: 6px; z-index: 2; background: var(--bg-100); }
+/* a screen in its own window: moved by its bar, resized from its corner (the browser's own handle) */
+.float-screen { position: fixed; z-index: 60; width: 720px; height: 440px; min-width: 220px; min-height: 160px; max-width: 96vw; max-height: 92vh; resize: both; overflow: hidden;
+  display: grid; grid-template-rows: auto minmax(0, 1fr); background: var(--bg-100); border: 1px solid var(--line-1); border-radius: var(--r-lg); box-shadow: 0 16px 40px rgba(0, 0, 0, .4); }
+.float-screen.phone { width: 380px; height: 760px; }
+.float-bar { display: flex; align-items: center; gap: 8px; padding: 4px 6px 4px 12px; cursor: move; font-size: var(--t-12); border-bottom: 1px solid var(--line-1); user-select: none; touch-action: none; }
+.float-bar span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.float-screen video { width: 100%; height: 100%; object-fit: contain; background: #000; display: block; }
 
 /* ---------- depth and motion (D5) ---------- */
 .flow-map .packet { fill: var(--accent); stroke: var(--bg-100); stroke-width: 1.5; }
@@ -1914,6 +1926,8 @@ ul.cases { font-size: var(--t-13); color: var(--ink-2); }
 
 /* ---------- the studio: a run's player on the whole window, laid out as a video editor ---------- */
 .st-open { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; font-size: var(--t-12); }
+/* the studio's own screen has no shell: the studio starts at the top of the window */
+.studio-page { --top: 0px; min-height: 100vh; background: var(--bg-100); }
 .studio {
   position: fixed; inset: var(--top) 0 0 0; z-index: 40; background: var(--bg-200); outline: none;
   display: grid; gap: 1px; background-color: var(--line-1);
@@ -1922,7 +1936,25 @@ ul.cases { font-size: var(--t-13); color: var(--ink-2); }
   grid-template-areas: "bar bar bar" "video stage side" "transport transport transport" "tracks tracks tracks";
 }
 .studio > * { background: var(--bg-100); min-width: 0; min-height: 0; }
+.studio > [hidden] { display: none; }
 .studio.stepping { box-shadow: inset 0 0 0 2px var(--accent-soft); }
+/* the recorded studio's panels are the person's to size and to put away: widths and the timeline's height come from the page */
+.studio.st-resizable {
+  gap: 0;
+  /* the panels give way before the middle view does: it keeps 320 × 160 whatever widths were saved (STAGE_MIN in Runs.tsx) */
+  grid-template-columns: minmax(0, var(--st-video)) var(--st-vs) minmax(320px, 1fr) var(--st-ss) minmax(0, var(--st-side));
+  grid-template-rows: auto minmax(160px, 1fr) auto var(--st-ts) minmax(0, var(--st-tracks));
+  grid-template-areas: "bar bar bar bar bar" "video vs stage ss side" "transport transport transport transport transport" "ts ts ts ts ts" "tracks tracks tracks tracks tracks";
+}
+.st-resizable .st-bar, .st-resizable .st-transport { border-bottom: 1px solid var(--line-1); }
+.st-resizable .tracks { max-height: none; }
+.st-split { background: var(--line-1); touch-action: none; }
+.st-split-x { cursor: col-resize; }
+.st-split-y { cursor: row-resize; }
+.st-split:hover, .st-split:focus-visible { background: var(--accent); outline: none; }
+body.dragging, body.dragging * { user-select: none; cursor: inherit; }
+.st-panels { display: inline-flex; gap: 4px; }
+.st-panels .btn[aria-pressed="false"] { opacity: .55; }
 .st-bar { grid-area: bar; display: flex; align-items: center; gap: 12px; padding: 6px 12px; }
 .st-bar > * { flex: none; }
 .st-title { font-size: var(--t-14); max-width: 32ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -2026,6 +2058,8 @@ ul.cases { font-size: var(--t-13); color: var(--ink-2); }
   .studio > * { flex: none; }
   .st-side { height: 70vh; }
   .st-video { order: 1; } .st-transport { order: 2; } .st-stage { order: 3; } .tracks { order: 4; } .st-side { order: 5; }
+  .st-split { display: none; }
+  .st-resizable .tracks { max-height: 30vh; }
 }
 /* the live studio: the app the person uses is the widest column; the timeline grows under all of it */
 /* the live studio is the recorded one (its columns) without a transport: the session's clock is the bar's */

@@ -368,6 +368,14 @@ test('the vault under a skeptical review', async (t) => {
     await unsetVar(ws, { key: 'POSTGRES_PASSWORD', level: 'app' });
   });
 
+  await t.test('with several compose files, a variable a service needs is found in the file that has it, not excused by a default in another', async () => {
+    const worker: VaultService[] = [{ name: 'worker', built: false, environment: { QUEUE_URL: '${QUEUE_URL}', TOKEN: null }, interpolations: ['QUEUE_URL'] }];
+    const main = { file: 'app:docker-compose.yml', lines: ['services:', '  api:', '    image: nginx', '    environment:', '      QUEUE_URL: ${QUEUE_URL:-http://queue}'] };
+    const infra = { file: 'app:docker-compose.infra.yml', lines: ['services:', '  worker:', '    image: nginx', '    environment:', '      QUEUE_URL: ${QUEUE_URL}', '      - TOKEN'] };
+    const issues = missingVars(ws, 'local', worker, null, [main, infra]);
+    assert.deepEqual(issues.map((i) => [i.code, i.key, i.at]), [['missing-var', 'QUEUE_URL', 'app:docker-compose.infra.yml:5'], ['missing-var', 'TOKEN', 'app:docker-compose.infra.yml:6']]);
+  });
+
   await t.test('an empty value is a blank override; ${X:+alt} and ${X+alt} need nothing', async () => {
     await setVar(ws, { key: 'JWT_SIGNING', value: '', level: 'app' });
     const svcs: VaultService[] = [{

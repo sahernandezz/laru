@@ -12,10 +12,14 @@ export type EdgeKind = 'call' | 'event' | 'store';
 export interface MapEdge { id: string; from: string; to: string; kind: EdgeKind; label: string; origin: Fact['origin']; facts: Fact[] }
 export interface Placed { node: MapNode; x: number; y: number; col: number }
 /** An edge comes with its path and its label's box: centred on `lx`, `lw` wide, from 11px above its baseline `ly`, LABEL_H tall. */
-export interface Layout<E extends MapEdge = MapEdge> { nodes: Placed[]; edges: Array<E & { d: string; lx: number; ly: number; lw: number }>; width: number; height: number; columns: Array<{ x: number; title: string }> }
+export interface Layout<E extends MapEdge = MapEdge> {
+  nodes: Placed[]; edges: Array<E & { d: string; lx: number; ly: number; lw: number }>; width: number; height: number; columns: Array<{ x: number; title: string }>;
+  /** a band per application, top to bottom, when the map holds more than one; none otherwise */
+  bands: Array<{ y: number; h: number; title: string }>;
+}
 
 export const NODE_W = 200, NODE_H = 56;
-const COL_GAP = 120, ROW_GAP = 26, TOP = 44, LEFT = 24, UNDER = 18;
+const COL_GAP = 120, ROW_GAP = 26, TOP = 44, LEFT = 24, UNDER = 18, BAND_HEAD = 26, BAND_GAP = 14;
 /** An edge's label: 10.5px of a monospace font is 0.6em a character and 13.5px tall; its box keeps 3px each side. */
 const LABEL_CH = 6.3;
 export const LABEL_H = 14;
@@ -60,8 +64,35 @@ export function edgesOf(g: Indexed): MapEdge[] {
   return [...by.values()];
 }
 
-/** `keep`: every store and external has its place, edges or not (the full map); else only the ones an edge reaches. */
-export function layout<E extends MapEdge>(g: Indexed, edges: E[], o: { keep?: boolean } = {}): Layout<E> {
+export const ACTORS = 'Actores', NO_GROUP = 'Sin grupo', SHARED = 'Compartido';
+/**
+ * The application each piece belongs to: its repo's group. One with no repo (an external) takes the group of whoever
+ * uses it, or «Compartido» when several do. In order: the actors first, the groups as laru.yaml lists their repos,
+ * «Sin grupo» and «Compartido» last.
+ */
+export function groupsOf(g: Indexed, edges: MapEdge[]): { of: Map<string, string>; order: string[] } {
+  const byRepo = new Map(g.map.repos.map((r) => [r.name, r.group]));
+  const of = new Map<string, string>();
+  for (const n of g.map.nodes) if (n.kind === 'actor') of.set(n.id, ACTORS); else if (n.repo) of.set(n.id, byRepo.get(n.repo) ?? NO_GROUP);
+  for (const n of g.map.nodes) {
+    if (of.has(n.id)) continue;
+    const users = new Set(edges.filter((e) => e.to === n.id || e.from === n.id).map((e) => of.get(e.to === n.id ? e.from : e.to)).filter((x) => x && x !== ACTORS && x !== NO_GROUP));
+    of.set(n.id, users.size === 1 ? [...users][0]! : users.size ? SHARED : NO_GROUP);
+  }
+  const named = g.map.repos.map((r) => r.group).filter((x): x is string => Boolean(x));
+  return { of, order: [...new Set([ACTORS, ...named, NO_GROUP, SHARED])] };
+}
+
+/** Each piece's application when the workspace names more than one (`group` in laru.yaml); undefined otherwise. */
+export function appsOf(g: Indexed): Map<string, string> | undefined {
+  return new Set(g.map.repos.map((r) => r.group).filter(Boolean)).size > 1 ? groupsOf(g, edgesOf(g)).of : undefined;
+}
+
+/**
+ * `keep`: every store and external has its place, edges or not (the full map); else only the ones an edge reaches.
+ * `bands`: a horizontal band per application when the map holds more than one; the columns stay, each split by band.
+ */
+export function layout<E extends MapEdge>(g: Indexed, edges: E[], o: { keep?: boolean; bands?: boolean } = {}): Layout<E> {
   const services = g.map.nodes.filter((n) => n.type === 'service');
   const stores = g.map.nodes.filter((n) => (n.type === 'datastore' || n.type === 'external') && (o.keep || edges.some((e) => e.to === n.id || e.from === n.id)));
   const calls = edges.filter((e) => e.kind === 'call');
@@ -110,9 +141,28 @@ export function layout<E extends MapEdge>(g: Indexed, edges: E[], o: { keep?: bo
     }
   }
 
-  const tallest = Math.max(...cols.map((c) => c?.length ?? 0));
+  const step = NODE_H + ROW_GAP;
   const rowY = new Map<string, number>();
-  cols.forEach((c) => (c ?? []).forEach((node, i) => rowY.set(node.id, TOP + ((tallest - c.length) * (NODE_H + ROW_GAP)) / 2 + i * (NODE_H + ROW_GAP))));
+  const grp = o.bands && new Set(g.map.repos.map((r) => r.group).filter(Boolean)).size > 1 ? groupsOf(g, edges) : undefined;
+  const bands: Layout['bands'] = [];
+  let bottom: number;
+  if (grp) {
+    // each band as tall as its fullest column, the columns centred in it as they are on a map without bands
+    let y = TOP - 10;
+    for (const title of grp.order) {
+      const per = cols.map((c) => (c ?? []).filter((n) => grp.of.get(n.id) === title));
+      const rows = Math.max(...per.map((c) => c.length));
+      if (!rows) continue;
+      per.forEach((c) => c.forEach((node, i) => rowY.set(node.id, y + BAND_HEAD + ((rows - c.length) * step) / 2 + i * step)));
+      bands.push({ y, h: BAND_HEAD + rows * step - ROW_GAP + 10, title });
+      y += bands.at(-1)!.h + BAND_GAP;
+    }
+    bottom = y - BAND_GAP + 12;
+  } else {
+    const tallest = Math.max(...cols.map((c) => c?.length ?? 0));
+    cols.forEach((c) => (c ?? []).forEach((node, i) => rowY.set(node.id, TOP + ((tallest - c.length) * step) / 2 + i * step)));
+    bottom = TOP + tallest * step;
+  }
 
   // Each edge gets its own vertical lane in a gap: from the left for whoever turns there, from the right for an edge
   // that comes back from under the drawing. One within a column takes the rightmost, so its label, right of its lane,
@@ -164,7 +214,6 @@ export function layout<E extends MapEdge>(g: Indexed, edges: E[], o: { keep?: bo
   // Every path first, as its corners; backwards, under the whole drawing, a lane each. Long edges go last: across the
   // columns between they run at the height nearest their port that keeps 9px from every other line there, so none
   // lies on another's line or under its label, and clear of the nodes they pass when there is such a height.
-  const bottom = TOP + tallest * (NODE_H + ROW_GAP);
   const between = (p: (typeof plan)[number]) => [...placed.values()].filter((n) => n.col > p.ca && n.col < p.cb);
   let under = 0;
   for (const p of [...plan].sort((p, q) => Number(p.cb > p.ca + 1) - Number(q.cb > q.ca + 1))) {
@@ -173,7 +222,8 @@ export function layout<E extends MapEdge>(g: Indexed, edges: E[], o: { keep?: bo
       const mx = colX[p.cb - 1] + NODE_W + 14 + p.l * 11, ox = sx + 14 + p.lo * 11;
       const lines = plan.flatMap((q) => segments(q.pts)).filter((s) => !s.h && s.x < mx && s.x + s.w > ox);
       const free = (v: number) => lines.every((s) => Math.abs(s.y - v) >= 9), ys = near(sy, TOP - 12, bottom - 12);
-      const y = p.cb > p.ca + 1 ? ys.find((v) => free(v) && between(p).every((n) => v < n.y - 6 || v > n.y + NODE_H + 6)) ?? ys.find(free) ?? sy : sy;
+      const passed = p.cb > p.ca + 1 ? between(p) : [];
+      const y = p.cb > p.ca + 1 ? ys.find((v) => free(v) && passed.every((n) => v < n.y - 6 || v > n.y + NODE_H + 6)) ?? ys.find(free) ?? sy : sy;
       p.pts = [[sx, sy], ...(y === sy ? [] : [[ox, sy], [ox, y]]), [mx, y], [mx, ty], [b.x, ty]];
     } else if (p.cb === p.ca) {
       const mx = sx + 14 + p.l * 11;
@@ -186,7 +236,10 @@ export function layout<E extends MapEdge>(g: Indexed, edges: E[], o: { keep?: bo
   const segs = plan.map((p) => segments(p.pts));
   const meets = (a: Box, b: Box, m = 0) => a.x - m < b.x + b.w && b.x < a.x + a.w + m && a.y - m < b.y + b.h && b.y < a.y + a.h + m;
   /** the distance between two boxes, 0 when they touch */
-  const dist = (a: Box, b: Box) => Math.hypot(Math.max(0, b.x - (a.x + a.w), a.x - (b.x + b.w)), Math.max(0, b.y - (a.y + a.h), a.y - (b.y + b.h)));
+  const dist = (a: Box, b: Box) => {
+    const dx = Math.max(0, b.x - (a.x + a.w), a.x - (b.x + b.w)), dy = Math.max(0, b.y - (a.y + a.h), a.y - (b.y + b.h));
+    return dx && dy ? Math.hypot(dx, dy) : dx + dy; // the same value, without hypot's cost when it is along one axis
+  };
   // A label sits on its own line, which stops at its edges: forward, by the arrowhead, sliding back along the last
   // stretch; backwards, on its lane under the drawing, from the middle out. Within a column it sits right of its lane,
   // from the middle out, as far as just past either corner. It takes the first spot clear of every node, every label
@@ -211,12 +264,17 @@ export function layout<E extends MapEdge>(g: Indexed, edges: E[], o: { keep?: bo
   const label: Box[] = [];
   for (const i of plan.map((_, i) => i).sort((i, j) => Math.sign(plan[j].cb - plan[j].ca) - Math.sign(plan[i].cb - plan[i].ca))) {
     const r = plan[i], all = spots(r).map((s): Box => ({ ...s, w: r.w, h: LABEL_H }));
-    const clear = (b: Box) => {
-      const own = Math.min(...segs[i].map((s) => dist(b, s)));
-      return !nodes.some((n) => meets(b, n)) && !label.some((l) => l && meets(b, l)) && segs.every((ss, j) => j === i || ss.every((s) => dist(b, s) >= Math.max(2, own + 2)));
-    };
-    const box = (r.w ? all.find(clear) : undefined) ?? all[0];
-    label[i] = box;
+    if (!r.w) { label[i] = all[0]; continue; }
+    const own = all.map((b) => { let m = Infinity; for (const s of segs[i]) m = Math.min(m, dist(b, s)); return m; });
+    // Only what comes near the spots can rule one out: a line farther from all of them than any spot's own line plus 2px
+    // never does. Weeded once per label, not once per spot: on a large map that is most of the drawing.
+    const x0 = Math.min(...all.map((b) => b.x)), y0 = Math.min(...all.map((b) => b.y));
+    const area: Box = { x: x0, y: y0, w: Math.max(...all.map((b) => b.x + b.w)) - x0, h: Math.max(...all.map((b) => b.y + b.h)) - y0 };
+    const reach = Math.max(2, Math.max(...own) + 2);
+    const lines = segs.flatMap((ss, j) => (j === i ? [] : ss.filter((s) => dist(area, s) < reach)));
+    const boxes = [...nodes, ...label.filter(Boolean)].filter((n) => meets(area, n));
+    const k = all.findIndex((b, k) => !boxes.some((n) => meets(b, n)) && lines.every((s) => dist(b, s) >= Math.max(2, own[k] + 2)));
+    label[i] = all[k] ?? all[0];
   }
   const routed = plan.map(({ e, w, pts }, i) => ({
     ...e, d: pts.map(([x, y], k) => (!k ? `M${x} ${y}` : y === pts[k - 1][1] ? `H${x}` : `V${y}`)).join(' '), lx: label[i].x + w / 2, ly: label[i].y + 11, lw: w,
@@ -227,7 +285,7 @@ export function layout<E extends MapEdge>(g: Indexed, edges: E[], o: { keep?: bo
     x: colX[ci],
     title: taken[ci] === lastService + 1 ? 'Datos e infraestructura' : taken[ci] === 0 ? 'Entrada' : `Servicios, nivel ${taken[ci]}`,
   })).filter((_, ci) => cols[ci]?.length);
-  return { nodes: [...placed.values()], edges: routed, width, height: bottom + 24 + under * UNDER, columns };
+  return { nodes: [...placed.values()], edges: routed, width, height: bottom + 24 + under * UNDER, columns, bands };
 }
 
 /** An edge of a flow's map: the exchanges it folds, how many went wrong, and whether the code knows it. */
@@ -359,13 +417,15 @@ export function litBy(g: Indexed, trace: Pick<Trace, 'participants' | 'exchanges
 /**
  * The full map of a flow's page: every piece of the system and the actors its tests used; the code's edges merged with
  * what each test drew. Each edge keeps room for the widest label any test gives it, so laid out once, nodes keep their
- * place from the story to its cases and each test writes its own label in that box.
+ * place from the story to its cases and each test writes its own label in that box. `onlyUsed`: only the pieces some
+ * test went through, unless none went through any.
  */
-export function archGraph(g: Indexed, tests: Array<Pick<Trace, 'participants' | 'exchanges' | 'failure'>>): { sub: Indexed; edges: MapEdge[]; lits: Lit[]; pieces: MapNode[] } {
+export function archGraph(g: Indexed, tests: Array<Pick<Trace, 'participants' | 'exchanges' | 'failure'>>, o: { onlyUsed?: boolean } = {}): { sub: Indexed; edges: MapEdge[]; lits: Lit[]; pieces: MapNode[] } {
   const lits = tests.map((t) => litBy(g, t));
   const pieces = g.map.nodes.filter(isPiece);
-  const nodes = new Map(pieces.map((n) => [n.id, n]));
-  for (const l of lits) for (const n of l.fg.sub.map.nodes) if (!nodes.has(n.id)) nodes.set(n.id, n);
+  const seen = lits.flatMap((l) => l.fg.sub.map.nodes);
+  const nodes = new Map((o.onlyUsed && seen.some(isPiece) ? [] : pieces).map((n) => [n.id, n]));
+  for (const n of seen) if (!nodes.has(n.id)) nodes.set(n.id, n);
   const edges = new Map<string, MapEdge>();
   for (const e of edgesOf(g)) if (nodes.has(e.from) && nodes.has(e.to)) edges.set(e.id, { ...e, label: '' });
   for (const l of lits) for (const e of l.edges.values()) {

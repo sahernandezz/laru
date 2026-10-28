@@ -57,6 +57,8 @@ export function agentGuide(ws: Pick<Workspace, 'app' | 'title'>, o: { cli?: bool
     '## Before and after a change',
     `- Before changing code: ${via('context', 'context <target>')} on the file, service or endpoint (what it is, who calls it, what it touches). Bearings: ${via('tree', 'tree')}; questions: ${via('ask', 'ask "<question>"')}; how two things connect: ${via('path', 'path <a> <b>')}.`,
     `- The map is read from each repo's reference branch (or a folder project's current content), not your working copy: ${via('repo_status', 'status')} says how far apart. After adding endpoints, tables, topics or env vars: ${via('map_refresh', 'map')}.`,
+    '- The map is read from code, so it misses what code does not show (a Lambda\'s own router, a gateway that is only an image, URLs kept in `.env`). You know the application: when the map lacks a service, a route or a connection, declare it in `laru.yaml` and refresh the map, rather than leaving it wrong:',
+    '  `services: { <name>: { repo: <project>, dir: <folder, or none for a compose container of that name>, kind: lambda, endpoints: [GET /x, "/y/{id}"], calls: [<service>, "<service> POST /path", postgres, api.vendor.example] } }`.',
     `- The loop: context → edit → ${via('impact', 'impact')} → ${via('flow_run', 'test --affected')} → ${via('run_evidence', 'runs show <id>')} → fix the code, or the documentation when it was wrong. Done means the affected flows are green and ${via('check', 'check')} has no errors.`,
     '',
     '## The documentation standard',

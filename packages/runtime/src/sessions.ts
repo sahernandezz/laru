@@ -16,7 +16,7 @@ import { checkFlowSpec, knowledgeWrite, loadGraph, loadKnowledge, slugify, specP
 import { assemble, draftFromSession, scenarioFromSession, sessionEvents, type RunInfo, type SessionBrowserLog, type Trace } from '@laru/trace';
 import { envMasker, isInstance, loadEnvSpec } from './env.ts';
 import { instanceNarrowed, widenInstance } from './flowenv.ts';
-import { baseUrl, capture, keepEvidence, nextId, readRun, readTrace, recordObserved, runDir, withFields } from './runs.ts';
+import { baseUrl, capture, captureMemo, keepEvidence, nextId, readRun, readTrace, recordObserved, runDir, withFields, type CaptureMemo } from './runs.ts';
 import { applyScenario, scenarioStorage } from './scenarios.ts';
 import { status } from './up.ts';
 
@@ -99,14 +99,17 @@ export async function tapSkew(ws: Workspace, env: string): Promise<number> {
   return samples.length ? Math.round(samples.sort((x, y) => x - y)[Math.floor(samples.length / 2)]) : 0;
 }
 
-async function assembleSession(ws: Workspace, r: RunInfo, end0: number, open: boolean, dir?: string, kafka = true) {
+/** Each open session's reads, kept between them (runs.ts CaptureMemo); gone when the session stops. */
+const memos = new Map<string, CaptureMemo>();
+
+async function assembleSession(ws: Workspace, r: RunInfo, end0: number, open: boolean, dir?: string, kafka = true, memo?: CaptureMemo) {
   const skew = r.clockSkewMs ?? 0, end = end0 + skew;
   const t0 = Date.parse(r.startedAt) + skew;
   const log = browserLog(ws, r.id);
   const events = sessionEvents(r.title ?? r.id, t0, marksOf(ws, r.id).map((m) => ({ ...m, t: m.t + skew })), end, open,
     { ...log, actions: (log.actions ?? []).map((a) => ({ ...a, t0: a.t0 + skew })), ...(log.videoT0 !== undefined ? { videoT0: log.videoT0 + skew } : {}) });
   const masker = withFields(envMasker(ws, r.env));
-  const c = await capture(ws, r.env, undefined, t0 - 1000, end + 2000, masker, dir, { kafka });
+  const c = await capture(ws, r.env, undefined, t0 - 1000, end + 2000, masker, dir, { kafka, memo });
   let map = null;
   try { map = loadGraph(ws).map; } catch { /* no map: participants keep their names */ }
   const { traces, observed } = assemble({ run: r.id, flow: SESSION, env: r.env, events, traffic: c.traffic, sql: c.sql, kafka: c.kafka, logs: c.logs, peers: c.peers, gatewayIp: c.gateways[0], gatewayIps: c.gateways, hybrid: loadEnvSpec(ws, r.env).hybrid, map: map ?? undefined, person: true });
@@ -121,16 +124,18 @@ async function assembleSession(ws: Workspace, r: RunInfo, end0: number, open: bo
 export async function sessionTrace(ws: Workspace, id: string, o: { kafka?: boolean } = {}): Promise<{ run: RunInfo; trace: Trace }> {
   const r = session(ws, id);
   if (r.phase === 'done') {
+    memos.delete(id);
     const trace = readTrace(ws, id, SESSION);
     if (!trace) throw new Error(`session ${id} kept no trace`);
     return { run: r, trace };
   }
-  // Known limit: the whole window is read again on every call; per-source cursors when sessions run past ~10 minutes
-  return { run: r, trace: (await assembleSession(ws, r, Date.now(), true, undefined, o.kafka !== false)).trace };
+  const memo = memos.get(id) ?? memos.set(id, captureMemo()).get(id)!;
+  return { run: r, trace: (await assembleSession(ws, r, Date.now(), true, undefined, o.kafka !== false, memo)).trace };
 }
 
 /** Saves the session as evidence: its masked slices in raw/, its trace in flows/session/, what it observed for the map. */
 export async function stopSession(ws: Workspace, id: string): Promise<RunInfo> {
+  memos.delete(id);
   const r = session(ws, id);
   if (r.phase === 'done') return r;
   r.phase = 'evidence';

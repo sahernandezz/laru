@@ -11,7 +11,8 @@ import { toast } from '../components/ui.tsx';
 import { issueText, KIND, pieceLabel, STATUS } from '../lib/es.ts';
 import { pageOf } from '../lib/route.ts';
 import { Diagram } from '../lib/md.tsx';
-import { iconOf, noteLevel } from './Docs.tsx';
+import { noteLevel } from './Docs.tsx';
+import { iconOf } from '../lib/pieceMenu.tsx';
 
 type Row = Record<string, string>;
 

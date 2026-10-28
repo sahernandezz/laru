@@ -24,7 +24,7 @@ export function pickEnv(ws: Workspace, named?: string): string {
   const envs = listEnvs(ws);
   if (envs.includes('local')) return 'local';
   if (envs.length === 1) return envs[0];
-  throw new WorkspaceError(envs.length ? `which env? ${envs.join(', ')}` : 'no envs yet; create one with `laru env init local --from <repo>:<compose file>`');
+  throw new WorkspaceError(envs.length ? `which env? ${envs.join(', ')}` : 'no envs yet; create one with `laru env init local --from <repo>:<compose file>[,<file>…]`');
 }
 
 function printStatus(io: Out, s: EnvStatus) {
@@ -267,7 +267,7 @@ export async function runtimeCommand(cmd: string, args: string[], o: Opts, ws: (
           io.log(`envs/${args[1]}.yaml written. Next: laru up ${args[1]}`);
           return 0;
         }
-        if (!o.from || !/^[a-z0-9-]+:.+/.test(String(o.from))) { io.err('usage: laru env init <name> --from <repo>:<compose file> | --join <env>,<env> [--share <svc>=<svc>]'); return 2; }
+        if (!o.from || !/^[a-z0-9-]+:.+/.test(String(o.from))) { io.err('usage: laru env init <name> --from <repo>:<compose file>[,<file>…] | --join <env>,<env> [--share <svc>=<svc>]'); return 2; }
         mkdirSync(join(w.root, 'envs'), { recursive: true });
         writeFileSync(f, `from: ${String(o.from)}\npersistent: true\n`);
         io.log(`envs/${args[1]}.yaml written. Next: laru up ${args[1]}`);
@@ -276,7 +276,7 @@ export async function runtimeCommand(cmd: string, args: string[], o: Opts, ws: (
       if (args[0] === 'list' || !args[0]) {
         const rows = await Promise.all(listEnvs(w).map((e) => status(w, e)));
         if (o.json) { io.log(JSON.stringify(rows, null, 2)); return 0; }
-        if (!rows.length) io.log('No envs yet: laru env init local --from <repo>:<compose file>');
+        if (!rows.length) io.log('No envs yet: laru env init local --from <repo>:<compose file>[,<file>…]');
         const several = w.repos.length > 1;
         for (const r of rows) {
           const projects = several ? (() => { try { return `  [${envProjects(w, r.env).join(' · ')}]`; } catch { return ''; } })() : '';

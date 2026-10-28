@@ -105,7 +105,7 @@ export function Start({ preset }: { preset?: Preset }) {
 
 // ---------- one session, live ----------
 
-/** Reads the session about every second, Kafka every third read; Kafka's hops are kept from its last read between. */
+/** Reads the session about every second, Kafka every fifth read (a dump tool run in the broker, the dearest thing asked of Docker); Kafka's hops are kept from its last read between. */
 function useLive(id: string) {
   const [live, setLive] = useState<Live>();
   const [error, setError] = useState<string>();
@@ -114,7 +114,7 @@ function useLive(id: string) {
     let on = true, n = 0, kafka: Exchange[] = [], kafkaAt: number | undefined;
     (async () => {
       while (on) {
-        const t0 = performance.now(), withKafka = n++ % 3 === 0;
+        const t0 = performance.now(), withKafka = n++ % 5 === 0;
         try {
           const d = await api<Live>(`/api/session/trace?id=${encodeURIComponent(id)}&kafka=${withKafka ? 1 : 0}`);
           if (!on) return;
@@ -308,7 +308,7 @@ function LiveViews({ trace, g, base, open, sel, setSel }: { trace: Trace; g: Ind
   const arch = useMemo(() => {
     if (!g || !trace.exchanges.length) return null;
     const a = archGraph(g, [trace]);
-    return { lay: mapLayout(a.sub, a.edges, { keep: true }), pieces: a.pieces, lit: a.lits[0] };
+    return { lay: mapLayout(a.sub, a.edges, { keep: true, bands: true }), pieces: a.pieces, lit: a.lits[0] };
   }, [g, trace]);
   const hot = useMemo(() => new Set(trace.exchanges.filter((e) => now - e.t0 < 3000).map((e) => e.id)), [trace, now]);
   // the sequence follows what comes, unless the person scrolled up to read

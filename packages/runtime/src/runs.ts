@@ -15,7 +15,7 @@ import { ksVar, type TrafficRecord } from './types.ts';
 import { assemble, isGreen, MASK_KEYS, parseKafkaDump, parsePgLog, type KafkaLine, type Masker, type RunInfo, type RunnerEvent, type ServiceLog, type SqlLine, type Trace } from '@laru/trace';
 import { readConfig } from './config.ts';
 import { prune } from './disk.ts';
-import { byLabel, destroyByLabel, docker, dockerJson, dockerStream, envLock, inspectEnv, LABEL, stats, withLock, workspaceKey } from './docker.ts';
+import { byLabel, destroyByLabel, docker, dockerJson, dockerStream, envLock, inspectEnv, LABEL, stats, withLock, workspaceKey, type ContainerState } from './docker.ts';
 import { envDir, envMasker, envProjects, flowProjects, forgetValues, isInstance, loadEnvSpec, projectName, readState } from './env.ts';
 import { appendRunnerFile, readRunnerFile, RESULTS, runnerFile, runnerFiles } from './runner-file.ts';
 import { applyPlan, applyScenario, isExclusive, ScenarioConfirm, seedScenario } from './scenarios.ts';
@@ -360,8 +360,25 @@ export function runnerArgs(ws: Workspace, env: string, runLabel: string | undefi
  * the environment of a process that stays.
  */
 export async function startRunner(ws: Workspace, env: string, runLabel: string | undefined, id: string, out: string, envFile: string, vars: string, specs: string[]): Promise<string> {
+  // what can fail before docker runs goes first: the values are written only once nothing is left between them and their removal
+  const args = runnerArgs(ws, env, runLabel, id, out, envFile, specs);
   writeFileSync(envFile, vars, { mode: 0o600 });
-  try { return (await docker(runnerArgs(ws, env, runLabel, id, out, envFile, specs))).trim(); } finally { rmSync(envFile, { force: true }); }
+  // A joint env has a network per project: the runner also joins the first project's, before it starts, so it reaches by
+  // name what a flow reaches in that project's own env (its mocks' admin ports, its browser's hosts). Only the first: a
+  // name both projects have (edge) would lead to one or the other as the DNS answers.
+  // Known limit: a later project's flow calling its own services by a name the tap does not expose still misses; the upgrade
+  // joins the runner to the network of the project each flow's front belongs to.
+  try {
+    // Known limit: an env with no file of its own (only in tests: up has read it) is not a joint one
+    const first = (() => { try { return loadEnvSpec(ws, env).join?.[0]; } catch { return undefined; } })();
+    if (!first) return (await docker(args)).trim();
+    const c = (await docker(['create', ...args.slice(2)])).trim();
+    try {
+      await docker(['network', 'connect', `${projectName(ws, env, runLabel)}-${loadEnvSpec(ws, first).from!.repo}`, c]);
+      await docker(['start', c]);
+    } catch (e) { await docker(['rm', '-f', c]).catch(() => ''); throw e; }
+    return c;
+  } finally { rmSync(envFile, { force: true }); }
 }
 
 /**
@@ -394,6 +411,7 @@ export async function runFlows(ws: Workspace, o: RunOptions): Promise<RunInfo> {
   const picked = o.flows?.length ? o.flows.map((f) => all.find((x) => x.slug === f || x.id === f) ?? (() => { throw new Error(`no flow ${f}; flows are ${all.map((x) => x.slug).join(', ')}`); })()) : all.filter((f) => f.exists);
   const missing = picked.filter((f) => !f.exists);
   const run: RunInfo = { id, env: o.env, ephemeral: Boolean(o.ephemeral), flows: picked.map((f) => f.slug), phase: 'queued', status: 'running', startedAt: new Date().toISOString(), pid: process.pid, results: {}, videoOffsetMs: readConfig().videoOffsetMs };
+  const hold = readConfig().stepHoldMs; // a recorded story's pause at the end of each step
   const save = () => writeFileSync(join(dir, 'run.json'), JSON.stringify(run, null, 2));
   const phase = (p: RunInfo['phase']) => { run.phase = p; save(); o.onEvent?.({ e: 'phase', phase: p, t: Date.now() }); };
   save();
@@ -495,7 +513,7 @@ export async function runFlows(ws: Workspace, o: RunOptions): Promise<RunInfo> {
           const a = await applyScenario(ws, u.scn, { env: o.env, confirm: true }); // said yes in `confirmRun`, or the env keeps nothing
           given = `KS_SCENARIO_JSON=${JSON.stringify({ scenario: u.scn, identities: a.identities })}\n`;
         }
-        const runner = await startRunner(ws, o.env, runLabel, id, out, join(dir, `.runner-${i}.env`), `KS_RUN=${id}\nKS_BASE_URL=${baseUrl(ws, o.env, runLabel)}\n${Object.keys(perFlow).length ? `KS_BASE_URLS_JSON=${JSON.stringify(perFlow)}\n` : ''}${Object.keys(limits).length ? `KS_FLOW_TIMEOUTS_JSON=${JSON.stringify(limits)}\n` : ''}KS_FLOW_VARS_JSON=${JSON.stringify(await flowsVars(ws))}\nKS_RETRIES=${o.retries ?? 0}\n${o.pwTrace ? 'KS_PW_TRACE=1\n' : ''}KS_EVENTS=/ks/out/events-${i}.jsonl\n${i ? `KS_RESULTS=/ks/out/results-${i}\nKS_SHARD=${i}\n` : ''}${given}`, u.flows.map((f) => f.spec));
+        const runner = await startRunner(ws, o.env, runLabel, id, out, join(dir, `.runner-${i}.env`), `KS_RUN=${id}\nKS_BASE_URL=${baseUrl(ws, o.env, runLabel)}\n${Object.keys(perFlow).length ? `KS_BASE_URLS_JSON=${JSON.stringify(perFlow)}\n` : ''}${Object.keys(limits).length ? `KS_FLOW_TIMEOUTS_JSON=${JSON.stringify(limits)}\n` : ''}KS_FLOW_VARS_JSON=${JSON.stringify(await flowsVars(ws))}\nKS_RETRIES=${o.retries ?? 0}\n${hold ? `KS_STEP_HOLD_MS=${hold}\n` : ''}${o.pwTrace ? 'KS_PW_TRACE=1\n' : ''}KS_EVENTS=/ks/out/events-${i}.jsonl\n${i ? `KS_RESULTS=/ks/out/results-${i}\nKS_SHARD=${i}\n` : ''}${given}`, u.flows.map((f) => f.spec));
         runners.add(runner);
         const [raw] = await dockerJson<any[]>(['inspect', runner]);
         runnerIps[i] = Object.values(raw.NetworkSettings?.Networks ?? {}).map((n: any) => n.IPAddress).find(Boolean) ?? '';
@@ -656,27 +674,59 @@ function findFile(files: string[], name: string, hint: string): string | undefin
  * service's log. With `dir` the masked slices are also kept in its raw/; without it (a live session) nothing is written.
  * `kafka: false` skips the broker's segments, the one slow source (a JVM per read, about 0.8 s).
  */
-export async function capture(ws: Workspace, env: string, run: string | undefined, from: number, to: number, m: Masker, dir?: string, o: { kafka?: boolean } = {}) {
+/**
+ * What a live session's reads keep between them, so each asks Docker only for what is new: the containers and the
+ * networks' gateways (asked again after 10 s), each container's log lines up to where the last read stopped, and where
+ * each broker keeps its dump tool. A session reads about every second; Docker Desktop on Windows hangs when every read
+ * asks for everything again.
+ */
+export interface CaptureMemo { at: number; cs: ContainerState[]; gateways: string[]; logs: Map<string, { until: number; lines: string[] }>; kafkaBin: Map<string, string> }
+export const captureMemo = (): CaptureMemo => ({ at: 0, cs: [], gateways: [], logs: new Map(), kafkaBin: new Map() });
+/** At most `n` of `f` running at once: Docker is asked a few things at a time, not one per container all at once. */
+async function pool<T>(xs: T[], n: number, f: (x: T) => Promise<void>): Promise<void> {
+  let i = 0;
+  await Promise.all(Array.from({ length: Math.min(n, xs.length) }, async () => { while (i < xs.length) await f(xs[i++]); }));
+}
+
+export async function capture(ws: Workspace, env: string, run: string | undefined, from: number, to: number, m: Masker, dir?: string, o: { kafka?: boolean; memo?: CaptureMemo } = {}) {
   const tapDir = run ? join(envDir(ws, env), 'runs', run, 'tap') : join(envDir(ws, env), 'tap');
   const learned = existsSync(join(tapDir, 'learned.json'));
   // a line the tap wrote before it learned a code carries it as it came: read again with what it learned (an env with no sink pays nothing)
   const again = (r: TrafficRecord): TrafficRecord => { if (!learned) return r; try { return JSON.parse(m.text(JSON.stringify(r))) as TrafficRecord; } catch { return r; } };
   const traffic = trafficSince(['traffic.jsonl.1', 'traffic.jsonl'].map((f) => join(tapDir, f)), from).filter((r) => r.t0 <= to).map(again);
-  const [all, nets] = await Promise.all([inspectEnv(ws, env, run), docker(['network', 'ls', '-q', ...byLabel(ws, { env, run })]).then((s) => s.split('\n').filter(Boolean), () => [] as string[])]);
+  const memo = o.memo;
+  let all: ContainerState[], gateways: string[];
+  if (memo && Date.now() - memo.at < 10_000) ({ cs: all, gateways } = memo);
+  else {
+    let nets: string[];
+    [all, nets] = await Promise.all([inspectEnv(ws, env, run), docker(['network', 'ls', '-q', ...byLabel(ws, { env, run })]).then((s) => s.split('\n').filter(Boolean), () => [] as string[])]);
+    // Every network of the env (a joint env has one per project), found by label: their gateways are the host.
+    gateways = nets.length ? (await docker(['network', 'inspect', '-f', '{{range .IPAM.Config}}{{.Gateway}} {{end}}', ...nets]).catch(() => '')).split(/\s+/).filter(Boolean) : [];
+    if (memo) Object.assign(memo, { at: Date.now(), cs: all, gateways });
+  }
   const cs = all.filter((c) => (run ? true : !c.labels[LABEL.run]) && c.service !== 'runner');
   // Every IP of every container: in a joint env a service is on its project's network and maybe others'.
   const peers = Object.fromEntries(cs.flatMap((c) => c.ips.map((ip) => [ip, c.service])));
-  // Every network of the env (a joint env has one per project), found by label: their gateways are the host.
-  const gateways = nets.length ? (await docker(['network', 'inspect', '-f', '{{range .IPAM.Config}}{{.Gateway}} {{end}}', ...nets]).catch(() => '')).split(/\s+/).filter(Boolean) : [];
-  const since = new Date(from).toISOString(), until = new Date(to).toISOString();
-  const logsOf = async (id: string) => { const out: string[] = []; await dockerStream(['logs', '--timestamps', '--since', since, '--until', until, id], (l) => out.push(l)); return out; };
+  const until = new Date(to).toISOString();
+  // With a memo, only what came after the last read (2 s back, for lines written late), over the lines kept.
+  const logsOf = async (id: string) => {
+    const prev = memo?.logs.get(id), since = prev ? Math.max(from, prev.until - 2000) : from, asked = Date.now();
+    const out: string[] = [];
+    const code = await dockerStream(['logs', '--timestamps', '--since', new Date(since).toISOString(), '--until', until, id], (l) => out.push(l));
+    if (!memo) return out;
+    // Docker failed (its error came as lines): what was read stays as it was, and the containers are asked again next time
+    if (code !== 0) { memo.at = 0; return prev?.lines ?? []; }
+    const lines = [...(prev?.lines.filter((l) => !(Date.parse(l.slice(0, l.indexOf(' '))) >= since)) ?? []), ...out];
+    memo.logs.set(id, { until: Math.min(asked, to), lines });
+    return lines;
+  };
   const sql: SqlLine[] = [];
   const kafka: KafkaLine[] = [];
   const logs: ServiceLog[] = [];
   if (dir) mkdirSync(join(dir, 'raw', 'logs'), { recursive: true });
-  // Every container at once (a live session reads this every second): its log, and a broker's segments beside it.
-  await Promise.all(cs.filter((x) => x.state === 'running' && x.service !== 'ks-tap').map(async (c) => {
-    const [lines, msgs] = await Promise.all([logsOf(c.id), /kafka/.test(c.image) && o.kafka !== false ? kafkaMessages(c.id, c.service, m) : []]);
+  // Each container (a live session reads this every second), four at a time: its log, and a broker's segments beside it.
+  await pool(cs.filter((x) => x.state === 'running' && x.service !== 'ks-tap'), 4, async (c) => {
+    const [lines, msgs] = await Promise.all([logsOf(c.id), /kafka/.test(c.image) && o.kafka !== false ? kafkaMessages(c.id, c.service, m, memo) : []]);
     kafka.push(...msgs.filter((k) => k.t >= from && k.t <= to));
     if (/postgres/.test(c.image)) {
       for (const s of parsePgLog(lines, c.service)) sql.push({ ...s, statement: m.text(s.statement), params: s.params && m.text(s.params), error: s.error && m.text(s.error) });
@@ -691,7 +741,7 @@ export async function capture(ws: Workspace, env: string, run: string | undefine
       if (!Number.isNaN(t)) logs.push({ service: c.service, t, line: text });
     }
     if (dir) writeFileSync(join(dir, 'raw', 'logs', `${c.service}.log`), masked.join('\n'));
-  }));
+  });
   // in time order, as the serial reading left them: assemble breaks ties by position
   sql.sort((a, b) => a.t1 - b.t1);
   logs.sort((a, b) => a.t - b.t);
@@ -745,12 +795,13 @@ export function trafficSince(files: string[], from: number): TrafficRecord[] {
 }
 
 /** Messages of every non-internal topic, read from the broker's own log segments with one kafka-dump-log. */
-async function kafkaMessages(container: string, broker: string, m: Masker): Promise<KafkaLine[]> {
+async function kafkaMessages(container: string, broker: string, m: Masker, memo?: CaptureMemo): Promise<KafkaLine[]> {
   const files = (await docker(['exec', container, 'sh', '-c', 'for d in ${KAFKA_LOG_DIRS:-/tmp/kafka-logs} /var/lib/kafka/data /bitnami/kafka/data; do ls -d "$d"/*/*.log 2>/dev/null; done; true']).catch(() => ''))
     .split('\n').filter((f) => f && !/\/__/.test(f));
   if (!files.length) return [];
-  const bin = (await docker(['exec', container, 'sh', '-c', 'command -v kafka-dump-log.sh || ls /opt/kafka/bin/kafka-dump-log.sh /opt/bitnami/kafka/bin/kafka-dump-log.sh 2>/dev/null | head -1']).catch(() => '')).trim();
+  const bin = memo?.kafkaBin.get(container) ?? (await docker(['exec', container, 'sh', '-c', 'command -v kafka-dump-log.sh || ls /opt/kafka/bin/kafka-dump-log.sh /opt/bitnami/kafka/bin/kafka-dump-log.sh 2>/dev/null | head -1']).catch(() => '')).trim();
   if (!bin) return [];
+  memo?.kafkaBin.set(container, bin);
   const out = await docker(['exec', '-e', 'KAFKA_HEAP_OPTS=-Xmx96m', container, bin, '--print-data-log', '--files', files.join(',')], { timeoutMs: 60_000 }).catch(() => '');
   const msgs: KafkaLine[] = [];
   for (const section of out.split(/^Dumping /m).slice(1)) {

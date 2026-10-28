@@ -1,6 +1,6 @@
 {
   "name": "@laru/core",
-  "version": "0.1.0-beta.5",
+  "version": "0.1.0-beta.6",
   "license": "FSL-1.1-ALv2",
   "private": true,
   "type": "module",

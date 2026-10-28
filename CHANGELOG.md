@@ -6,6 +6,35 @@ Todos los cambios de Laru que importan a quien lo usa quedan aquí. El formato s
 
 ## [Sin publicar]
 
+## [0.1.0-beta.6] - 2026-10-28
+
+### Añadido
+
+- **Lo que el código no muestra, declarado en `laru.yaml`:** cada entrada de `services:` puede llevar `kind` (su tecnología), `endpoints` (`GET /usuarios`, o solo la ruta) y `calls` (a quién llama: `pagos`, `"pagos POST /cobros"`, `postgres` o cualquier host). Sin `dir`, un nombre que el compose del proyecto levanta desde una imagen pasa a ser ese contenedor, por ejemplo un gateway, y deja de ser infraestructura. Así se dibujan las Lambdas con router propio, los gateways y las direcciones que solo están en un `.env`. Las instrucciones que Laru escribe para la IA del proyecto (`CLAUDE.md`, `AGENTS.md`) le piden declarar ahí lo que el mapa no vea; se reescriben con `laru sync`.
+- **Estudio del run a tu medida:** el vídeo, el inspector y las pistas se ensanchan o se estrechan arrastrando sus separadores (o con las flechas del teclado), y cada uno se oculta y se vuelve a mostrar desde la barra. El estudio recuerda cómo lo dejaste.
+- **Pantallas en ventana flotante:** el vídeo de la historia y cada pantalla de otra persona se abren en una ventana que se mueve desde su barra y cambia de tamaño desde su esquina, al compás de la reproducción. Se pueden abrir varias.
+- **Pantallas de teléfono:** `otherScreen('ana', { width: 390, height: 844 })` graba esa pantalla con su tamaño; sin tamaño sigue siendo 1280×720. El estudio la muestra entera.
+- **Historias más fáciles de seguir:** con `stepHoldMs` en `~/.laru/config.yaml`, una historia grabada se detiene ese tiempo al final de cada paso. Sin él, no cambia nada.
+- **El mapa, dividido por aplicación:** en un workspace con varias aplicaciones, cada proyecto de `laru.yaml` puede llevar `group: <aplicación>`. El mapa del sistema, el de cada flujo y el de las sesiones en vivo dibujan una franja por aplicación. Un externo va en la franja de quien lo usa, o en «Compartido» si lo usan varias. En el mapa del sistema, la línea que va de una aplicación a otra se resalta. Sin `group`, o con una sola aplicación, el mapa queda como antes.
+- **El mapa de un run, solo con lo que tocó:** dibuja las piezas por las que pasó alguna de sus pruebas, no el sistema entero.
+- **Externos que no son el sistema:** `ignore-externals: [www.buscador.example, "*.proveedor.example"]` en `laru.yaml` quita esos hosts del mapa, junto con las líneas que llegan a ellos. `*` vale por cualquier tramo. Un host que declara un proyecto en su compose se queda.
+- **A qué aplicativo pertenece cada servicio:** con `group` en varios proyectos, «Componentes», «Servicios por entorno» y la lista de servicios de un entorno tienen la columna «Aplicativo», y las dos primeras agrupan las piezas de cada uno.
+- **Ambientes conjuntos:** el runner se une también a la red del primer proyecto. Un flujo llega por nombre a lo que alcanzaría en el ambiente de ese proyecto, como los puertos de administración de sus mocks.
+- **El estudio, en su propia dirección:** `#/studio/<run>/<flujo>/<prueba>` ocupa toda la ventana y solo monta el estudio; la página desde la que se abrió ya no queda cargada debajo. «Salir del estudio» y Esc vuelven a esa página, y el enlace se puede guardar o compartir.
+- **Cada pantalla carga solo lo suyo:** el código de cada página se descarga la primera vez que se abre. Lo que se carga al entrar baja de 1,09 MB a 264 KB.
+
+### Corregido
+
+- **Las otras pantallas de una prueba se ven sin ffmpeg:** cuando no se pudo medir su desfase, arrancan con el de la grabación principal (`videoOffsetMs`) en vez de no mostrarse.
+- **Un entorno deja fuera los servicios de otros ficheros compose:** el mapa lee todos los ficheros compose del proyecto, pero el entorno solo importaba el de `from`, así que esos servicios se listaban y no se levantaban. Ahora `from` admite varios ficheros (`from: app:docker-compose.yml,docker-compose.infra.yml`) y suma el `docker-compose.override.yml` que haya junto al principal, como `docker compose up`. Si un servicio que el mapa conoce está en un fichero que el entorno no lee, al levantarlo se avisa con el fichero que falta.
+- **Un entorno levanta los servicios que su compose pone bajo un perfil (`profiles:`):** Laru los listaba, pero `docker compose` los saltaba y se quedaban esperando hasta que el entorno fallaba por tiempo. Ahora decide el entorno: los de su lista `services`, o todos.
+- **«Sin conexión con el servicio» solo cuando el servicio no está:** antes salía cuando el servicio tardaba en contestar, porque estaba ocupado o porque el navegador dejaba el aviso en cola detrás de otras peticiones. Ahora una respuesta lenta pesa un tercio, y el aviso tarda en salir medio minuto sin respuesta.
+- **Los entornos ya no arrancan solos al encender el PC:** Laru conservaba el `restart: always` o `unless-stopped` del compose del proyecto, y al proxy de Laru (`ks-tap`) le ponía `unless-stopped`, así que Docker los levantaba al iniciarse. Ahora usan `on-failure`: un servicio que se cae con error se reinicia, pero el entorno solo se levanta cuando se pide. Los contenedores que ya existen cambian la próxima vez que se levante su entorno, o con `laru down`.
+- **Docker ya no se cuelga con una sesión en vivo abierta:** cada segundo, la sesión volvía a pedir a Docker la lista de contenedores y los logs completos de todos ellos a la vez; con muchos servicios, Docker Desktop en Windows se quedaba colgado. Ahora pide solo las líneas nuevas, reutiliza la lista de contenedores durante 10 s y lanza como mucho 4 órdenes a la vez. Kafka se lee cada 5 s en vez de cada 3.
+- **Más rápido con un sistema grande:** el mapa se calcula en un tercio del tiempo (con 80 servicios, la página pasa de 1,3 s a 0,7 s) y dibuja lo mismo. Las vistas que piden lo mismo a la vez comparten una sola petición, y el servicio comparte durante 2 s lo que Docker le dice del estado de cada entorno y de sus contenedores, en vez de preguntarle una vez por cada vista.
+- **Límite de tiempo y URL base por flujo con `story`, `apiCase` y `scenario`:** estas pruebas no encontraban los suyos, porque Playwright las atribuía a `flow.ts` y no al spec del flujo.
+- **Windows:** el servicio local vuelve a servir la interfaz. Desde la 0.1.0-beta.2 comparaba rutas con `/`, y en Windows cada fichero de la interfaz se respondía con la página de inicio.
+
 ## [0.1.0-beta.5] - 2026-10-27
 
 ### Añadido
@@ -110,7 +139,8 @@ Primera beta pública.
   - `CLAUDE.md` y `AGENTS.md` generados.
   - Hooks para Claude Code.
 
-[Sin publicar]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.5...HEAD
+[Sin publicar]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.6...HEAD
+[0.1.0-beta.6]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.5...v0.1.0-beta.6
 [0.1.0-beta.5]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.4...v0.1.0-beta.5
 [0.1.0-beta.4]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.3...v0.1.0-beta.4
 [0.1.0-beta.3]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.2...v0.1.0-beta.3

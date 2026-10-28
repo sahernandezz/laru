@@ -94,6 +94,8 @@ export const issueText = (i: { key: string; params?: P; message: string }) =>
 
 // ---------- environments, vault and doctor ----------
 export const ENV_STATE: Record<string, string> = { ready: 'Listo', starting: 'Arrancando', failed: 'Con fallos', stopped: 'Parado', absent: 'Sin levantar' };
+/** An env's state as a dot, beside its word. */
+export const STATE_DOT: Record<string, DotState> = { ready: 'ok', starting: 'run', failed: 'err', stopped: 'idle', absent: 'idle' };
 export const HEALTH: Record<string, string> = {
   healthy: 'Sano', running: 'En marcha', starting: 'Arrancando', waiting: 'Esperando', unhealthy: 'No responde', exited: 'Se detuvo',
   oom: 'Sin memoria', done: 'Terminado', host: 'En tu máquina', absent: 'Sin contenedor',

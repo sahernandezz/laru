@@ -6,15 +6,15 @@ import { FidelityTable } from './Sheets.tsx';
 import { openStudio } from './Live.tsx';
 import { AppWindow, ArrowLeftRight, ArrowDown, CircleX, Container, Database, FlaskConical, GitBranch, Globe, Hammer, HardDrive, KeyRound, Laptop, Play, Plus, RotateCcw, Square, Trash2 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import { api, useApi, type Address, type Admission, type DestroyReport, type EnvDetail, type EnvEvent, type EnvSummary, type JointProposal, type RepoStatus, type ServiceStatus, type WorkspaceRow, apiUrl } from '../api.ts';
+import { api, useApi, type Address, type Admission, type DestroyReport, type EnvDetail, type EnvEvent, type EnvSummary, type JointProposal, type RepoStatus, type ServiceStatus, type WorkspaceRow, apiUrl, type Indexed } from '../api.ts';
 import { ActionButton, Code, CodeBlock, CopyButton, Dialog, Dot, Level, PathChip, Segmented, Skeleton, Status, toast, type DotState } from '../components/ui.tsx';
 import { askFirst, Cancelled } from '../lib/ask.ts';
-import { admissionText, BUILT, ENV_STATE, HEALTH, laruLine, MODE, PHASE, phaseNote, plural, secs, upError } from '../lib/es.ts';
+import { admissionText, BUILT, ENV_STATE, STATE_DOT, HEALTH, laruLine, MODE, PHASE, phaseNote, plural, secs, upError } from '../lib/es.ts';
 import { HOME, href } from '../lib/route.ts';
+import { appsOf } from '../lib/sysmap.ts';
 import { MapTabs } from '../components/MapTabs.tsx';
 import { EnvScope } from '../components/EnvScope.tsx';
 
-export const STATE_DOT: Record<EnvSummary['state'], DotState> = { ready: 'ok', starting: 'run', failed: 'err', stopped: 'idle', absent: 'idle' };
 const HEALTH_DOT: Record<ServiceStatus['health'], DotState> = {
   healthy: 'ok', running: 'ok', host: 'ok', done: 'ok', starting: 'run', waiting: 'run', unhealthy: 'err', exited: 'err', oom: 'err', absent: 'idle',
 };
@@ -30,7 +30,7 @@ function envState(e: EnvSummary): [DotState, string] {
   return [STATE_DOT[e.state], ENV_STATE[e.state]];
 }
 
-export function Envs({ selected }: { selected?: string }) {
+export function Envs({ selected, g }: { selected?: string; g?: Indexed | null }) {
   const envs = useApi<EnvSummary[]>('/api/envs');
   const list = envs.data ?? [];
   // Without one in the address, the env that is ready; kept while the screen is open, so a Destruir does not jump away.
@@ -64,7 +64,7 @@ export function Envs({ selected }: { selected?: string }) {
           ))}
           {several ? <button className="btn sm" onClick={() => setJoining(true)}><Plus />Nuevo entorno conjunto</button> : <p className="faint" style={{ margin: 0, fontSize: 'var(--t-12)' }}>Un entorno conjunto junta varios proyectos. <a href={href('repos')}>Añade otro proyecto</a> para crearlo.</p>}
         </nav>
-        <EnvView key={name} name={name} onChange={envs.reload} />
+        <EnvView key={name} name={name} onChange={envs.reload} g={g} />
       </div>
       {joining && <NewJoint envs={list} onClose={() => setJoining(false)} onDone={(n) => { envs.reload(); location.hash = href('envs', n).replace(/^#?/, '#'); }} />}
     </div>
@@ -172,7 +172,7 @@ function useEnvEvents(env: string) {
   return [events, () => set([])] as const;
 }
 
-function EnvView({ name, onChange }: { name: string; onChange: () => void }) {
+function EnvView({ name, onChange, g }: { name: string; onChange: () => void; g?: Indexed | null }) {
   const detail = useApi<EnvDetail>(`/api/env?env=${encodeURIComponent(name)}`);
   const [events, clearEvents] = useEnvEvents(name);
   const [destroying, setDestroying] = useState(false);
@@ -254,7 +254,7 @@ function EnvView({ name, onChange }: { name: string; onChange: () => void }) {
         <>
           <Addresses addresses={d.addresses} services={d.services} />
           <section className="panel block"><header><h3>Fidelidad con producción</h3><div className="meta">Solo lo que se diferencia; el detalle está en <a className="rowlink" href={href('docs')}>la infraestructura</a></div></header><FidelityTable env={name} compact /></section>
-          <Services env={name} services={d.services} source={d.source} />
+          <Services env={name} services={d.services} source={d.source} g={g} />
           <Logs env={name} services={d.services.filter((s) => s.container).map((s) => s.service)} epoch={d.services.map((s) => s.container?.id ?? '').join()} />
         </>
       )}
@@ -394,13 +394,16 @@ function Addresses({ addresses, services }: { addresses: Address[]; services: Se
   );
 }
 
-function Services({ env, services, source }: { env: string; services: ServiceStatus[]; source?: string }) {
+function Services({ env, services, source, g }: { env: string; services: ServiceStatus[]; source?: string; g?: Indexed | null }) {
+  // with several applications in the workspace, which one each service belongs to (a store or an external: by who uses it)
+  const apps = g ? appsOf(g) : undefined;
+  const appOf = (svc: string) => ['svc', 'ds', 'ext'].map((p) => apps?.get(`${p}:${svc}`)).find(Boolean);
   return (
     <section className="panel block">
       <header><h3>Servicios</h3><div className="meta">Construido y sano se miden por separado</div></header>
       <div className="scroll-x">
         <table className="t">
-          <thead><tr><th>Servicio</th><th>Origen</th><th>Construido</th><th>Sano</th><th>Modo</th><th className="r">CPU y memoria</th></tr></thead>
+          <thead><tr><th>Servicio</th>{apps && <th>Aplicativo</th>}<th>Origen</th><th>Construido</th><th>Sano</th><th>Modo</th><th className="r">CPU y memoria</th></tr></thead>
           <tbody>
             {services.map((s) => {
               const fromRepo = s.mode === 'host' || s.built === 'cached' || s.built === 'built';
@@ -408,6 +411,7 @@ function Services({ env, services, source }: { env: string; services: ServiceSta
               return (
                 <tr key={s.compose}>
                   <td style={{ fontWeight: 500 }}>{s.service}</td>
+                  {apps && <td>{appOf(s.service) ?? <span className="faint">—</span>}</td>}
                   <td className="mono">{fromRepo ? <>{source ?? '—'} <span className="faint">build</span></> : s.image ?? <span className="faint">—</span>}</td>
                   <td>{s.built ? BUILT[s.built] : <span className="faint">—</span>}</td>
                   <td className="wrap" style={{ minWidth: 150 }}>

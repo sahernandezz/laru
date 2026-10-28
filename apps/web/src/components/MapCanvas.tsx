@@ -70,6 +70,8 @@ export function MapCanvas({ lay, label, keep, onBackground, className, children 
           <defs>{([['arrow', 'var(--ink-3)'], ['arrow-err', 'var(--err)'], ['arrow-acc', 'var(--accent)']] as const).map(([id, fill]) => (
             <marker key={id} id={id} viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L8 4L0 8" fill={fill} /></marker>
           ))}</defs>
+          {/* behind everything: a band per application, with its name */}
+          <g aria-hidden="true">{lay.bands.map((b) => <g key={b.title} className="band"><rect x={6} y={b.y} width={lay.width - 12} height={b.h} rx={10} /><text x={14} y={b.y + 16}>{b.title}</text></g>)}</g>
           <g aria-hidden="true">{lay.columns.map((c) => <text key={c.x} className="col-h" x={c.x} y={24}>{c.title}</text>)}</g>
           {children}
         </svg>

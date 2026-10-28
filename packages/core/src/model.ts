@@ -41,7 +41,8 @@ export interface SystemMap {
   version: 1;
   app: string;
   builtAt: string;
-  repos: Array<{ name: string; commit: string; ref: string }>;
+  /** `group`: the application the repo belongs to, when the workspace holds several */
+  repos: Array<{ name: string; commit: string; ref: string; group?: string }>;
   nodes: MapNode[];
   facts: Fact[];
   /** repo → compose service name → its unique name in the workspace (identity for the first project) */

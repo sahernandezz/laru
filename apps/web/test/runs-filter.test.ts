@@ -39,6 +39,14 @@ test('the service is offline after two misses in a row, and one answer clears it
   m = nextMisses(m, false); m = nextMisses(m, true); m = nextMisses(m, false); assert.equal(isOffline(m), false, 'misses must be consecutive');
 });
 
+test('a ping that only ran out of time (a busy service, or one queued behind other requests) takes six in a row to say offline', () => {
+  let m = 0;
+  for (let i = 1; i <= 5; i++) { m = nextMisses(m, false, true); assert.equal(isOffline(m), false, `${i} slow`); }
+  m = nextMisses(m, false, true); assert.equal(isOffline(m), true, 'six slow pings: about half a minute without an answer');
+  m = nextMisses(0, false, true); m = nextMisses(m, false); assert.equal(isOffline(m), false, 'one slow and one refused is not yet');
+  m = nextMisses(m, false); assert.equal(isOffline(m), true);
+});
+
 test('runs in progress are the ones not done, newest first', () => {
   const l = [{ id: 1, phase: 'done', startedAt: '2026-10-25T10:00:00Z' }, { id: 2, phase: 'tests', startedAt: '2026-10-25T11:00:00Z' }, { id: 3, phase: 'up', startedAt: '2026-10-25T12:00:00Z' }];
   assert.deepEqual(inProgress(l).map((r) => r.id), [3, 2]);

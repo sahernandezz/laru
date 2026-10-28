@@ -18,7 +18,7 @@ async function withFakeDocker(body: (dir: string) => Promise<void>): Promise<{ a
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'laru-fake-docker-')));
   writeFileSync(join(dir, 'docker'), `#!/bin/sh
 printf '%s\\n' "$*" >> '${dir}/argv.log'
-[ "$1" = run ] || exit 0
+case "$1" in run|create) ;; *) exit 0;; esac
 while [ $# -gt 0 ]; do
   if [ "$1" = --env-file ]; then cp "$2" '${dir}/seen.env'; (stat -f %Lp "$2" || stat -c %a "$2") > '${dir}/seen.mode' 2>/dev/null; fi
   shift
@@ -58,7 +58,28 @@ test('a runner\'s values go through a 0600 file that is gone when docker returns
   });
   assert.equal(bad.seen, vars);
   assert.ok(!existsSync(envFile), 'a failed start deletes the file too');
+  // nor does a runner that cannot even be prepared (its env has no tap folder): the values are never written
+  await assert.rejects(startRunner(ws, 'gone', undefined, '1', join(tmp, 'out'), envFile, vars, ['flows/pagar.spec.ts']));
+  assert.ok(!existsSync(envFile), 'a failed preparation leaves no file');
   assert.ok(!Object.keys(process.env).some((k) => k.startsWith('KS_')), 'and no value went into this process\'s environment');
+});
+
+test('in a joint env the runner is created, joined to the first project\'s network, then started; its values still go through the file', async () => {
+  const tmp = realpathSync(mkdtempSync(join(tmpdir(), 'laru-runner-')));
+  const ws = { root: join(tmp, 'ws'), app: 'demo', repos: [{ name: 'shop' }, { name: 'audit' }] } as Workspace;
+  mkdirSync(join(ws.root, 'envs'), { recursive: true });
+  writeFileSync(join(ws.root, 'envs', 'shop.yaml'), 'from: shop:docker-compose.yml\n');
+  writeFileSync(join(ws.root, 'envs', 'audit.yaml'), 'from: audit:docker-compose.yml\n');
+  writeFileSync(join(ws.root, 'envs', 'both.yaml'), 'join: [shop, audit]\n');
+  mkdirSync(join(envDir(ws, 'both'), 'tap'), { recursive: true });
+  const envFile = join(tmp, '.runner-0.env');
+  let id = '';
+  const r = await withFakeDocker(async () => { id = await startRunner(ws, 'both', undefined, '1', join(tmp, 'out'), envFile, 'KS_RUN=1\n', ['flows/pagar.spec.ts']); });
+  assert.equal(id, 'cid-0123456789ab');
+  assert.deepEqual(r.argv.map((l) => l.split(' ').slice(0, 2).join(' ')), ['create --init', 'network connect', 'start cid-0123456789ab']);
+  assert.equal(r.argv[1], 'network connect ks-demo-both-shop cid-0123456789ab', 'the first project\'s network, before it starts');
+  assert.equal(r.seen, 'KS_RUN=1\n');
+  assert.ok(!existsSync(envFile));
 });
 
 test('what a scenario setup leaves is read only from real files of its out/', () => {

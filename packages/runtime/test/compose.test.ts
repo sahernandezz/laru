@@ -1,8 +1,9 @@
 import { strict as assert } from 'node:assert';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { closure, interpolations, renderCompose, type ComposeDoc, type RenderContext } from '../src/compose.ts';
+import { closure, composeFiles, interpolations, leftOut, renderCompose, type ComposeDoc, type RenderContext } from '../src/compose.ts';
 import type { EnvSpec } from '../src/types.ts';
 import { targetsOf } from '../src/up.ts';
 
@@ -201,4 +202,52 @@ test('when Docker does not answer, Laru says what to do, inside WSL2 too (Docker
   assert.match(dockerHint('permission denied while trying to connect to the Docker daemon socket at unix:///var/run/docker.sock', true)!, /usermod -aG docker/);
   assert.match(dockerHint('spawn docker ENOENT', true)!, /install Docker Engine in it.*WSL integration/);
   assert.equal(dockerHint('Error response from daemon: something else', true), undefined, 'anything else is shown as Docker said it');
+});
+
+test('a service its compose puts under a profile starts like any other: the env says what runs, so no profile is left for compose to skip', () => {
+  const doc = vf();
+  doc.services['batch-service'].profiles = ['jobs'];
+  doc.services.postgres.profiles = ['db'];
+  const out = renderCompose(doc, spec(), ctx()).doc;
+  for (const [name, s] of Object.entries(out.services)) assert.equal(s.profiles, undefined, name);
+  assert.ok(out.services['batch-service-real'] && out.services.postgres);
+});
+
+test('an env reads the compose files its from lists, and the override compose itself reads beside a default one', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'laru-compose-'));
+  assert.deepEqual(composeFiles(dir, 'docker-compose.yml'), ['docker-compose.yml'], 'no override there: only the file');
+  writeFileSync(join(dir, 'docker-compose.override.yml'), 'services: {}\n');
+  assert.deepEqual(composeFiles(dir, 'docker-compose.yml'), ['docker-compose.yml', 'docker-compose.override.yml']);
+  assert.deepEqual(composeFiles(dir, 'docker-compose.yml, docker-compose.infra.yml'), ['docker-compose.yml', 'docker-compose.infra.yml', 'docker-compose.override.yml']);
+  assert.deepEqual(composeFiles(dir, 'docker-compose.yml,docker-compose.override.yml'), ['docker-compose.yml', 'docker-compose.override.yml'], 'listed once');
+  assert.deepEqual(composeFiles(dir, 'deploy/stack.yml'), ['deploy/stack.yml'], 'a file compose would not find by itself gets no override');
+  mkdirSync(join(dir, 'ops'));
+  writeFileSync(join(dir, 'ops', 'compose.override.yaml'), 'services: {}\n');
+  assert.deepEqual(composeFiles(dir, 'ops/compose.yaml'), ['ops/compose.yaml', 'ops/compose.override.yaml']);
+});
+
+test('the services the map found in a compose file the env does not read are named, with that file', () => {
+  const finding = (name: string) => ({ kind: 'compose-service', name, ports: [], env: [], dependsOn: [], line: 1 });
+  const files = {
+    'docker-compose.yml': { blob: 'a', findings: [finding('api'), finding('postgres')] },
+    'docker-compose.infra.yml': { blob: 'b', findings: [finding('kafka'), finding('minio')] },
+    'docker-compose.dev.yml': { blob: 'c', findings: [finding('api')] },
+    'api/pom.xml': { blob: 'd', findings: [] },
+  };
+  const doc = { services: { api: {}, postgres: {} } } as unknown as ComposeDoc;
+  assert.deepEqual(leftOut(files, ['docker-compose.yml'], doc), [{ file: 'docker-compose.infra.yml', services: ['kafka', 'minio'] }], 'a file whose services the env has anyway is no news');
+  assert.deepEqual(leftOut(files, ['docker-compose.yml', 'docker-compose.infra.yml'], { services: { ...doc.services, kafka: {}, minio: {} } } as unknown as ComposeDoc), []);
+});
+
+test('nothing of an env starts by itself when Docker starts: a service that crashes restarts, one the machine stopped waits for laru up', () => {
+  const doc = vf();
+  doc.services['file-service'].restart = 'always';
+  doc.services.postgres.restart = 'unless-stopped';
+  doc.services.kafka.restart = 'no';
+  const out = renderCompose(doc, spec(), ctx()).doc;
+  for (const [name, s] of Object.entries(out.services)) assert.ok(s.restart === undefined || s.restart === 'no' || String(s.restart).startsWith('on-failure'), `${name}: ${s.restart}`);
+  assert.equal(out.services['file-service-real'].restart, 'on-failure');
+  assert.equal(out.services.postgres.restart, 'on-failure');
+  assert.equal(out.services.kafka.restart, 'no');
+  assert.equal(out.services['ks-tap'].restart, 'on-failure');
 });

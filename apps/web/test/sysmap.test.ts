@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import type { Exchange, Participant, Trace } from '@laru/trace';
 import type { Fact, MapNode, SystemMap } from '@laru/core';
-import { archGraph, expectedGraph, flowGraph, homeOf, LABEL_H, layout, litBy, NODE_H, NODE_W, type MapEdge } from '../src/lib/sysmap.ts';
+import { archGraph, expectedGraph, flowGraph, groupsOf, homeOf, LABEL_H, layout, litBy, NODE_H, NODE_W, type MapEdge } from '../src/lib/sysmap.ts';
 
 const nodes: MapNode[] = [
   { id: 'svc:frontend', type: 'service', name: 'frontend', kind: 'web' },
@@ -434,4 +434,44 @@ test('a system where no service calls another (they only publish, consume and st
   const xs = new Set(lay.nodes.map((n) => n.x));
   assert.equal(Math.min(...xs), 24, 'the first column holds a node: none is left empty at the left');
   assert.deepEqual(lay.columns.map((c) => c.title), ['Servicios, nivel 1', 'Datos e infraestructura'], 'each column keeps the title of what it holds');
+});
+
+test('onlyUsed draws just the pieces some test went through; when none went through any, every piece', () => {
+  const few = { participants: P, exchanges: [ex('page2', 'browser', 'frontend'), ex('list2', 'api-gateway', 'file-service')] };
+  const a = archGraph(g, [few], { onlyUsed: true });
+  assert.deepEqual([...a.sub.nodes.keys()].sort(), ['actor:browser', 'svc:api-gateway', 'svc:file-service', 'svc:frontend']);
+  assert.equal(a.pieces.length, nodes.filter((n) => n.type !== 'endpoint' && n.type !== 'topic').length, 'pieces still counts the whole system');
+  const none = archGraph(g, [{ participants: P, exchanges: [] }], { onlyUsed: true });
+  assert.equal(none.sub.map.nodes.length, a.pieces.length);
+});
+
+test('bands: one per application, in order, each piece in its own; an external takes its user’s band, or «Compartido»; none with one group or none', () => {
+  const ns: MapNode[] = [
+    { id: 'actor:browser', type: 'service', name: 'Navegador', kind: 'actor' },
+    { id: 'svc:shop-web', type: 'service', name: 'shop-web', repo: 'shop-web' },
+    { id: 'svc:shop-api', type: 'service', name: 'shop-api', repo: 'shop-api' },
+    { id: 'svc:audit-api', type: 'service', name: 'audit-api', repo: 'audit-api' },
+    { id: 'svc:tools', type: 'service', name: 'tools', repo: 'tools' },
+    { id: 'ext:payments', type: 'external', name: 'payments' },
+    { id: 'ext:mail', type: 'external', name: 'mail' },
+  ];
+  const repos = [['shop-web', 'Tienda'], ['shop-api', 'Tienda'], ['audit-api', 'Auditoría'], ['tools', undefined]].map(([name, group]) => ({ name: name!, commit: 'c', ref: 'main', ...(group ? { group } : {}) }));
+  const x = { ...index(ns, []), map: { ...map, repos, nodes: ns, facts: [] } };
+  const es: MapEdge[] = [['call', 'actor:browser', 'svc:shop-web'], ['call', 'svc:shop-web', 'svc:shop-api'], ['call', 'svc:shop-api', 'svc:audit-api'], ['store', 'svc:shop-api', 'ext:payments'], ['store', 'svc:shop-api', 'ext:mail'], ['store', 'svc:audit-api', 'ext:mail'], ['call', 'svc:tools', 'svc:audit-api']]
+    .map(([kind, from, to]) => ({ id: `${kind}|${from}|${to}`, kind: kind as MapEdge['kind'], from, to, label: '', origin: 'extracted', facts: [] }));
+  const { of } = groupsOf(x, es);
+  assert.deepEqual(['ext:payments', 'ext:mail', 'svc:tools'].map((id) => of.get(id)), ['Tienda', 'Compartido', 'Sin grupo']);
+  const lay = layout(x, es, { keep: true, bands: true });
+  assert.deepEqual(lay.bands.map((b) => b.title), ['Actores', 'Tienda', 'Auditoría', 'Sin grupo', 'Compartido']);
+  for (const p of lay.nodes) {
+    const b = lay.bands.find((b) => b.title === of.get(p.node.id))!;
+    assert.ok(p.y >= b.y && p.y + NODE_H <= b.y + b.h, `${p.node.id} in ${b.title}`);
+  }
+  for (let i = 1; i < lay.bands.length; i++) assert.ok(lay.bands[i].y >= lay.bands[i - 1].y + lay.bands[i - 1].h, 'bands do not overlap');
+  for (const e of lay.edges) assert.ok(!e.d.includes('NaN'), e.id);
+  assert.ok(lay.height >= lay.bands.at(-1)!.y + lay.bands.at(-1)!.h);
+  const one = { ...x, map: { ...x.map, repos: repos.map((r) => ({ ...r, group: r.group && 'Tienda' })) } };
+  assert.deepEqual(layout(one, es, { keep: true, bands: true }).bands, [], 'one application: no bands');
+  assert.deepEqual(layout({ ...x, map: { ...x.map, repos: [] } }, es, { keep: true, bands: true }).bands, [], 'no groups: no bands');
+  assert.deepEqual(layout(x, es, { keep: true }).bands, [], 'not asked: no bands');
 });

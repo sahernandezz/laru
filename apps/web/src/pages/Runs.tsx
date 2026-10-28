@@ -30,6 +30,8 @@ const fileUrl = (id: string, path: string) => apiUrl(`/api/run-file?id=${encodeU
 const BIG = 'laru.run.bigVideo';
 /** the studio: the player on the whole window, kept for the next run this browser opens */
 const STUDIO = 'laru.run.studio';
+/** where the studio goes back to, and whether that is a run's page (whose «open in the studio» it then remembers off) */
+const STUDIO_FROM = 'laru.run.studioFrom';
 /** Secuencia or Mapa, kept for the next flow this browser opens (the flow page and Runs share it). */
 const VIEW = 'laru.flow.view';
 export type FlowView = 'seq' | 'map';
@@ -39,6 +41,42 @@ export function useFlowView(asked?: FlowView, onView?: (v: FlowView) => void): [
   const [view, setView] = useState<FlowView>(() => asked ?? savedView());
   useEffect(() => { if (asked) setView(asked); }, [asked]);
   return [view, (v) => { setView(v); try { localStorage.setItem(VIEW, v); } catch { /* only for this view */ } onView?.(v); }];
+}
+/** The studio's panels as the person left them: the video and inspector widths, the timeline's height and the ones put away. */
+const LAYOUT = 'laru.run.studioLayout';
+type Panel = 'video' | 'side' | 'tracks';
+interface StudioLayout { video: number; side: number; tracks: number; hide: Partial<Record<Panel, boolean>> }
+const LAYOUT0: StudioLayout = { video: 380, side: 380, tracks: 170, hide: {} };
+const SIZES: Record<Panel, [number, number]> = { video: [200, 1100], side: [260, 1000], tracks: [60, 700] };
+/** What the middle view (sequence, map) always keeps; the CSS holds it too, for a layout saved on a larger screen. */
+const STAGE_MIN = { w: 320, h: 160 };
+function useStudioLayout(): [StudioLayout, (f: (l: StudioLayout) => StudioLayout) => void] {
+  const [l, setL] = useState<StudioLayout>(() => { try { return { ...LAYOUT0, ...JSON.parse(localStorage.getItem(LAYOUT) ?? '{}') }; } catch { return LAYOUT0; } });
+  const set = useCallback((f: (l: StudioLayout) => StudioLayout) => setL((x) => {
+    const y = f(x);
+    try { localStorage.setItem(LAYOUT, JSON.stringify(y)); } catch { /* only for this view */ }
+    return y;
+  }), []);
+  return [l, set];
+}
+/** The bar between two panels: dragged, or moved with the arrow keys, it hands the distance moved to `onMove`. */
+function Splitter({ axis, label, area, onMove }: { axis: 'x' | 'y'; label: string; area: string; onMove: (d: number) => void }) {
+  return (
+    <div role="separator" tabIndex={0} aria-label={label} aria-orientation={axis === 'x' ? 'vertical' : 'horizontal'} className={`st-split st-split-${axis}`} style={{ gridArea: area }}
+      onPointerDown={(e) => {
+        e.preventDefault();
+        let last = axis === 'x' ? e.clientX : e.clientY;
+        const move = (ev: globalThis.PointerEvent) => { const p = axis === 'x' ? ev.clientX : ev.clientY; onMove(p - last); last = p; };
+        const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); document.body.classList.remove('dragging'); };
+        document.body.classList.add('dragging');
+        window.addEventListener('pointermove', move);
+        window.addEventListener('pointerup', up);
+      }}
+      onKeyDown={(e) => {
+        const d = ({ ArrowLeft: -24, ArrowUp: -24, ArrowRight: 24, ArrowDown: 24 } as Record<string, number>)[e.key];
+        if (d) { e.preventDefault(); e.stopPropagation(); onMove(d); } // the studio's own arrows walk the messages
+      }} />
+  );
 }
 const took = (r: RunInfo) => (r.endedAt ? secs(Date.parse(r.endedAt) - Date.parse(r.startedAt)) : undefined);
 
@@ -290,12 +328,14 @@ interface Evidence {
   address?: (v: FlowView, test?: string) => string;
   /** the run's own page opens it in the studio (unless the person left it); elsewhere, such as a flow's sheet, only on request */
   studio?: boolean;
+  /** the studio's own screen (#/studio/…): the player is the studio, and leaving it goes back to where it was opened */
+  only?: boolean;
   /** the contracts and data model the sentences and the inspector read; read once by the screen, never by the player */
   k?: KnowledgeData;
 }
 
 /** A flow's evidence in a run: its tests, and the player for the one picked. Also the flow page's latest evidence. */
-export function FlowEvidence({ run, slug, flow, g, view, onView, test, address, k, studio }: Evidence) {
+export function FlowEvidence({ run, slug, flow, g, view, onView, test, address, k, studio, only }: Evidence) {
   const cached = run.results[slug]?.status === 'cached' ? run.results[slug]?.cachedFrom : undefined;
   if (cached) return (
     <section className="panel"><div className="empty">
@@ -304,19 +344,30 @@ export function FlowEvidence({ run, slug, flow, g, view, onView, test, address, 
     </div></section>
   );
   // another flow, run or named test starts over from what it opens on
-  return <FlowTraces key={`${run.id}/${slug}/${test ?? ''}`} run={run} slug={slug} flow={flow} g={g} view={view} onView={onView} test={test} address={address} k={k} studio={studio} />;
+  return <FlowTraces key={`${run.id}/${slug}/${test ?? ''}`} run={run} slug={slug} flow={flow} g={g} view={view} onView={onView} test={test} address={address} k={k} studio={studio} only={only} />;
+}
+
+/** The studio on its own screen, #/studio/<run>/<flow>[/<test>]: only the player, the page it was opened from not mounted. */
+export function Studio({ parts, g }: { parts: string[]; g: Indexed | null }) {
+  const [[id = '', slug = '', test]] = splitStop(parts);
+  const { run, error } = useRun(id);
+  const flows = useApi<FlowInfo[]>('/api/flows');
+  const k = useApi<KnowledgeData>('/api/knowledge').data;
+  if (error) return <div className="page"><div className="notice" role="alert">{error} <a className="rowlink" href={href('runs')}>Ir a los runs</a></div></div>;
+  if (!run) return <div className="page"><Skeleton lines={10} /></div>;
+  return <FlowEvidence key={`${slug}/${test ?? ''}`} run={run} slug={slug} flow={flows.data?.find((f) => f.slug === slug)} g={g} test={test} address={(_, t) => href('studio', id, slug, ...(t ? [t] : []))} k={k} only />;
 }
 
 /** The full map of a page, laid out once for the story and its cases: each test lights its part of it. */
 export interface Arch { lay: Layout<MapEdge>; pieces: MapNode[] }
 
-function FlowTraces({ run, slug, flow, g, view, onView, test: named, address, k, studio }: Evidence) {
+function FlowTraces({ run, slug, flow, g, view, onView, test: named, address, k, studio, only }: Evidence) {
   const res = useApi<{ trace: Trace | null; cases: Trace[] }>(`/api/run/trace?id=${encodeURIComponent(run.id)}&flow=${encodeURIComponent(slug)}`);
   const tests = useMemo(() => (res.data ? [...(res.data.trace ? [res.data.trace] : []), ...res.data.cases] : []), [res.data]);
   const arch = useMemo(() => {
     if (!g || !tests.length) return null;
-    const a = archGraph(g, tests);
-    return { lay: mapLayout(a.sub, a.edges, { keep: true }), pieces: a.pieces, lits: a.lits };
+    const a = archGraph(g, tests, { onlyUsed: true });
+    return { lay: mapLayout(a.sub, a.edges, { keep: true, bands: true }), pieces: a.pieces, lits: a.lits };
   }, [g, tests]);
   // It opens on the story; only an address that names a test («Ver dónde falló») opens that one. A stop in the
   // address («Paso a paso») is read once, for the test it opens on.
@@ -356,9 +407,9 @@ function FlowTraces({ run, slug, flow, g, view, onView, test: named, address, k,
   return (
     <>
       {/* a flow with one test has nothing to pick */}
-      {tests.length > 1 && strip}
+      {tests.length > 1 && !only && strip}
       <Player key={at} run={run} slug={slug} trace={test} story={isStory(at)} flow={flow} g={g} view={view} onView={onView} k={k}
-        arch={arch} lit={arch?.lits[at]} address={address} stop={picked === undefined ? asked : undefined} strip={tests.length > 1 ? strip : undefined} studioFirst={studio} />
+        arch={arch} lit={arch?.lits[at]} address={address} stop={picked === undefined ? asked : undefined} strip={tests.length > 1 ? strip : undefined} studioFirst={studio} only={only} />
     </>
   );
 }
@@ -413,7 +464,7 @@ type Mode = 'clock' | 'step';
 /** What the player-level keys never take: typing, and widgets with their own arrows. */
 const OWN_KEYS = 'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="tablist"], [role="slider"], [role="radiogroup"]';
 
-function Player({ run, slug, trace, story, flow, g, view: asked, onView, k, arch, lit, address, stop: askedStop, strip, studioFirst }: Evidence & { trace: Trace; story: boolean; k?: KnowledgeData; arch?: Arch | null; lit?: Lit; stop?: string; /** the tests of the flow, to pick another from the studio */ strip?: ReactNode; studioFirst?: boolean }) {
+function Player({ run, slug, trace, story, flow, g, view: asked, onView, k, arch, lit, address, stop: askedStop, strip, studioFirst, only }: Evidence & { trace: Trace; story: boolean; k?: KnowledgeData; arch?: Arch | null; lit?: Lit; stop?: string; /** the tests of the flow, to pick another from the studio */ strip?: ReactNode; studioFirst?: boolean }) {
   const layout = useMemo(() => layoutSeq(trace), [trace]);
   const ch = useMemo(() => chainOf(trace), [trace]);
   const ctx = useMemo(() => sayCtx({ trace, rows: layout.rows, chain: ch, map: g?.map, pieces: k?.pieces }), [trace, layout, ch, g, k]);
@@ -424,6 +475,9 @@ function Player({ run, slug, trace, story, flow, g, view: asked, onView, k, arch
   const [dims, setDims] = useState('');
   // The video at the stage's full width, the sequence under it; kept for the next run this browser opens.
   const [big, setBig] = useState(() => { try { return localStorage.getItem(BIG) === '1'; } catch { return false; } });
+  // screens opened in their own floating window ('' is the story's own video), each on the same clock
+  const [floats, setFloats] = useState<string[]>([]);
+  const openFloat = (name: string) => setFloats((f) => (f.includes(name) ? f : [...f, name]));
   const stage = useRef<HTMLElement>(null);
   const toggleBig = () => {
     try { localStorage.setItem(BIG, big ? '0' : '1'); } catch { /* only for this view */ }
@@ -431,15 +485,40 @@ function Player({ run, slug, trace, story, flow, g, view: asked, onView, k, arch
     // the video fits with its controls once the stage is at the top of the page (its top does not move as it grows)
     if (!big) stage.current?.scrollIntoView({ block: 'start' });
   };
-  // «Estudio»: everything at once on the whole window, nothing to scroll to pause, step or read a message.
-  const [studio, setStudio] = useState(() => { if (!studioFirst) return false; try { return localStorage.getItem(STUDIO) !== '0'; } catch { return true; } });
-  const studioRef = useRef<HTMLDivElement>(null);
-  const toggleStudio = () => {
-    if (studioFirst) try { localStorage.setItem(STUDIO, studio ? '0' : '1'); } catch { /* only for this view */ }
-    // «Mensaje» is the studio's own tab: out of it, the evidence opens on «Cadena»
-    if (studio && tab === 'msg') setTab('chain');
-    setStudio(!studio);
+  // «Estudio»: everything at once on the whole window, nothing to scroll to pause, step or read a message. It is a screen
+  // of its own (#/studio/…): nothing of the page it was opened from stays mounted behind it.
+  const studio = Boolean(only);
+  const studioAt = href('studio', run.id, slug, ...(story ? [] : [trace.test]));
+  const openStudio = (replace = false) => {
+    try { sessionStorage.setItem(STUDIO_FROM, JSON.stringify({ run: run.id, slug, to: location.hash })); if (studioFirst) localStorage.setItem(STUDIO, '1'); } catch { /* back to the run's page */ }
+    if (replace) location.replace(studioAt); else location.hash = studioAt;
   };
+  // Back where this studio was opened from; opened by a link (or from another run), to the run's page, which then stays
+  // the page: it does not open the studio again by itself.
+  const leaveStudio = () => {
+    let from: { run?: string; slug?: string; to?: string } = {};
+    try { from = JSON.parse(sessionStorage.getItem(STUDIO_FROM) ?? '{}'); sessionStorage.removeItem(STUDIO_FROM); } catch { /* back to the run's page */ }
+    const to = from.run === run.id && from.slug === slug && from.to ? from.to : href('runs', run.id, slug, ...(story ? [] : [trace.test]));
+    if (partsOf(to)[0] === 'runs') try { localStorage.setItem(STUDIO, '0'); } catch { /* it opens the studio again */ }
+    location.hash = to;
+  };
+  // the run's own page opens in the studio unless the person left it last time
+  useEffect(() => { if (!only && studioFirst) { let on = true; try { on = localStorage.getItem(STUDIO) !== '0'; } catch { /* on */ } if (on) openStudio(true); } }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const [lay, setLay] = useStudioLayout();
+  // From the size the panel is drawn at (a width saved on a larger screen is drawn smaller), and only as far as the middle
+  // view keeps STAGE_MIN of its own: what it has now, less that, is the room there is.
+  const resize = (p: Panel, d: number) => {
+    const at = (sel: string) => studioRef.current?.querySelector<HTMLElement>(sel);
+    const st = at('.st-stage'), el = at(p === 'video' ? '.st-video' : p === 'side' ? '.st-side' : '.tracks');
+    const room = st ? Math.max(0, p === 'tracks' ? st.clientHeight - STAGE_MIN.h : st.clientWidth - STAGE_MIN.w) : Infinity;
+    setLay((l) => {
+      const cur = el ? (p === 'tracks' ? el.offsetHeight : el.offsetWidth) : l[p];
+      return { ...l, [p]: Math.min(SIZES[p][1], cur + room, Math.max(SIZES[p][0], cur + d)) };
+    });
+  };
+  const flip = (p: Panel) => setLay((l) => ({ ...l, hide: { ...l.hide, [p]: !l.hide[p] } }));
+  const studioRef = useRef<HTMLDivElement>(null);
+  const toggleStudio = () => (studio ? leaveStudio() : openStudio());
   useEffect(() => { if (studio) studioRef.current?.focus({ preventScroll: true }); }, [studio]);
   // The clock runs to whichever ends later: the trace or the video (which can outlast it by a second).
   const [videoMs, setVideoMs] = useState(0);
@@ -743,7 +822,7 @@ function Player({ run, slug, trace, story, flow, g, view: asked, onView, k, arch
   const screen = (
         <div className="screen">
           <div className="screen-meta"><span>{mode === 'step' ? (src ? `Fotograma de ${atMs(c.now)} · en pausa` : story ? 'Sin vídeo: el fotograma no aplica.' : 'Sin vídeo en los casos cortos: el fotograma no aplica.') : src ? 'Grabación de la historia' : 'Esta prueba no graba vídeo'}</span><span className="screen-tools"><span className="mono num">{clock(c.now)}</span>
-            {trace.video && <OneVideo run={run.id} slug={slug} video={trace.video} several={(trace.screens ?? []).some((x) => x.video && x.startMs !== undefined)} />}{src && <button className="icon-btn" aria-pressed={big} onClick={toggleBig} aria-label="Vídeo grande" title={big ? 'Volver al vídeo junto a la secuencia' : 'Vídeo a todo el ancho, la secuencia debajo'}>{big ? <Minimize2 /> : <Maximize2 />}</button>}</span></div>
+            {trace.video && <OneVideo run={run.id} slug={slug} video={trace.video} several={(trace.screens ?? []).some((x) => x.video && x.startMs !== undefined)} />}{src && !studio && <button className="icon-btn" aria-pressed={big} onClick={toggleBig} aria-label="Vídeo grande" title={big ? 'Volver al vídeo junto a la secuencia' : 'Vídeo a todo el ancho, la secuencia debajo'}>{big ? <Minimize2 /> : <Maximize2 />}</button>}{src && <button className="icon-btn" onClick={() => openFloat('')} aria-label="Abrir el vídeo en una ventana" title="Abrir el vídeo en una ventana flotante que se mueve y cambia de tamaño"><ArrowUpRight /></button>}</span></div>
           <div className="player">
             {src ? <video ref={setVideo} src={src} muted playsInline preload="auto" aria-label={`Vídeo de «${trace.test}»`} onClick={mode === 'step' ? () => leave(true) : c.toggle} onLoadedMetadata={(e) => setDims(`${e.currentTarget.videoWidth} × ${e.currentTarget.videoHeight}`)}
               onDurationChange={(e) => Number.isFinite(e.currentTarget.duration) && setVideoMs(e.currentTarget.duration * 1000)} />
@@ -751,7 +830,14 @@ function Player({ run, slug, trace, story, flow, g, view: asked, onView, k, arch
             {blank && <div className="novideo">Abriendo el navegador…</div>}
             {step && <div className="caption">{step.n}. {step.title}</div>}
           </div>
-          <OtherScreens run={run.id} slug={slug} trace={trace} now={c.now} playing={c.playing} speed={c.speed} />
+          <OtherScreens run={run.id} slug={slug} trace={trace} now={c.now} playing={c.playing} speed={c.speed} onOpen={openFloat} />
+          {floats.map((name, i) => {
+            const s = name ? (trace.screens ?? []).find((x) => x.name === name) : undefined;
+            const fsrc = name ? (s?.video ? fileUrl(run.id, `flows/${slug}/${s.video}`) : null) : src;
+            if (!fsrc) return null;
+            return <FloatingScreen key={name || '·'} index={i} phone={Boolean(name)} title={name ? `Pantalla de ${name}` : 'Grabación de la historia'} src={fsrc} startMs={s?.startMs ?? 0}
+              now={c.now} playing={c.playing} speed={c.speed} onClose={() => setFloats((f) => f.filter((x) => x !== name))} />;
+          })}
           <div className="screen-meta"><span>{src ? 'El vídeo marca el reloj de todas las vistas' : 'El temporizador marca el reloj de todas las vistas'}</span><span className="num">{src ? dims : ''}</span></div>
         </div>
   );
@@ -789,20 +875,30 @@ function Player({ run, slug, trace, story, flow, g, view: asked, onView, k, arch
   );
 
   if (studio) return (
-    <div ref={studioRef} className={`studio${mode === 'step' ? ' stepping' : ''}`} tabIndex={-1} onKeyDown={studioKeys} role="region" aria-label={`Estudio de «${trace.test}»`}>
+    <div ref={studioRef} className={`studio st-resizable${mode === 'step' ? ' stepping' : ''}`} tabIndex={-1} onKeyDown={studioKeys} role="region" aria-label={`Estudio de «${trace.test}»`}
+      style={{ '--st-video': lay.hide.video ? '0px' : `${lay.video}px`, '--st-vs': lay.hide.video ? '0px' : '6px', '--st-side': lay.hide.side ? '0px' : `${lay.side}px`, '--st-ss': lay.hide.side ? '0px' : '6px',
+        '--st-tracks': lay.hide.tracks ? '0px' : `${lay.tracks}px`, '--st-ts': lay.hide.tracks ? '0px' : '6px' } as React.CSSProperties}>
       <header className="st-bar">
         <b className="st-title" title={trace.test}>{trace.test}</b>
         <span className="faint num">run {run.id} · {run.env}</span>
         {strip}
         <span className="grow" />
         <span className="st-keys faint" aria-hidden="true"><kbd>Espacio</kbd> reproduce · <kbd>←</kbd><kbd>→</kbd> mensaje · <kbd>⇧</kbd> acción · <kbd>P</kbd> paso a paso · <kbd>Esc</kbd> sale</span>
-        <button type="button" className="btn sm" onClick={toggleStudio} title="Volver a la página del run (Esc)"><Minimize2 />Salir del estudio</button>
+        <span className="st-panels" role="group" aria-label="Paneles a la vista">
+          {([['video', 'Vídeo'], ['side', 'Inspector'], ['tracks', 'Pistas']] as const).map(([p, name]) => (
+            <button key={p} type="button" className="btn sm" aria-pressed={!lay.hide[p]} onClick={() => flip(p)} title={lay.hide[p] ? `Mostrar «${name}»` : `Ocultar «${name}»`}>{name}</button>
+          ))}
+        </span>
+        <button type="button" className="btn sm" onClick={toggleStudio} title="Volver a donde lo abriste (Esc)"><Minimize2 />Salir del estudio</button>
       </header>
-      <div className="st-video">{screen}</div>
+      <div className="st-video" hidden={lay.hide.video}>{screen}</div>
+      {!lay.hide.video && <Splitter axis="x" area="vs" label="Ancho del vídeo" onMove={(d) => resize('video', d)} />}
       <div className="st-stage">{seqView}</div>
-      <aside className="st-side" aria-label="Inspector">{evidence}</aside>
+      {!lay.hide.side && <Splitter axis="x" area="ss" label="Ancho del inspector" onMove={(d) => resize('side', -d)} />}
+      <aside className="st-side" aria-label="Inspector" hidden={lay.hide.side}>{evidence}</aside>
       <div className="st-transport">{transport}</div>
-      <Tracks layout={layout} trace={trace} noise={ch.noise} now={c.now} T={Math.max(1, c.duration)} sel={selected?.id} onSeek={mode === 'step' ? (t) => goAt(t, Math.sign(t - c.now)) : c.seek} onPick={(i) => { c.pause(); go({ kind: 'row', i }); }} />
+      {!lay.hide.tracks && <Splitter axis="y" area="ts" label="Alto de las pistas" onMove={(d) => resize('tracks', -d)} />}
+      {!lay.hide.tracks && <Tracks layout={layout} trace={trace} noise={ch.noise} now={c.now} T={Math.max(1, c.duration)} sel={selected?.id} onSeek={mode === 'step' ? (t) => goAt(t, Math.sign(t - c.now)) : c.seek} onPick={(i) => { c.pause(); go({ kind: 'row', i }); }} />}
     </div>
   );
 
@@ -1498,7 +1594,7 @@ function useBlank(v: HTMLVideoElement | null) {
   return blank;
 }
 
-function PeerScreen({ who, closed, src, label, register }: { who: string; closed: boolean; src: string; label: string; register: (el: HTMLVideoElement | null) => void }) {
+function PeerScreen({ who, closed, src, label, register, onOpen }: { who: string; closed: boolean; src: string; label: string; register: (el: HTMLVideoElement | null) => void; onOpen?: () => void }) {
   const [el, setEl] = useState<HTMLVideoElement | null>(null);
   const blank = useBlank(el);
   return (
@@ -1506,9 +1602,42 @@ function PeerScreen({ who, closed, src, label, register }: { who: string; closed
       <div className="peer">
         <video ref={(v) => { setEl(v); register(v); }} src={src} muted playsInline preload="auto" aria-label={label} />
         {(closed || blank) && <div className="novideo">{who} aún no ha abierto su pantalla</div>}
+        {onOpen && <button type="button" className="icon-btn open-float" onClick={onOpen} aria-label={`Abrir la pantalla de ${who} en una ventana`} title="Abrir en una ventana flotante que se mueve y cambia de tamaño"><ArrowUpRight /></button>}
       </div>
       <figcaption>Pantalla de {who}</figcaption>
     </figure>
+  );
+}
+
+/** One screen in its own window over the page, to see it large: moved by its bar, resized by its corner, on the clock of the main video. */
+function FloatingScreen({ title, src, startMs, now, playing, speed, index, phone, onClose }: { title: string; src: string; startMs: number; now: number; playing: boolean; speed: number; index: number; phone: boolean; onClose: () => void }) {
+  const ref = useRef<HTMLVideoElement>(null);
+  const [pos, setPos] = useState({ x: 120 + index * 36, y: 90 + index * 36 });
+  useEffect(() => {
+    const v = ref.current;
+    if (!v) return;
+    const want = Math.max(0, now - startMs) / 1000;
+    v.playbackRate = speed;
+    if (Math.abs(v.currentTime - want) > 0.1) v.currentTime = Math.min(want, Number.isFinite(v.duration) ? v.duration : want);
+    if (playing && now >= startMs && v.paused) void v.play().catch(() => undefined);
+    if ((!playing || now < startMs) && !v.paused) v.pause();
+  }, [now, playing, speed, startMs]);
+  const drag = (e: PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const dx = e.clientX - pos.x, dy = e.clientY - pos.y;
+    const move = (ev: globalThis.PointerEvent) => setPos({ x: Math.max(0, ev.clientX - dx), y: Math.max(0, ev.clientY - dy) });
+    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+  return (
+    <div className={`float-screen${phone ? ' phone' : ''}`} role="dialog" aria-label={title} style={{ left: pos.x, top: pos.y }}>
+      <div className="float-bar" onPointerDown={drag}>
+        <span title={title}>{title}</span>
+        <button type="button" className="icon-btn" onPointerDown={(e) => e.stopPropagation()} onClick={onClose} aria-label={`Cerrar «${title}»`}><X /></button>
+      </div>
+      <video ref={ref} src={src} muted playsInline preload="auto" aria-label={title} />
+    </div>
   );
 }
 
@@ -1532,7 +1661,7 @@ function OneVideo({ run, slug, video, several }: { run: string; slug: string; vi
  * when it pauses and is put back when it drifts more than a tenth of a second. Before its video begins, and after it ends, it shows the first or
  * last frame, as a person's screen that has not opened yet.
  */
-function OtherScreens({ run, slug, trace, now, playing, speed }: { run: string; slug: string; trace: Trace; now: number; playing: boolean; speed: number }) {
+function OtherScreens({ run, slug, trace, now, playing, speed, onOpen }: { run: string; slug: string; trace: Trace; now: number; playing: boolean; speed: number; onOpen?: (name: string) => void }) {
   const screens = (trace.screens ?? []).filter((s) => s.video && s.startMs !== undefined);
   const els = useRef(new Map<string, HTMLVideoElement>());
   useEffect(() => {
@@ -1554,7 +1683,7 @@ function OtherScreens({ run, slug, trace, now, playing, speed }: { run: string; 
         const first = Math.min(...trace.exchanges.filter((e) => e.from === `browser:${s.name}` || e.to === `browser:${s.name}`).map((e) => e.t0));
         const who = s.name.charAt(0).toUpperCase() + s.name.slice(1);
         return (
-          <PeerScreen key={s.name} who={who} closed={Number.isFinite(first) && now < first} src={fileUrl(run, `flows/${slug}/${s.video}`)} label={`Pantalla de ${s.name}`} register={(el) => { if (el) els.current.set(s.name, el); else els.current.delete(s.name); }} />
+          <PeerScreen key={s.name} who={who} closed={Number.isFinite(first) && now < first} src={fileUrl(run, `flows/${slug}/${s.video}`)} label={`Pantalla de ${s.name}`} onOpen={onOpen && (() => onOpen(s.name))} register={(el) => { if (el) els.current.set(s.name, el); else els.current.delete(s.name); }} />
         );
       })}
     </div>

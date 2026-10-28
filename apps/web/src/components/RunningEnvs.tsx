@@ -6,7 +6,7 @@ import { ExternalLink } from 'lucide-react';
 import type { EnvSummary, Indexed } from '../api.ts';
 import { href } from '../lib/route.ts';
 import { CopyButton, Dot } from './ui.tsx';
-import { STATE_DOT } from '../pages/Envs.tsx';
+import { STATE_DOT } from '../lib/es.ts';
 
 const portOf = (url: string) => /:(\d+)\/?$/.exec(url)?.[1];
 /** The address a person opens first: the service the map calls «web», else the first HTTP one. */

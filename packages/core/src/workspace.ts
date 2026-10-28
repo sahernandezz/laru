@@ -17,8 +17,13 @@ export type RepoRole = (typeof ROLES)[number];
  * A project: a git repo (by URL and branch) or a plain folder (`source: folder`). A folder has no URL and no branch:
  * both are `''`, so every `r.url`/`r.branch` stays typed and the UI branches on `source`.
  */
-export interface RepoConfig { name: string; source: 'git' | 'folder'; url: string; branch: string; role: RepoRole; title?: string; ignore?: string[] }
-export interface ServiceOverride { name: string; repo: string; dir: string }
+export interface RepoConfig { name: string; source: 'git' | 'folder'; url: string; branch: string; role: RepoRole; title?: string; ignore?: string[]; group?: string }
+/**
+ * A service said by hand, for what the code does not show (a Lambda's own router, a gateway that is only an image):
+ * `kind` its technology, `endpoints` «GET /x» (or just «/x»), `calls` the names it reaches («pagos», «pagos POST /cobros»,
+ * «postgres», «api.vendor.example»). Without `dir`, a name the project's compose runs is that container.
+ */
+export interface ServiceOverride { name: string; repo: string; dir: string; kind?: string; endpoints?: string[]; calls?: string[] }
 export interface Workspace {
   root: string;
   app: string;
@@ -34,6 +39,8 @@ export interface Workspace {
   profile?: Record<string, Array<'plan' | 'design' | 'build' | 'test' | 'deploy' | 'operate'>>;
   /** minimum notes that make `laru check` fail; both off unless the workspace turns them on */
   policies?: { documento?: number; hoja?: number };
+  /** hosts the code names that are not part of the system (a search engine, a vendor's API): left off the map; `*` stands for any part */
+  ignoreExternals?: string[];
 }
 
 export class WorkspaceError extends Error {
@@ -109,16 +116,20 @@ export function loadWorkspace(root: string): Workspace {
     if (branchIssue) throw new WorkspaceError(branchIssue, `repos.${name}.branch`);
     const ignore = r?.ignore;
     if (ignore !== undefined && (!Array.isArray(ignore) || ignore.some((x) => typeof x !== 'string'))) throw new WorkspaceError('a list of paths in gitignore syntax', `repos.${name}.ignore`);
+    if (r?.group !== undefined && (typeof r.group !== 'string' || !r.group.trim())) throw new WorkspaceError('the name of the application it belongs to, e.g. `Tienda`', `repos.${name}.group`);
     const role = (r?.role ?? 'service') as RepoRole;
     if (!ROLES.includes(role)) throw new WorkspaceError(`one of ${ROLES.join(', ')}`, `repos.${name}.role`);
     return {
       name, source, url: source === 'git' ? String(r.url) : '', branch: source === 'git' ? String(r.branch ?? 'main') : '', role,
       ...(r?.title ? { title: String(r.title) } : {}), ...(ignore ? { ignore: ignore as string[] } : {}),
+      ...(r?.group ? { group: String(r.group).trim() } : {}),
     };
   });
-  const services: ServiceOverride[] = Object.entries((raw.services as Record<string, { repo?: string; dir?: string }>) ?? {}).map(([name, s]) => {
+  const services: ServiceOverride[] = Object.entries((raw.services as Record<string, { repo?: string; dir?: string; kind?: string; endpoints?: unknown; calls?: unknown }>) ?? {}).map(([name, s]) => {
     if (!s?.repo || !repos.some((r) => r.name === s.repo)) throw new WorkspaceError(`unknown repo "${s?.repo}"`, `services.${name}.repo`);
-    return { name, repo: s.repo, dir: (s.dir ?? '').replace(/^\.?\/|\/$/g, '') };
+    const strings = (v: unknown) => (Array.isArray(v) ? v : v == null ? [] : [v]).map((x) => String(x).trim()).filter(Boolean);
+    const endpoints = strings(s.endpoints), calls = strings(s.calls);
+    return { name, repo: s.repo, dir: (s.dir ?? '').replace(/^\.?\/|\/$/g, ''), ...(s.kind ? { kind: String(s.kind) } : {}), ...(endpoints.length ? { endpoints } : {}), ...(calls.length ? { calls } : {}) };
   });
   // Only the projects this laru.yaml names: another workspace with this app id shares the file.
   const checkouts = Object.fromEntries(Object.entries(readCheckouts(app)).filter(([name]) => repos.some((r) => r.name === name)));
@@ -139,16 +150,24 @@ export function loadWorkspace(root: string): Workspace {
     if (!['documento', 'hoja'].includes(name)) throw new WorkspaceError('policies are documento and hoja', `policies.${name}`);
     if (typeof v !== 'number' || v < 0 || v > 100) throw new WorkspaceError('a note between 0 and 100', `policies.${name}`);
   }
-  return { root, app, title: String(raw.title ?? app), docsLanguage: String(raw['docs-language'] ?? 'en'), repos, services, checkouts, lock, profile, policies };
+  const ignoreExternals = raw['ignore-externals'];
+  if (ignoreExternals !== undefined && (!Array.isArray(ignoreExternals) || ignoreExternals.some((x) => typeof x !== 'string' || !x.trim()))) throw new WorkspaceError('a list of hosts; * stands for any part, e.g. `*.example.com`', 'ignore-externals');
+  return {
+    root, app, title: String(raw.title ?? app), docsLanguage: String(raw['docs-language'] ?? 'en'), repos, services, checkouts, lock, profile, policies,
+    ...(ignoreExternals ? { ignoreExternals: ignoreExternals as string[] } : {}),
+  };
 }
 
 /** Adds or replaces one repo in `laru.yaml`, keeping the file's comments and order. */
 export function saveRepo(ws: Workspace, repo: RepoConfig): void {
+  // the application a project belongs to is set by hand in laru.yaml: adding the project again keeps it
+  const group = repo.group ?? ws.repos.find((r) => r.name === repo.name)?.group;
+  if (group) repo = { ...repo, group };
   const file = configFile(ws.root);
   const doc = parseDocument(readFileSync(file, 'utf8'));
   const entry: Record<string, unknown> = repo.source === 'folder'
-    ? { source: 'folder', role: repo.role, ...(repo.title ? { title: repo.title } : {}), ...(repo.ignore?.length ? { ignore: repo.ignore } : {}) }
-    : { url: repo.url, branch: repo.branch, role: repo.role, ...(repo.title ? { title: repo.title } : {}) };
+    ? { source: 'folder', role: repo.role, ...(repo.title ? { title: repo.title } : {}), ...(repo.ignore?.length ? { ignore: repo.ignore } : {}), ...(group ? { group } : {}) }
+    : { url: repo.url, branch: repo.branch, role: repo.role, ...(repo.title ? { title: repo.title } : {}), ...(group ? { group } : {}) };
   doc.setIn(['repos', repo.name], doc.createNode(entry));
   const repos = doc.get('repos', true);
   if (isMap(repos)) {

@@ -6,7 +6,7 @@ import { useEffect, useId, useState, type FormEvent } from 'react';
 import { FileCode, Folder, FolderOpen, GitBranch, Plus, RefreshCw, ScanText, Server, TriangleAlert } from 'lucide-react';
 import { api, useApi, type DiskReport, type EnvSummary, type Indexed, type RepoStatus } from '../api.ts';
 import { ActionButton, CopyButton, Dialog, Origin, PathChip, Segmented, Skeleton, Status, toast } from '../components/ui.tsx';
-import { STATE_DOT } from './Envs.tsx';
+import { STATE_DOT } from '../lib/es.ts';
 import { href } from '../lib/route.ts';
 import { ago, ENV_STATE, size } from '../lib/es.ts';
 

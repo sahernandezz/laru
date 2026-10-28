@@ -13,7 +13,7 @@ import { chmodSync, closeSync, createReadStream, createWriteStream, existsSync, 
 import { homedir, tmpdir } from 'node:os';
 import { promisify } from 'node:util';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { dirname, extname, join, normalize, relative, resolve } from 'node:path';
+import { dirname, extname, join, normalize, relative, resolve, sep } from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { combineScreens, flowEnvDown, flowEnvStatus, flowEnvUp, instanceOf, instancesOf, prepareInstance, diskReport, dirBytes, dockerSizes, envLock, heldByEnvs, prune, readConfig, readRunnerFile, runnerFile, runnerFiles, snapshotRows, recentStats, docker, withLock, workspaceKey, writeConfig, type PruneWhat } from '@laru/runtime';
@@ -41,7 +41,7 @@ export function traceViewerDir(): string | null {
   } catch { viewerDir = null; }
   return viewerDir;
 }
-export const VERSION = '0.1.0-beta.5';
+export const VERSION = '0.1.0-beta.6';
 
 
 export interface Daemon { url: string; port: number; token: string | null; close: () => Promise<void> }
@@ -63,11 +63,28 @@ const same = (a: string, b: string) => a.length === b.length && timingSafeEqual(
 type Handler = (req: IncomingMessage, url: URL, body: any) => Promise<unknown>;
 type Stream = (req: IncomingMessage, url: URL, res: ServerResponse) => void;
 
+/**
+ * What Docker says, shared for 2 s: the views a page loads together (the shell, a run's flows, the map's envs) ask it
+ * once. Docker Desktop on Windows is slow to answer each question, slower with an env's containers up. Only for what
+ * views show: a decision (stop, rebuild) asks again.
+ */
+const lately = new Map<string, { at: number; p: Promise<unknown> }>();
+function shared<T>(key: string, f: () => Promise<T>): Promise<T> {
+  const hit = lately.get(key);
+  if (hit && Date.now() - hit.at < 2000) return hit.p as Promise<T>;
+  const p = f();
+  lately.set(key, { at: Date.now(), p });
+  p.catch(() => lately.delete(key));
+  return p;
+}
+const envStatus = (w: Workspace, env: string) => shared(`status|${w.root}|${env}`, () => status(w, env));
+const envsHeld = () => shared('held', heldByEnvs);
+
 /** One workspace's routes, as they were when the service served one workspace: only where `ws()` comes from changed. */
 export function makeApi(root: Workspace['root']): { api: Record<string, Handler>; streams: Record<string, Stream> } {
   const ws = () => withEvidence(loadWorkspace(root));
 
-  const envMembers = async (w: Workspace) => Promise.all(listEnvs(w).map(async (e) => ({ env: e, services: (await status(w, e)).services.map((s) => s.service) })));
+  const envMembers = async (w: Workspace) => Promise.all(listEnvs(w).map(async (e) => ({ env: e, services: (await envStatus(w, e)).services.map((s) => s.service) })));
   const graph = (w: Workspace) => { try { return loadGraph(w); } catch { return null; } };
 
   // Each flow's results, oldest first, from runs/index.jsonl.
@@ -371,7 +388,7 @@ export function makeApi(root: Workspace['root']): { api: Record<string, Handler>
     'POST /api/knowledge/validate': async (_req, _url, body: WriteInput) => { const w = ws(); return knowledgeWrite(w, body, graph(w), { dryRun: true }); },
     'POST /api/knowledge/write': async (_req, _url, body: WriteInput) => { const w = ws(); return knowledgeWrite(w, body, graph(w)); },
     'POST /api/knowledge/verify': async (_req, _url, body: { id: string }) => verifyPiece(ws(), body.id),
-    'GET /api/envs': async () => { const w = ws(); return Promise.all([...listEnvs(w), ...instancesOf(w)].map(async (e) => ({ ...(await status(w, e)), ...envShape(w, e), op: ops.get(e) ?? null }))); },
+    'GET /api/envs': async () => { const w = ws(); return Promise.all([...listEnvs(w), ...instancesOf(w)].map(async (e) => ({ ...(await envStatus(w, e)), ...envShape(w, e), op: ops.get(e) ?? null }))); },
     'GET /api/env': async (_req, url) => {
       const w = ws(), env = envName(url);
       let spec = null, specError = null;
@@ -432,7 +449,7 @@ export function makeApi(root: Workspace['root']): { api: Record<string, Handler>
       const match = endpointMatcher(g?.map.nodes ?? []);
       const hist = history(w);
       const several = w.repos.length > 1;
-      const ready = several ? new Set((await Promise.all(listEnvs(w).map((e) => status(w, e).catch(() => null)))).filter((x) => x?.state === 'ready').map((x) => x!.env)) : new Set<string>();
+      const ready = several ? new Set((await Promise.all(listEnvs(w).map((e) => envStatus(w, e).catch(() => null)))).filter((x) => x?.state === 'ready').map((x) => x!.env)) : new Set<string>();
       return listFlows(w).map((f) => {
         const row = lastRow(hist[f.slug]);
         let runsOn: { env: string; ready: boolean } | null = null;
@@ -619,7 +636,7 @@ export function makeApi(root: Workspace['root']): { api: Record<string, Handler>
     'GET /api/overview': async () => {
       const w = ws(), k = loadKnowledge(w);
       const [envs, findings, im] = await Promise.all([
-        Promise.all(listEnvs(w).map((e) => status(w, e))),
+        Promise.all(listEnvs(w).map((e) => envStatus(w, e))),
         screenFindings(w).catch(() => []),
         affected(w).catch(() => null),
       ]);
@@ -719,7 +736,7 @@ export async function startDaemon(port = 4100, webDist = WEB_DIST, o: { token?: 
         if (!root) { res.writeHead(503).end('Playwright\'s trace viewer is not installed here (playwright-core).'); return; }
         const rel = decodeURIComponent(url.pathname.slice('/trace-viewer/'.length)) || 'index.html';
         const file = resolve(root, rel);
-        if (!file.startsWith(root + '/') || !existsSync(file) || !statSync(file).isFile()) { res.writeHead(404).end('Not found'); return; }
+        if (!file.startsWith(root + sep) || !existsSync(file) || !statSync(file).isFile()) { res.writeHead(404).end('Not found'); return; }
         res.writeHead(200, { 'content-type': TYPES[extname(file)] ?? 'application/octet-stream', 'cache-control': 'no-store' });
         res.end(readFileSync(file));
         return;
@@ -727,8 +744,8 @@ export async function startDaemon(port = 4100, webDist = WEB_DIST, o: { token?: 
       if (!authed) { res.writeHead(401, { 'content-type': 'text/plain; charset=utf-8' }).end('Open the address printed by `laru serve` (it carries a one-time token).'); return; }
       // Static: the built interface, with index.html for every other path.
       const file = normalize(join(webDist, url.pathname));
-      // inside the built folder itself, not a sibling whose name starts the same (dist-old/…)
-      const target = file.startsWith(resolve(webDist) + '/') && existsSync(file) && statSync(file).isFile() ? file : join(webDist, 'index.html');
+      // inside the built folder itself, not a sibling whose name starts the same (dist-old/…); `sep`: Windows paths use \
+      const target = file.startsWith(resolve(webDist) + sep) && existsSync(file) && statSync(file).isFile() ? file : join(webDist, 'index.html');
       if (!existsSync(target)) { res.writeHead(503).end('The interface is not built: run `pnpm --filter @laru/web build`.'); return; }
       res.writeHead(200, { 'content-type': TYPES[extname(target)] ?? 'application/octet-stream', 'cache-control': target.endsWith('index.html') ? 'no-store' : 'public, max-age=31536000, immutable' });
       res.end(readFileSync(target));
@@ -759,7 +776,7 @@ export async function probeFolder(w: Workspace, path: string, ignore: string[] =
   const tryGit = (args: string[], env: Record<string, string> = {}) => run('git', args, { cwd: real, env: { ...process.env, GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0', ...env } }).then((r) => r.stdout.trim(), () => null);
   const isGit = (await tryGit(['rev-parse', '--is-inside-work-tree'])) === 'true';
   const origin = isGit ? await tryGit(['remote', 'get-url', 'origin']) : null;
-  const inside = (a: string, b: string) => a === b || a.startsWith(b + '/');
+  const inside = (a: string, b: string) => a === b || a.startsWith(b + sep);
   const root = realpathSync(w.root);
   let overlap: string | undefined;
   if (inside(real, root) || inside(root, real)) overlap = `el workspace (${root})`;
@@ -846,12 +863,12 @@ export async function sweepAll(): Promise<void> {
 
 const home = () => realRoot(homedir()); // compared with real paths, as roots are
 const expand = (p: string) => realRoot(p.replace(/^~(?=\/|$)/, home())); // as registry rows are kept: symlinks resolved
-const inside = (a: string, b: string) => a === b || a.startsWith(b + '/');
+const inside = (a: string, b: string) => a === b || a.startsWith(b + sep);
 
 /** The registered workspaces with what the home page and the switcher show; most recently opened first. */
 async function workspaceRows() {
   const all = loadRegistry();
-  const held = await heldByEnvs().catch(() => []);
+  const held = await envsHeld().catch(() => []);
   return [...all].sort((a, b) => (b.openedAt ?? b.addedAt).localeCompare(a.openedAt ?? a.addedAt)).map((x) => {
     const exists = isWorkspace(x.root);
     const base = { root: x.root, addedAt: x.addedAt, openedAt: x.openedAt, exists, key: workspaceKey(x) };
@@ -914,7 +931,7 @@ function machineApi(port: () => number): Record<string, Handler> {
       const [version, info, held] = await Promise.all([
         docker(['version', '--format', '{{.Server.Version}}'], { timeoutMs: 10_000 }).then((v) => v.trim(), () => null),
         docker(['info', '--format', '{{.NCPU}} {{.MemTotal}}'], { timeoutMs: 10_000 }).then((v) => v.trim().split(' ').map(Number), () => [] as number[]),
-        heldByEnvs().catch(() => []),
+        envsHeld().catch(() => []),
       ]);
       const persistent = held.filter((h) => !h.run);
       const usage = await recentStats(persistent.flatMap((h) => h.ids)).catch(() => []);

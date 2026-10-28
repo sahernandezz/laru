@@ -9,7 +9,7 @@ import { EdgeLabel, ICON, MapCanvas, NodeBox } from '../components/MapCanvas.tsx
 import { Origin, Segmented } from '../components/ui.tsx';
 import { KIND, pieceLabel, plural } from '../lib/es.ts';
 import { href } from '../lib/route.ts';
-import { edgesOf, homeOf, layout, type EdgeKind } from '../lib/sysmap.ts';
+import { ACTORS, edgesOf, groupsOf, homeOf, layout, NO_GROUP, SHARED, type EdgeKind } from '../lib/sysmap.ts';
 import { ServiceEnvMap } from '../components/EnvMap.tsx';
 import { MapTabs } from '../components/MapTabs.tsx';
 import { RunningEnvs } from '../components/RunningEnvs.tsx';
@@ -35,7 +35,13 @@ export function MapView({ g: whole, selected, tabArg }: { g: Indexed; selected?:
     return indexMap({ ...whole.map, nodes: keep, facts: whole.map.facts.filter((f) => ids.has(f.s) && ids.has(f.o)) });
   }, [whole, project]);
   const all = useMemo(() => edgesOf(g), [g]);
-  const lay = useMemo(() => layout(g, all), [g, all]);
+  const lay = useMemo(() => layout(g, all, { bands: true }), [g, all]);
+  /** an edge from one application to another, when the map is split by application: where one depends on the other */
+  const apps = useMemo(() => groupsOf(g, all).of, [g, all]);
+  const xapp = (e: { from: string; to: string }) => {
+    const a = apps.get(e.from), b = apps.get(e.to), named = (x?: string) => Boolean(x) && ![ACTORS, NO_GROUP, SHARED].includes(x!);
+    return lay.bands.length > 0 && named(a) && named(b) && a !== b;
+  };
   /** an edge between two projects: drawn with a long dash, never told apart by colour alone */
   const across = (e: { from: string; to: string }) => { const a = g.nodes.get(e.from)?.repo, b = g.nodes.get(e.to)?.repo; return Boolean(a && b && a !== b); };
   const edges = all.filter((e) => show[e.kind] && (derived || e.origin !== 'derived'));
@@ -100,7 +106,7 @@ export function MapView({ g: whole, selected, tabArg }: { g: Indexed; selected?:
             {shown.map((e) => {
               const hot = sel && (e.from === sel.id || e.to === sel.id);
               return (
-                <path key={e.id} d={e.d} className={`e ${e.kind}${e.origin === 'derived' ? ' derived' : ''}${across(e) ? ' across' : ''}${hot ? ' hot' : sel ? ' dim' : ''}`} markerEnd="url(#arrow)"><title>{`${g.nodes.get(e.from)?.name} → ${g.nodes.get(e.to)?.name}: ${e.kind === 'store' ? 'usa' : e.label} (${e.origin === 'derived' ? 'deducido' : 'extraído'}${across(e) ? ', entre proyectos' : ''})`}</title></path>
+                <path key={e.id} d={e.d} className={`e ${e.kind}${e.origin === 'derived' ? ' derived' : ''}${across(e) ? ' across' : ''}${xapp(e) ? ' xapp' : ''}${hot ? ' hot' : sel ? ' dim' : ''}`} markerEnd="url(#arrow)"><title>{`${g.nodes.get(e.from)?.name} → ${g.nodes.get(e.to)?.name}: ${e.kind === 'store' ? 'usa' : e.label} (${e.origin === 'derived' ? 'deducido' : 'extraído'}${across(e) ? ', entre proyectos' : ''}${xapp(e) ? `, de ${apps.get(e.from)} a ${apps.get(e.to)}` : ''})`}</title></path>
               );
             })}
             {/* over the lines, each stopping its own */}
@@ -112,7 +118,7 @@ export function MapView({ g: whole, selected, tabArg }: { g: Indexed; selected?:
               onClick={() => select(node.id)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); select(node.id); } }} />
           ))}
         </MapCanvas>
-        <div className="legend"><span>Elige una pieza para ver su ficha y sus conexiones</span><span>Las líneas atenuadas son deducidas, no leídas literalmente del código</span>{several && <span><svg className="lg" width="22" height="8" aria-hidden="true"><path d="M1 4H21" style={{ stroke: 'currentColor', strokeWidth: 1.5, strokeDasharray: '8 3' }} /></svg> entre proyectos</span>}</div>
+        <div className="legend"><span>Elige una pieza para ver su ficha y sus conexiones</span><span>Las líneas atenuadas son deducidas, no leídas literalmente del código</span>{several && <span><svg className="lg" width="22" height="8" aria-hidden="true"><path d="M1 4H21" style={{ stroke: 'currentColor', strokeWidth: 1.5, strokeDasharray: '8 3' }} /></svg> entre proyectos</span>}{lay.bands.length > 0 && <span><svg className="lg" width="22" height="8" aria-hidden="true"><path d="M1 4H21" style={{ stroke: 'var(--run)', strokeWidth: 2.5 }} /></svg> de una aplicación a otra</span>}</div>
       </section>
 
       {flows.error && <div className="notice" role="alert">No se pudo leer el historial de runs: {flows.error}</div>}

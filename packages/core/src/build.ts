@@ -10,7 +10,7 @@ import { normalizePath, type Finding, type FindingOf, type Tech } from '@laru/de
 import type { RepoExtraction } from './extract.ts';
 import type { Anchor, Fact, MapNode, Origin, Relation, SystemMap } from './model.ts';
 import { MESSAGING, placeholder } from './messaging.ts';
-import type { Workspace } from './workspace.ts';
+import type { ServiceOverride, Workspace } from './workspace.ts';
 
 /** A finding with the file it came from. `file`, not `path`: endpoints and calls have a `path` of their own. */
 type Located<F extends Finding = Finding> = F & { file: string; repo: string; commit: string };
@@ -62,6 +62,8 @@ interface Service {
   /** `local`: the name inside its own project (compose or detected); `name`: unique in the workspace */
   id: string; name: string; local: string; repo: string; commit: string; dir: string; tech: Tech; stack?: string; platform?: string;
   findings: Located[]; ports: Set<number>; config: Map<string, Array<{ value: string; profile?: string; at: Anchor }>>;
+  /** what laru.yaml says of it; `container`: it is a compose container of its project, not a folder of code */
+  declared?: ServiceOverride; container?: boolean;
 }
 
 export function buildSystemMap(ws: Workspace, extractions: RepoExtraction[]): SystemMap {
@@ -94,7 +96,12 @@ export function buildSystemMap(ws: Workspace, extractions: RepoExtraction[]): Sy
       if (r.tech === 'docker' && [...roots].some(([d, o]) => d !== dir && STRONG.includes(o.tech) && (dir === '' || d.startsWith(dir + '/')))) roots.delete(dir);
     }
     if (repo.role === 'library' || repo.role === 'docs') roots.clear();
-    for (const o of ws.services.filter((s) => s.repo === repo.name)) roots.set(o.dir, { ...(roots.get(o.dir) ?? { tech: 'docker' }), name: o.name });
+    // A declared service without `dir` whose name the compose runs from an image is that container; the rest are folders.
+    const own = ws.services.filter((s) => s.repo === repo.name);
+    const isContainer = (o: ServiceOverride) => o.dir === '' && all.some((f) => f.kind === 'compose-service' && f.name === o.name && !f.build);
+    const folders = own.filter((o) => !isContainer(o));
+    for (const o of folders) roots.set(o.dir, { ...(roots.get(o.dir) ?? { tech: 'docker' }), name: o.name });
+    for (const o of own.filter(isContainer)) services.push({ id: `svc:${o.name}`, name: o.name, local: o.name, repo: repo.name, commit: ex.commit, dir: '', tech: (o.kind ?? 'docker') as Tech, findings: [], ports: new Set(), config: new Map(), declared: o, container: true });
 
     const composeNames = new Map<string, string>();
     for (const f of all) if (f.kind === 'compose-service' && f.build) composeNames.set(posix.join(dirname(f.file).replace(/^\.$/, ''), f.build).replace(/^\.\/?/, ''), f.name);
@@ -104,9 +111,9 @@ export function buildSystemMap(ws: Workspace, extractions: RepoExtraction[]): Sy
       const owner = (p: string) => [...roots.keys()].filter((d) => d === '' || p.startsWith(d + '/')).sort((x, y) => y.length - x.length)[0];
       const findings = all.filter((f) => inDir(f.file) && owner(f.file) === dir);
       const cfg = (key: string) => findings.find((f) => f.kind === 'config' && f.key === key && !f.profile) as FindingOf<'config'> | undefined;
-      const override = ws.services.find((s) => s.repo === repo.name && s.dir === dir)?.name;
-      const name = override ?? composeNames.get(dir) ?? cfg('spring.application.name')?.value ?? cfg('quarkus.application.name')?.value ?? r.name ?? (dir ? posix.basename(dir) : repo.name);
-      services.push({ id: `svc:${name}`, name, local: name, repo: repo.name, commit: ex.commit, dir, tech: r.tech, stack: r.stack, platform: r.platform, findings, ports: new Set(), config: new Map() });
+      const declared = folders.find((o) => o.dir === dir);
+      const name = declared?.name ?? composeNames.get(dir) ?? cfg('spring.application.name')?.value ?? cfg('quarkus.application.name')?.value ?? r.name ?? (dir ? posix.basename(dir) : repo.name);
+      services.push({ id: `svc:${name}`, name, local: name, repo: repo.name, commit: ex.commit, dir, tech: (declared?.kind ?? r.tech) as Tech, stack: r.stack, platform: r.platform, findings, ports: new Set(), config: new Map(), ...(declared ? { declared } : {}) });
     }
   }
 
@@ -117,7 +124,8 @@ export function buildSystemMap(ws: Workspace, extractions: RepoExtraction[]): Sy
   const order = ws.repos.map((r) => r.name).filter((r) => extractions.some((e) => e.repo === r));
   const claimed = new Map<string, string>();
   const composeOf = (repo: string) => located.filter((f): f is Located<FindingOf<'compose-service'>> => f.kind === 'compose-service' && f.repo === repo);
-  const builds = (f: Located<FindingOf<'compose-service'>>) => f.build ? services.find((s) => s.repo === f.repo && s.dir === posix.join(dirname(f.file).replace(/^\.$/, ''), f.build!).replace(/^\.\/?/, '')) : undefined;
+  const builds = (f: Located<FindingOf<'compose-service'>>) => f.build ? services.find((s) => s.repo === f.repo && s.dir === posix.join(dirname(f.file).replace(/^\.$/, ''), f.build!).replace(/^\.\/?/, ''))
+    : services.find((s) => s.declared && s.repo === f.repo && s.local === f.name);
   const names: Record<string, Record<string, string>> = {};
   for (const repo of order) {
     const taken = (n: string) => claimed.has(n) && claimed.get(n) !== repo;
@@ -229,6 +237,15 @@ export function buildSystemMap(ws: Workspace, extractions: RepoExtraction[]): Sy
       b.node({ id, type: 'endpoint', name: `${f.method} ${path}`, service: s.id, repo: s.repo, attrs: { method: f.method, path, ...(f.source === 'openapi' ? { contract: true } : { handler: f.symbol }) }, anchor: anchorOf(f) });
       b.fact(s.id, 'exposes', id, 'extracted', anchorOf(f), f.source === 'openapi' ? 'declared in an OpenAPI file' : undefined);
       eps.push({ id, method: f.method, path });
+    }
+    for (const e of s.declared?.endpoints ?? []) {
+      const m = e.match(/^([A-Za-z]+)\s+(\S+)$/);
+      const method = (m?.[1] ?? 'ANY').toUpperCase(), path = ('/' + (m?.[2] ?? e)).replace(/\/+/g, '/').replace(/(.)\/$/, '$1');
+      const id = `ep:${s.name}:${method} ${path}`;
+      if (eps.some((x) => x.id === id)) continue;
+      b.node({ id, type: 'endpoint', name: `${method} ${path}`, service: s.id, repo: s.repo, attrs: { method, path, declared: true } });
+      b.fact(s.id, 'exposes', id, 'declared', undefined, 'declared in laru.yaml');
+      eps.push({ id, method, path });
     }
     endpointsOf.set(s.id, eps);
 
@@ -353,10 +370,26 @@ export function buildSystemMap(ws: Workspace, extractions: RepoExtraction[]): Sy
     return eps.find((e) => same(e) && normalizePath(e.path) === want)
       ?? eps.filter((e) => same(e) && e.path.endsWith('/**') && want.startsWith(normalizePath(e.path.slice(0, -3)))).sort((x, y) => y.path.length - x.path.length)[0];
   };
+  // Calls laru.yaml declares, before a gateway's forwards are read from its calls: «pagos», «pagos POST /cobros», a store or any host. A name nothing has becomes an external.
+  for (const s of services) {
+    for (const c of s.declared?.calls ?? []) {
+      const m = c.match(/^(\S+)(?:\s+(?:([A-Za-z]+)\s+)?(\/\S*))?$/);
+      const name = m?.[1] ?? c, method = m?.[2]?.toUpperCase(), path = m?.[3];
+      let id = (services.find((x) => x.repo === s.repo && x.local === name) ?? services.find((x) => x.name === name))?.id ?? infra.get(`${s.repo}/${name}`)?.id
+        ?? [...b.nodes.values()].find((n) => (n.type === 'service' || n.type === 'datastore' || n.type === 'external') && n.name === name)?.id;
+      if (!id) { id = `ext:${name}`; b.node({ id, type: 'external', name, kind: 'service' }); }
+      const t = b.nodes.get(id)!;
+      const ep = path && t.type === 'service' ? matchEndpoint(id, method, path) : undefined;
+      const label = path && !ep ? [method, path].filter(Boolean).join(' ') : undefined;
+      b.fact(s.id, t.type === 'service' ? 'calls' : 'uses', ep?.id ?? id, 'declared', undefined, across(s, ep?.id ?? id, ['declared in laru.yaml', label].filter(Boolean).join(', ')));
+    }
+  }
+
   // A gateway's `/prefix/**` endpoint forwards to the endpoints under that prefix in the services it calls.
   const forwards = new Map<string, Array<{ id: string; method: string; path: string; via: string }>>();
   for (const s of services) {
-    const downstream = new Set(b.facts.filter((f) => f.s === s.id && f.p === 'calls' && b.nodes.get(f.o)?.type === 'service').map((f) => f.o));
+    // what it calls, a service or one of its endpoints
+    const downstream = new Set(b.facts.filter((f) => f.s === s.id && f.p === 'calls').map((f) => b.nodes.get(f.o)).flatMap((n) => n?.type === 'service' ? [n.id] : n?.type === 'endpoint' && n.service ? [n.service] : []));
     for (const w of (endpointsOf.get(s.id) ?? []).filter((e) => e.path.endsWith('/**'))) {
       const prefix = normalizePath(w.path.slice(0, -3));
       for (const d of downstream) {
@@ -412,9 +445,13 @@ export function buildSystemMap(ws: Workspace, extractions: RepoExtraction[]): Sy
     if (owner && owner !== from.repo) b.fact(f.s, 'depends-on', `repo:${owner}`, 'derived', f.anchor, `through ${b.nodes.get(f.o)!.name}`);
   }
 
+  // Hosts the workspace says are not part of the system go, with what reaches them; one a project declares stays.
+  const declared = new Set([...infra.values()].map((i) => i.id));
+  const ignored = (ws.ignoreExternals ?? []).map((h) => new RegExp(`^${h.split('*').map((x) => x.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.+')}$`, 'i'));
+  const gone = new Set([...b.nodes.values()].filter((n) => n.type === 'external' && !declared.has(n.id) && ignored.some((re) => re.test(n.name))).map((n) => n.id));
   return {
     version: 1, app: ws.app, builtAt: new Date().toISOString(),
-    repos: extractions.map((e) => ({ name: e.repo, commit: e.commit, ref: e.ref })),
-    nodes: [...b.nodes.values()], facts: b.facts, names,
+    repos: extractions.map((e) => { const group = ws.repos.find((r) => r.name === e.repo)?.group; return { name: e.repo, commit: e.commit, ref: e.ref, ...(group ? { group } : {}) }; }),
+    nodes: [...b.nodes.values()].filter((n) => !gone.has(n.id)), facts: b.facts.filter((f) => !gone.has(f.s) && !gone.has(f.o)), names,
   };
 }

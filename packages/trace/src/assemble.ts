@@ -48,7 +48,7 @@ export interface AssembleInput {
   hybrid?: string[];
   map?: MapLike;
   videoOffsetMs?: number;
-  /** `<test>|<screen>` → the offset of that screen's video, from the marker found in it (the test's other browsers) */
+  /** `<test>|<screen>` → the offset of that screen's video, from the marker found in it (the test's other browsers); one without (no ffmpeg on the host) starts by videoOffsetMs, as the main video does */
   screenOffsets?: Record<string, number>;
   /** test → its measured offset (from the marker found in its own video); wins over videoOffsetMs */
   offsets?: Record<string, number>;
@@ -363,7 +363,7 @@ export function assemble(input: AssembleInput): { traces: Trace[]; observed: Obs
     } : undefined;
     traces.push({
       v: 1, run: input.run, flow: input.flow, test: b.title, story: b.story, env: input.env, t0: v0, durationMs: Math.max(0, rel(end?.t ?? b.t)), status, stepsTotal: input.stepsTotal,
-      participants, steps, exchanges: collapsed, logs, failure, ...(foreign ? { foreign } : {}), ...(end?.screens?.length ? { screens: end.screens.map((s) => { const off = input.screenOffsets?.[`${b.test}|${s.name}`]; return { name: s.name, video: s.video, offsetMs: off, startMs: off !== undefined && s.t0 !== undefined ? Math.round(s.t0 + off - v0) : undefined }; }) } : {}), ...(input.concurrent ? { concurrent: true } : {}), video: end?.video, ...(end?.pwTrace ? { pwTrace: end.pwTrace } : {}), ...(actions.length ? { actions } : {}),
+      participants, steps, exchanges: collapsed, logs, failure, ...(foreign ? { foreign } : {}), ...(end?.screens?.length ? { screens: end.screens.map((s) => { const off = input.screenOffsets?.[`${b.test}|${s.name}`]; return { name: s.name, video: s.video, offsetMs: off, startMs: s.t0 !== undefined ? Math.round(s.t0 + (off ?? offset) - v0) : undefined }; }) } : {}), ...(input.concurrent ? { concurrent: true } : {}), video: end?.video, ...(end?.pwTrace ? { pwTrace: end.pwTrace } : {}), ...(actions.length ? { actions } : {}),
     });
   });
   return { traces, observed: [...observed.values()] };

@@ -27,3 +27,20 @@ test('what sends mail or texts becomes an external with the variable that moves 
   // a service with nothing of the kind adds nothing: the control for vaultflow, which sends nothing
   assert.equal(m.facts.filter((f) => f.s === 'svc:plain' && f.o.startsWith('ext:')).length, 0);
 });
+
+test('ignore-externals takes the hosts it names off the map, exactly or with *, with what reaches them; without it the map is the same', () => {
+  const extraction = ex({
+    'api/package.json': [{ kind: 'service-root', tech: 'node', name: 'api' }],
+    'api/server.js': [
+      { kind: 'outbound', url: 'https://www.search.example/q', line: 1 },
+      { kind: 'outbound', url: 'https://eu.mock.example/x', line: 2 },
+      { kind: 'outbound', url: 'https://payments.example.com/charge', line: 3 },
+    ] as Finding[],
+  });
+  const plain = buildSystemMap(ws, [extraction]);
+  assert.deepEqual(externals(plain).map((e) => e[0]), ['eu.mock.example', 'payments.example.com', 'www.search.example']);
+  const m = buildSystemMap({ ...ws, ignoreExternals: ['www.search.example', '*.mock.example'] }, [extraction]);
+  assert.deepEqual(externals(m).map((e) => e[0]), ['payments.example.com']);
+  assert.ok(!m.facts.some((f) => /search|mock/.test(f.o)), 'nothing reaches what is gone');
+  assert.equal(m.facts.length, plain.facts.length - 2);
+});

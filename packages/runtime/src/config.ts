@@ -17,9 +17,11 @@ export interface MachineConfig {
   retention: Retention;
   /** runners that play a run's flows at once; 0: as many as Docker's memory leaves room for, at most 3 */
   workers: number;
+  /** how long a recorded story holds the screen still at the end of each step, so its video can be followed */
+  stepHoldMs: number;
 }
 
-export const CONFIG_DEFAULTS: MachineConfig = { maxEnvs: 1, videoOffsetMs: 0, retention: { videoDays: 7, runDays: 30, maxGB: 5 }, workers: 0 };
+export const CONFIG_DEFAULTS: MachineConfig = { maxEnvs: 1, videoOffsetMs: 0, retention: { videoDays: 7, runDays: 30, maxGB: 5 }, workers: 0, stepHoldMs: 0 };
 const file = () => join(laruHome(), 'config.yaml');
 const num = (v: unknown, dflt: number) => (typeof v === 'number' && Number.isFinite(v) ? v : typeof v === 'string' && v.trim() && Number.isFinite(Number(v)) ? Number(v) : dflt);
 
@@ -27,7 +29,7 @@ export function readConfig(): MachineConfig {
   const raw = (existsSync(file()) ? parseDocument(readFileSync(file(), 'utf8')).toJS() : null) as Record<string, any> | null;
   const r = raw?.retention ?? {}, d = CONFIG_DEFAULTS;
   return {
-    maxEnvs: num(raw?.maxEnvs, d.maxEnvs), videoOffsetMs: num(raw?.videoOffsetMs, d.videoOffsetMs), workers: num(raw?.workers, d.workers),
+    maxEnvs: num(raw?.maxEnvs, d.maxEnvs), videoOffsetMs: num(raw?.videoOffsetMs, d.videoOffsetMs), workers: num(raw?.workers, d.workers), stepHoldMs: Math.max(0, num(raw?.stepHoldMs, d.stepHoldMs)),
     retention: { videoDays: num(r.videoDays, d.retention.videoDays), runDays: num(r.runDays, d.retention.runDays), maxGB: num(r.maxGB, d.retention.maxGB) },
   };
 }

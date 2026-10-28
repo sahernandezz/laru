@@ -3,14 +3,16 @@ import {
   ArrowLeft, ArrowLeftRight, Box, Check, ChevronsUpDown, Container, Database, DatabaseBackup, FolderOpen, GitBranch, HardDrive, Home as HomeIcon, KeyRound, LayoutDashboard, Library, Mail,
   Network, PanelLeft, PanelLeftClose, PlayCircle, Plug, Plus, Radio, ScrollText, Search, Settings2, Shapes, Workflow, type LucideIcon,
 } from 'lucide-react';
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { lazy, type ReactNode, Suspense, useEffect, useId, useRef, useState } from 'react';
 import { api, useApi, WS, type RunInfo, type WorkspaceRow } from '../api.ts';
 import { HOME, href, liveHref, screenOnly, wsPage } from '../lib/route.ts';
 import { plural, RUN_PHASE } from '../lib/es.ts';
 import { inProgress, isOffline, nextMisses } from '../lib/service.ts';
-import { AddWorkspace } from '../pages/Home.tsx';
 import { useCurrentScope, type Scope } from '../lib/scope.ts';
 import { Dot, Logo, tilde } from './ui.tsx';
+
+/** The «add a workspace» dialog lives with the machine's home page: fetched when it is opened. */
+const AddWorkspace = lazy(() => import('../pages/Home.tsx').then((m) => ({ default: m.AddWorkspace })));
 
 interface NavItem { route: string; icon: LucideIcon; label: string }
 export const NAV: Array<[string, NavItem[]]> = [
@@ -71,10 +73,10 @@ function useService() {
     let misses = 0, off = false, stop = false;
     const beat = async () => {
       if (document.hidden) return;
-      let ok = false;
-      try { ok = (await fetch('/api/ping', { signal: AbortSignal.timeout(2500) })).ok; } catch { ok = false; }
+      let ok = false, slow = false;
+      try { ok = (await fetch('/api/ping', { signal: AbortSignal.timeout(2500) })).ok; } catch (e) { slow = (e as Error).name === 'TimeoutError'; }
       if (stop) return;
-      misses = nextMisses(misses, ok);
+      misses = nextMisses(misses, ok, slow);
       const now = isOffline(misses);
       if (now !== off) { off = now; setOffline(now); if (!now) dispatchEvent(new Event('laru:back')); }
       if (ok && WS) api<RunInfo[]>('/api/runs?running=1').then((l) => !stop && setRunning(inProgress(l)), () => undefined);
@@ -192,7 +194,7 @@ export function Shell({ app, active, counts, jumps, menu, children }: { app: str
         ...others.map((w): Item => ({ label: `Cambiar a ${nameOf(w, workspaces.data ?? [])}`, hint: 'Workspace', icon: Box, to: `ws:${w.id}`, run: () => { location.href = wsPage(w.id!, screenOnly(location.hash)); } })),
         { label: 'Todos los workspaces y esta máquina', hint: 'Inicio', icon: HomeIcon, to: 'ws:', run: () => { location.href = HOME; } },
       ]} close={() => setCmdk(false)} />}
-      {adding && <AddWorkspace onClose={() => setAdding(false)} />}
+      {adding && <Suspense fallback={null}><AddWorkspace onClose={() => setAdding(false)} /></Suspense>}
     </div>
   );
 }

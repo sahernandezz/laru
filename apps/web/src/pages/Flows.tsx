@@ -174,7 +174,7 @@ function Expected({ g, flow, view: asked, onView }: { g: Indexed | null; flow: F
     const eg = expectedGraph(g, flow), a = archGraph(g, []);
     const ids = new Set(eg.edges.map((e) => e.id));
     const edges = new Map(eg.edges.map((e): [string, FlowEdge] => [e.id, { ...e, label: 'esperado', ex: [], n: 0, sse: 0, failed: 0, errors: 0, bad: false, tables: [], inMap: true }]));
-    return { lay: layout(a.sub, a.edges.map((e) => (ids.has(e.id) ? { ...e, label: 'esperado' } : e)), { keep: true }), pieces: a.pieces, lit: { edges, nodes: new Set(eg.sub.nodes.keys()), quiet: new Set<string>() } };
+    return { lay: layout(a.sub, a.edges.map((e) => (ids.has(e.id) ? { ...e, label: 'esperado' } : e)), { keep: true, bands: true }), pieces: a.pieces, lit: { edges, nodes: new Set(eg.sub.nodes.keys()), quiet: new Set<string>() } };
   }, [g, flow]);
   const cmd = `laru flow scaffold ${flow.id}`;
   return (

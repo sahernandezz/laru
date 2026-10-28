@@ -264,3 +264,54 @@ test('a base URL read from a variable its compose sets resolves like any host: b
   assert.ok(calls.some((c) => /^svc:api .*base URL from HEALTH_URL, across projects$/.test(c)), 'host.docker.internal:18080 is what the shop publishes for api');
   assert.ok(calls.some((c) => /^ext:stock .*base URL from STOCK_URL$/.test(c)), 'a value its compose interpolates is no address: the name decides, as before');
 });
+
+test('a project’s group (the application it belongs to) is read, kept when the project is added again, reaches the map, and is refused empty', async () => {
+  const fx = makeFixture();
+  const ws = initWorkspace(join(fx.tmp, 'ws'), { app: 'tienda', title: 'Tienda' });
+  const audit = join(fx.tmp, 'code', 'audit');
+  fx.write(audit, AUDIT);
+  await addRepo(ws, audit, { name: 'audit' });
+  const file = join(ws.root, 'laru.yaml');
+  writeFileSync(file, readFileSync(file, 'utf8').replace('    source: folder\n', '    source: folder\n    group: Auditoría\n'));
+  assert.equal(loadWorkspace(ws.root).repos[0].group, 'Auditoría');
+  await addRepo(loadWorkspace(ws.root), audit, { name: 'audit', title: 'Registro' });
+  const w = loadWorkspace(ws.root);
+  assert.deepEqual([w.repos[0].group, w.repos[0].title], ['Auditoría', 'Registro'], 'adding the project again keeps its group');
+  assert.equal((await refreshMap(w)).map.repos[0].group, 'Auditoría');
+  writeFileSync(file, readFileSync(file, 'utf8').replace('group: Auditoría', 'group: "  "'));
+  assert.throws(() => loadWorkspace(ws.root), (e: WorkspaceError) => e.at === 'repos.audit.group');
+});
+
+test('services laru.yaml declares: a Lambda folder with its routes, a gateway the compose runs from an image, and who calls whom', async () => {
+  const fx = makeFixture();
+  const ws = initWorkspace(join(fx.tmp, 'ws'), { app: 'portal', title: 'Portal' });
+  const portal = join(fx.tmp, 'code', 'portal');
+  fx.write(portal, {
+    'docker-compose.yml': [
+      'services:',
+      '  api-gateway:', '    image: kong:3.6', '    ports: ["8000:8000"]',
+      '  usuarios:', '    image: public.ecr.aws/lambda/nodejs:20', '    volumes: ["./lambdas/usuarios:/var/task"]',
+      '  postgres:', '    image: postgres:16',
+    ].join('\n'),
+    'lambdas/usuarios/package.json': JSON.stringify({ name: 'usuarios', dependencies: { pg: '8' } }),
+    'lambdas/usuarios/index.js': "const routes = { 'GET /usuarios': list };\nexports.handler = async (event) => routes[`${event.httpMethod} ${event.path}`](event);",
+    'lambdas/pagos/package.json': JSON.stringify({ name: 'pagos' }),
+  });
+  await addRepo(ws, portal, { name: 'portal' });
+  const file = join(ws.root, 'laru.yaml');
+  writeFileSync(file, readFileSync(file, 'utf8') + [
+    'services:',
+    '  api-gateway:', '    repo: portal', '    kind: gateway', '    endpoints: ["/usuarios/**"]', '    calls: ["usuarios GET /usuarios/{id}", pagos]',
+    '  usuarios:', '    repo: portal', '    dir: lambdas/usuarios', '    kind: lambda', '    endpoints: [GET /usuarios, "/usuarios/{id}"]', '    calls: [postgres, api.vendor.example]',
+    '  pagos:', '    repo: portal', '    dir: lambdas/pagos', '    kind: lambda',
+  ].join('\n') + '\n');
+  const { map } = await refreshMap(loadWorkspace(ws.root));
+  const svc = map.nodes.filter((n) => n.type === 'service').map((n) => `${n.name} ${n.kind}`).sort();
+  assert.deepEqual(svc, ['api-gateway gateway', 'pagos lambda', 'usuarios lambda']);
+  assert.ok(!map.nodes.some((n) => n.id === 'ext:api-gateway' || n.id === 'ext:usuarios'), 'a container the workspace declares a service is no longer infrastructure');
+  assert.deepEqual(map.nodes.filter((n) => n.type === 'endpoint').map((n) => n.id).sort(), ['ep:api-gateway:ANY /usuarios/**', 'ep:usuarios:ANY /usuarios/{id}', 'ep:usuarios:GET /usuarios']);
+  const facts = map.facts.filter((f) => f.origin === 'declared' && f.s.startsWith('svc:') && f.p !== 'exposes').map((f) => `${f.s} ${f.p} ${f.o}`).sort();
+  assert.deepEqual(facts, ['svc:api-gateway calls ep:usuarios:ANY /usuarios/{id}', 'svc:api-gateway calls svc:pagos', 'svc:usuarios uses ds:postgres', 'svc:usuarios uses ext:api.vendor.example']);
+  assert.equal(map.names?.portal?.['api-gateway'], 'api-gateway', 'its compose name still runs it');
+  assert.ok(map.facts.some((f) => f.s === 'ep:api-gateway:ANY /usuarios/**' && f.p === 'forwards-to' && f.o === 'ep:usuarios:GET /usuarios'), 'a declared gateway forwards to what its declared calls reach');
+});

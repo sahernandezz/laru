@@ -8,3 +8,10 @@ dist/
 *.sqlite
 .DS_Store
 apps/web/dist/
+# local files of the AI plugins: never committed
+.ai-delivery-pa/knowledge.local/
+.ai-dev/knowledge.local/
+.ai-dev/.update-check.json
+.gate-state.json
+.session-state.json
+.playwright/

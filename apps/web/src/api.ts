@@ -91,7 +91,17 @@ export class ApiError extends Error {
   constructor(message: string, status?: number, workspace?: string) { super(message); this.status = status; this.workspace = workspace; }
 }
 
-export async function api<T>(path: string, init?: { method?: 'GET' | 'POST'; body?: unknown }): Promise<T> {
+/** GETs on their way: views that ask for the same thing at once (a page has several that read /api/envs) share one. */
+const inflight = new Map<string, Promise<unknown>>();
+
+export function api<T>(path: string, init?: { method?: 'GET' | 'POST'; body?: unknown }): Promise<T> {
+  if (init?.method === 'POST') return request<T>(path, init);
+  const p = inflight.get(path) ?? request<T>(path).finally(() => inflight.delete(path));
+  inflight.set(path, p);
+  return p as Promise<T>;
+}
+
+async function request<T>(path: string, init?: { method?: 'GET' | 'POST'; body?: unknown }): Promise<T> {
   const post = init?.method === 'POST';
   const res = await fetch(apiUrl(path), { method: init?.method ?? 'GET', headers: post ? { 'content-type': 'application/json' } : undefined, body: post ? JSON.stringify(init?.body ?? {}) : undefined });
   const body = await res.json().catch(() => ({}));

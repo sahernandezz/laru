@@ -500,32 +500,37 @@ function blockOf(c: ComposeLines, svc: string): { start: number; block: string[]
   return { start, block: c.lines.slice(start, end > 0 ? end : undefined) };
 }
 
-/** The line of the first `${name}` with no default inside the service's block; 'default' when it only appears with one. */
-function composeLine(c: ComposeLines | undefined, svc: string, name: string): number | 'default' | undefined {
-  if (!c) return undefined;
+/**
+ * Where the first `${name}` with no default is (`file:line`), in the service's block of any of the env's compose files
+ * first, then anywhere in them; 'default' when it only appears with one. A default in one file never excuses a bare
+ * use in the service's own block in another.
+ */
+function composeLine(cs: ComposeLines[], svc: string, name: string): string | 'default' | undefined {
   const bare = new RegExp(`\\$\\{${name}(:?\\?[^}]*)?\\}|(?<!\\$)\\$${name}(?!\\w)`);
   const withDefault = new RegExp(`\\$\\{${name}:?[-+]`);
-  const { start, block } = blockOf(c, svc);
-  const inBlock = block.findIndex((l) => bare.test(l));
-  if (inBlock >= 0) return start + inBlock + 1;
-  if (block.some((l) => withDefault.test(l))) return 'default';
-  const anywhere = c.lines.findIndex((l) => bare.test(l));
-  return anywhere >= 0 ? anywhere + 1 : c.lines.some((l) => withDefault.test(l)) ? 'default' : undefined;
+  for (const c of cs) { const { start, block } = blockOf(c, svc); const i = block.findIndex((l) => bare.test(l)); if (i >= 0) return `${c.file}:${start + i + 1}`; }
+  if (cs.some((c) => blockOf(c, svc).block.some((l) => withDefault.test(l)))) return 'default';
+  for (const c of cs) { const i = c.lines.findIndex((l) => bare.test(l)); if (i >= 0) return `${c.file}:${i + 1}`; }
+  return cs.some((c) => c.lines.some((l) => withDefault.test(l))) ? 'default' : undefined;
 }
 
 /** The line of a bare `- KEY` (or a `KEY:` with no value) inside the service's block. */
-function bareLine(c: ComposeLines | undefined, svc: string, name: string): number | undefined {
-  if (!c) return undefined;
-  const { start, block } = blockOf(c, svc);
-  const i = block.findIndex((l) => new RegExp(`^\\s*(-\\s*)?["']?${name}["']?\\s*(:\\s*(null|~)?)?\\s*$`).test(l));
-  return i >= 0 ? start + i + 1 : undefined;
+function bareLine(cs: ComposeLines[], svc: string, name: string): string | undefined {
+  for (const c of cs) {
+    const { start, block } = blockOf(c, svc);
+    const i = block.findIndex((l) => new RegExp(`^\\s*(-\\s*)?["']?${name}["']?\\s*(:\\s*(null|~)?)?\\s*$`).test(l));
+    if (i >= 0) return `${c.file}:${start + i + 1}`;
+  }
+  return undefined;
 }
 
 /**
  * What would make `up` start a service with a missing or wrong variable. Errors block `up`; warnings are
  * shown. Relaxed-binding reads (`overrides <key>`) are optional by nature and never required.
  */
-export function missingVars(ws: Workspace, env: string, services: VaultService[], g: Graph | null, compose?: ComposeLines): VarIssue[] {
+export function missingVars(ws: Workspace, env: string, services: VaultService[], g: Graph | null, compose?: ComposeLines | ComposeLines[]): VarIssue[] {
+  const composes = compose ? [compose].flat() : [];
+  const where = (s: VaultService) => `${composes[0]?.file ?? 'compose'} (${s.name})`;
   const entries = readEntries(ws);
   const out: VarIssue[] = [];
   const seen = new Set<string>();
@@ -551,9 +556,9 @@ export function missingVars(ws: Workspace, env: string, services: VaultService[]
       const blankable = s.environment[key] === `\${${key}}`;
       // An empty value is a value, except as `X: ${X}`: there it blanks whatever default the code has.
       if (/^[A-Za-z_]\w*:?[-+]/.test(body) || (e && (!blankable || e.ref !== undefined || e.value !== ''))) continue;
-      const line = composeLine(compose, inCompose, key);
+      const line = composeLine(composes, inCompose, key);
       if (line === 'default') continue;
-      const at = line ? `${compose!.file}:${line}` : `${compose?.file ?? 'compose'} (${s.name})`;
+      const at = line ?? where(s);
       if (e) {
         push({ level: 'error', code: 'blank-override', key, service: s.name, at, message: `${key}: ${at} passes it to ${s.name} as \`${key}: \${${key}}\` and ${e.section} sets it empty, which overrides any default in the code → ${fix(key)}` });
         continue;
@@ -564,8 +569,7 @@ export function missingVars(ws: Workspace, env: string, services: VaultService[]
     // A bare `- KEY` asks for the value by name; compose runs with an empty env, so without the vault it is not there.
     for (const [key, v] of Object.entries(s.environment)) {
       if (v !== null || eff.has(key)) continue;
-      const line = bareLine(compose, inCompose, key);
-      const at = line ? `${compose!.file}:${line}` : `${compose?.file ?? 'compose'} (${s.name})`;
+      const at = bareLine(composes, inCompose, key) ?? where(s);
       push({ level: 'error', code: 'missing-var', key, service: s.name, at, message: `${key}: ${at} asks for it by name for ${s.name} and no vault level sets it → ${fix(key)}` });
     }
   }
