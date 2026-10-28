@@ -12,6 +12,8 @@ import { langOf } from '../lib/syntax.ts';
 import { ago, bindingMatch, isDefaultExchange, plural, rabbitText, routeText } from '../lib/es.ts';
 import { useEnvList } from '../lib/useEnvs.ts';
 import { href } from '../lib/route.ts';
+import { CustomView, type CustomStoreInfo } from './Custom.tsx';
+import { MESSAGING } from './Data.tsx';
 
 const nf = new Intl.NumberFormat('es');
 type Group = QueuesData['groups'][number];
@@ -25,14 +27,19 @@ function lagOf(rows: Group[]): number | null {
 export function Queues({ parts }: { parts: string[] }) {
   // #/queues/<env>/<broker>/<topic or queue>; an address without the broker (#/queues/<env>/<topic>) is Kafka's.
   const [envArg, a, b] = parts;
-  const brokerArg = a === 'kafka' || a === 'rabbitmq' || a === 'sqs' ? a : undefined;
+  const brokerArg = a === 'kafka' || a === 'rabbitmq' || a === 'sqs' || a?.startsWith('custom:') ? a : undefined;
   const nameArg = brokerArg ? b : a;
   const envs = useEnvList();
   const list = envs.data ?? [];
   const env = list.find((e) => e.env === envArg)?.env ?? list.find((e) => e.state === 'ready')?.env ?? list[0]?.env;
   const ready = list.find((e) => e.env === env)?.state === 'ready';
-  const brokers = useApi<BrokerInfo[]>(env && ready ? `/api/brokers?env=${encodeURIComponent(env)}` : null);
+  const known = useApi<BrokerInfo[]>(env && ready ? `/api/brokers?env=${encodeURIComponent(env)}` : null);
+  // any other broker laru.yaml explains (`stores.<name>.explore`), after the ones Laru reads itself
+  const customs = useApi<CustomStoreInfo[]>(env && ready ? `/api/custom/stores?env=${encodeURIComponent(env)}` : null);
+  const declared = (customs.data ?? []).filter((s) => MESSAGING.test(s.kind));
+  const brokers = { ...known, data: known.data && (customs.data || customs.error) ? [...known.data, ...declared.map((s) => ({ kind: `custom:${s.service}`, service: s.service }) as unknown as BrokerInfo)] : undefined };
   const broker = brokers.data?.find((x) => x.kind === brokerArg) ?? brokers.data?.[0];
+  const custom = broker?.kind.startsWith('custom:') ? declared.find((s) => `custom:${s.service}` === broker.kind) : undefined;
 
   const head = (
     <div className="head">
@@ -41,7 +48,7 @@ export function Queues({ parts }: { parts: string[] }) {
         {list.length > 1 && <nav className="seg" aria-label="Entorno">{list.map((e) => <a key={e.env} href={href('queues', e.env)} aria-current={e.env === env ? 'page' : undefined}>{e.env}</a>)}</nav>}
         {env && broker && (brokers.data?.length ?? 0) > 1 && (
           <Segmented label="Broker" value={broker.kind} onChange={(k) => { location.hash = href('queues', env, k); }}
-            options={brokers.data!.map((x) => ({ key: x.kind, label: <>{x.kind === 'kafka' ? 'Kafka' : x.kind === 'sqs' ? 'SQS' : 'RabbitMQ'} <span className="mono faint">{x.service}</span></> }))} />
+            options={brokers.data!.map((x) => ({ key: x.kind, label: <>{x.kind === 'kafka' ? 'Kafka' : x.kind === 'sqs' ? 'SQS' : x.kind === 'rabbitmq' ? 'RabbitMQ' : declared.find((s) => `custom:${s.service}` === x.kind)?.kind ?? x.kind} <span className="mono faint">{x.service}</span></> }))} />
         )}
       </div>
     </div>
@@ -52,11 +59,12 @@ export function Queues({ parts }: { parts: string[] }) {
   if (!ready) return <div className="page wide">{head}<section className="panel"><div className="empty"><span>{env} no está en marcha. Levántalo en <a className="rowlink" href={href('envs', env)}>Entornos</a> o con <code>laru up {env}</code>.</span></div></section><TopicContracts /></div>;
   if (brokers.error) return <div className="page wide">{head}<div className="notice" role="alert"><CircleX />{brokers.error}</div></div>;
   if (!brokers.data) return <div className="page wide">{head}<Skeleton lines={5} /><div style={{ height: 16 }} /><Skeleton lines={6} /></div>;
-  if (!broker) return <div className="page wide">{head}<section className="panel"><div className="empty">{env} no tiene Kafka ni RabbitMQ en marcha. Las colas aparecen aquí en cuanto arranca un contenedor de Kafka, Redpanda o RabbitMQ.</div></section><TopicContracts /></div>;
+  if (!broker) return <div className="page wide">{head}<section className="panel"><div className="empty">{env} no tiene colas en marcha que Laru sepa leer. Kafka, Redpanda, RabbitMQ y SQS aparecen solos; cualquier otro broker aparece si laru.yaml dice cómo leerlo, en <code>stores.&lt;nombre&gt;.explore</code>.</div></section><TopicContracts /></div>;
   return (
     <div className="page wide">
       {head}
-      {broker.kind === 'kafka' ? <KafkaView key={env} env={env} topicArg={nameArg} /> : broker.kind === 'sqs' ? <SqsView key={env} env={env} queueArg={nameArg} /> : <RabbitView key={env} env={env} queueArg={nameArg} />}
+      {custom ? <CustomView key={`${env}/${custom.service}`} env={env} nav={null} store={custom} tableArg={nameArg} at={(n) => href('queues', env, broker.kind, n)} />
+        : broker.kind === 'kafka' ? <KafkaView key={env} env={env} topicArg={nameArg} /> : broker.kind === 'sqs' ? <SqsView key={env} env={env} queueArg={nameArg} /> : <RabbitView key={env} env={env} queueArg={nameArg} />}
       <TopicContracts />
     </div>
   );

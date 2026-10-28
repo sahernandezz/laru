@@ -159,7 +159,7 @@ test('one service, several workspaces: each under its id, the machine beside the
   try {
     const base = new URL(d.url).origin;
     const ping = await get(`${base}/api/ping`);
-    assert.deepEqual([ping.status, JSON.parse(ping.body)], [200, { laru: '0.1.0-beta.6', pid: process.pid }], 'ping needs no session and says only the version and whose it is');
+    assert.deepEqual([ping.status, JSON.parse(ping.body)], [200, { laru: '0.1.0-beta.7', pid: process.pid }], 'ping needs no session and says only the version and whose it is');
     const cookie = String((await get(d.url.replace('/?', '/w/finanzas/?'))).headers['set-cookie']).split(';')[0];
     const call = async (method: string, path: string, body?: unknown) => new Promise<{ status: number; json: any }>((ok, fail) => {
       const req = request(`${base}${path}`, { method, headers: { cookie, ...(body ? { 'content-type': 'application/json' } : {}) } }, (res) => { let t = ''; res.on('data', (c) => (t += c)); res.on('end', () => ok({ status: res.statusCode!, json: t ? JSON.parse(t) : null })); });
@@ -218,7 +218,7 @@ test('one service, several workspaces: each under its id, the machine beside the
     // A joint env from the dialog: validated by writeJoint; refused with the field, nothing written anywhere.
     assert.deepEqual(await call('POST', '/api/w/comercio/env/create', { name: '../../outside-joint', join: ['local', 'x'] }), { status: 400, json: { error: 'name: env names are kebab-case', field: 'name' } });
     assert.ok(!existsSync(join(fx.tmp, 'outside-joint.yaml')));
-    assert.equal((await call('POST', '/api/machine/config', { maxEnvs: 0 })).status, 400);
+    assert.equal((await call('POST', '/api/machine/config', { maxEnvs: -1 })).status, 400);
     assert.equal((await call('POST', '/api/machine/config', { maxEnvs: 2 })).json.maxEnvs, 2);
     // «Crear uno nuevo»: only under the home folder, never the home folder itself; nothing written when refused.
     const realHome = process.env.HOME;

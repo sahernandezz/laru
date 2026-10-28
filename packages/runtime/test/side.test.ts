@@ -161,11 +161,12 @@ test('side by side: two workspaces up at once; a persisted subnet, entrance and 
     assert.ok(!fake.networks.some((n) => n.Name === 'ks-two-local') && !fake.containers.some((c) => c.project === 'ks-two-local'), 'no half-created network or container');
   });
 
-  await t.test('memory: refused when what runs plus what it needed last time passes 90%; --force goes through', async () => {
+  await t.test('memory: said, not refused, when what runs plus what it needed last time passes 90%; --force does not ask', async () => {
     writeConfig({ maxEnvs: 2 });
     writeState(two, 'local', { ...readState(two, 'local')!, lastMemBytes: 7.5 * 2 ** 30 });
-    await assert.rejects(up(two, { env: 'local' }), (e: EnvError) => e.admission?.kind === 'memory' && /one\/local uses [\d.]+ GiB; two\/local needed 7\.5 GiB last time and Docker has 8\.0 GiB/.test(e.message));
-    await up(two, { env: 'local', force: true });
+    const r = await up(two, { env: 'local' });
+    assert.ok(r.warnings.some((w) => /one\/local uses [\d.]+ GiB; two\/local needed 7\.5 GiB last time and Docker has 8\.0 GiB/.test(w)), r.warnings.join('\n'));
+    assert.ok(!(await up(two, { env: 'local', force: true })).warnings.some((w) => /may not fit/.test(w)));
   });
 
   await t.test('--force skips the memory check only: maxEnvs still refuses', async () => {
@@ -173,9 +174,9 @@ test('side by side: two workspaces up at once; a persisted subnet, entrance and 
     await assert.rejects(up(two, { env: 'local', force: true }), (e: EnvError) => e.admission?.kind === 'maxEnvs');
   });
 
-  await t.test('an ephemeral run is not counted against maxEnvs, but its memory is', async () => {
-    writeState(two, 'local', { ...readState(two, 'local')!, lastMemBytes: 7.5 * 2 ** 30 });
-    await assert.rejects(up(two, { env: 'local', run: '77' }), (e: EnvError) => e.admission?.kind === 'memory' && /two\/local needed 7\.5 GiB/.test(e.message));
+  await t.test('no limit unless the owner sets one: maxEnvs 0 lets a second env up', async () => {
+    writeConfig({ maxEnvs: 0 });
+    await up(two, { env: 'local', force: true });
   });
 
   await t.test('a stopped env keeps a persisted port only while it can still bind it', async () => {

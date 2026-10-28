@@ -315,3 +315,33 @@ test('services laru.yaml declares: a Lambda folder with its routes, a gateway th
   assert.equal(map.names?.portal?.['api-gateway'], 'api-gateway', 'its compose name still runs it');
   assert.ok(map.facts.some((f) => f.s === 'ep:api-gateway:ANY /usuarios/**' && f.p === 'forwards-to' && f.o === 'ep:usuarios:GET /usuarios'), 'a declared gateway forwards to what its declared calls reach');
 });
+
+test('laru.yaml says what an image does not: stores of any kind, topics, a service’s own application, and pieces no project holds', async () => {
+  const fx = makeFixture();
+  const ws = initWorkspace(join(fx.tmp, 'ws'), { app: 'portal', title: 'Portal' });
+  const portal = join(fx.tmp, 'code', 'portal');
+  fx.write(portal, {
+    'docker-compose.yml': ['services:', '  colas:', '    image: softwaremill/elasticmq:1.5', '  rara:', '    image: acme/tool:1'].join('\n'),
+    'lambdas/usuarios/package.json': JSON.stringify({ name: 'usuarios' }),
+    'lambdas/pagos/package.json': JSON.stringify({ name: 'pagos' }),
+  });
+  await addRepo(ws, portal, { name: 'portal' });
+  const file = join(ws.root, 'laru.yaml');
+  writeFileSync(file, readFileSync(file, 'utf8') + [
+    'stores:',
+    '  colas: { repo: portal, kind: queue }',
+    '  ledger: { kind: event-store }',
+    '  stripe: { kind: payments, external: true }',
+    'services:',
+    '  usuarios: { repo: portal, dir: lambdas/usuarios, group: Usuarios, publishes: [usuario-creado], calls: [ledger, colas] }',
+    '  pagos: { repo: portal, dir: lambdas/pagos, group: Pagos, consumes: [usuario-creado], calls: [stripe] }',
+    '  apigw: { kind: aws-api-gateway, group: Usuarios, calls: [usuarios] }',
+  ].join('\n') + '\n');
+  const { map } = await refreshMap(loadWorkspace(ws.root));
+  const node = (id: string) => map.nodes.find((n) => n.id === id);
+  assert.deepEqual([node('ds:colas')?.kind, node('ds:ledger')?.kind, node('ext:stripe')?.kind, node('ext:rara')?.kind], ['queue', 'event-store', 'payments', 'infra'], 'what is said wins; an image nobody named stays infrastructure');
+  assert.deepEqual([node('svc:usuarios')?.attrs?.group, node('svc:pagos')?.attrs?.group, node('svc:apigw')?.attrs?.group], ['Usuarios', 'Pagos', 'Usuarios']);
+  assert.equal(node('svc:apigw')?.repo, undefined, 'a service no project holds belongs to the application');
+  const facts = map.facts.filter((f) => f.origin === 'declared' && f.s.startsWith('svc:') && f.p !== 'exposes').map((f) => `${f.s} ${f.p} ${f.o}`).sort();
+  assert.deepEqual(facts, ['svc:apigw calls svc:usuarios', 'svc:pagos consumes topic:usuario-creado', 'svc:pagos uses ext:stripe', 'svc:usuarios publishes topic:usuario-creado', 'svc:usuarios uses ds:colas', 'svc:usuarios uses ds:ledger']);
+});

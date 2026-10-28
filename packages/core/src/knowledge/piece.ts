@@ -33,8 +33,10 @@ function renderField(f: Field, v: FieldValue, lang: Lang): string {
   if (f.type === 'markdown' || f.type === 'text') return String(v).trim();
   if (f.type === 'list') return (v as string[]).map((x) => `- ${x.trim()}`).join('\n');
   if (f.type === 'refs') return (v as string[]).map((x) => `- [[${x.trim()}]]`).join('\n');
-  const cols = f.columns!;
   const rows = v as Row[];
+  // a column the standard does not have is kept, under its own name, after the standard's
+  const extra = [...new Set(rows.flatMap((r) => Object.keys(r)))].filter((k) => !f.columns!.some((c) => c.name === k));
+  const cols = [...f.columns!, ...extra.map((k) => ({ name: k, label: { en: k, es: k } }))];
   return [
     `| ${cols.map((c) => c.label[lang]).join(' | ')} |`,
     `|${cols.map(() => '---').join('|')}|`,
@@ -56,6 +58,12 @@ export function renderPiece(p: Piece, lang: Lang): string {
   if (Object.keys(rel).length) fm.relations = rel;
   if (p.verified) fm.verified = p.verified;
   const sections = std.fields.filter((f) => hasValue(p.fields[f.name])).map((f) => `## ${f.label[lang]}\n\n${renderField(f, p.fields[f.name], lang)}`);
+  // Sections the standard does not have are kept as written, after its own: the note says so, nothing is lost.
+  for (const [k, v] of Object.entries(p.fields)) {
+    if (std.fields.some((f) => f.name === k) || !hasValue(v)) continue;
+    const type = typeof v === 'string' ? 'markdown' : (v as unknown[]).every((x) => typeof x === 'string') ? 'list' : 'rows';
+    sections.push(`## ${k}\n\n${renderField({ name: k, type, columns: [] } as unknown as Field, v, lang)}`);
+  }
   return `---\n${stringify(fm, { lineWidth: 0 }).trimEnd()}\n---\n\n# ${p.title}\n\n${sections.join('\n\n')}\n`;
 }
 
@@ -86,9 +94,10 @@ export function parsePiece(src: string): { piece?: Piece; issues: ParseIssue[] }
     sections.at(-1)?.lines.push(line);
   }
   for (const s of sections) {
-    const f = byHeading.get(s.heading.toLowerCase());
-    if (!f) { issues.push({ at: `sections["${s.heading}"]`, key: 'unknown-section', message: `"${s.heading}" is not a section of a ${type}` }); continue; }
     const text = s.lines.join('\n').trim();
+    // a section of its own: a table, a list, or text, kept under its heading
+    const f = byHeading.get(s.heading.toLowerCase())
+      ?? ({ name: s.heading, columns: [], type: /^\s*\|/.test(text) ? 'rows' : text && text.split('\n').every((l) => /^\s*[-*]\s+/.test(l)) ? 'list' : 'markdown' } as unknown as Field);
     if (f.type === 'markdown' || f.type === 'text') fields[f.name] = text;
     else if (f.type === 'list' || f.type === 'refs') {
       const items: string[] = [];
@@ -103,10 +112,9 @@ export function parsePiece(src: string): { piece?: Piece; issues: ParseIssue[] }
       const cells = (l: string) => l.trim().replace(/^\||\|$/g, '').split(/(?<!\\)\|/).map((c) => c.trim().replace(/\\\|/g, '|'));
       const head = lines[0] ? cells(lines[0]) : [];
       const colOf = head.map((h) => f.columns!.find((c) => Object.values(c.label).some((l) => l.toLowerCase() === h.toLowerCase()) || c.name === h.toLowerCase()));
-      head.forEach((h, i) => { if (!colOf[i]) issues.push({ at: `${f.name}.columns[${i}]`, key: 'unknown-column', message: `"${h}" is not a column of ${f.name}` }); });
       fields[f.name] = lines.slice(2).map((l) => {
         const r: Row = {};
-        cells(l).forEach((c, i) => { const col = colOf[i]; if (col && c) r[col.name] = c; });
+        cells(l).forEach((c, i) => { const name = colOf[i]?.name ?? head[i]; if (name && c) r[name] = c; });
         return r;
       });
     }

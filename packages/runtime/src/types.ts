@@ -6,6 +6,8 @@
 /** `envs/<env>.yaml`, after `extends` is resolved. */
 export interface EnvSpec {
   name: string;
+  /** keys of its file that Laru does not read: kept, ignored, and said */
+  ignored?: string[];
   /** `closed`: what Laru builds sees only the env's own network; the tap alone goes out (measured on Docker Desktop: an internal network keeps a service off the internet and off this Mac, and the tap, on a second network too, still publishes its ports) */
   egress?: 'open' | 'closed';
   /** the repo compose this environment transforms: `<repo>:<path>` */

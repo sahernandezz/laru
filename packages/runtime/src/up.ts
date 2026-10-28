@@ -14,7 +14,7 @@ import { closure, composeFiles, importCompose, interpolations, leftOut, renderCo
 import { readConfig } from './config.ts';
 import { prune } from './disk.ts';
 import { destroyByLabel, docker, dockerStream, envLock, hold, inspectEnv, LABEL, machineLock, recentStats, stats, withLock, workspaceKey, type ContainerState, type DestroyReport } from './docker.ts';
-import { checkShare, envDir, envKeys, envMasker, forgetValues, isInstance, jointSpec, loadEnvSpec, projectName, readState, translateSpec, writeState, type EnvState } from './env.ts';
+import { checkShare, ENV_KEYS, envDir, envKeys, envMasker, forgetValues, isInstance, jointSpec, loadEnvSpec, projectName, readState, translateSpec, writeState, type EnvState } from './env.ts';
 import { joinComposes, jointRouting } from './join.ts';
 import { nameOf, provisional } from './names.ts';
 import { caDir, ensureTruststore, leafFor } from './tls.ts';
@@ -270,7 +270,8 @@ async function admit(ws: Workspace, opts: UpOptions, others: Array<{ id: string;
   // a flow's environment is an instance: it counts against memory, not against the number of persistent envs
   const persistent = new Map(others.filter((x) => x.env && !x.run && !isInstance(x.env)).map((x) => [`${x.key}|${x.env}`, { key: x.key, app: x.app, env: x.env }]));
   const { maxEnvs } = readConfig();
-  if (!opts.run && !isInstance(opts.env) && persistent.size >= maxEnvs) {
+  // 0, the default: no limit; a number is the limit this machine's owner chose on «Esta máquina»
+  if (maxEnvs > 0 && !opts.run && !isInstance(opts.env) && persistent.size >= maxEnvs) {
     throw new EnvError(`another env is running (${[...persistent.values()].map((o) => `${o.app}/${o.env}`).join(', ')}); stop it with \`laru down\` or raise maxEnvs in ~/.laru/config.yaml`, { admission: { kind: 'maxEnvs', max: maxEnvs, others: [...persistent.values()] } });
   }
   if (opts.force) return;
@@ -297,8 +298,8 @@ async function admit(ws: Workspace, opts: UpOptions, others: Array<{ id: string;
   if (d.fits) return;
   const list = d.others.map((e) => ({ key: e.key, app: e.app, env: e.run ? `${e.env} (run ${e.run})` : e.env, memBytes: e.memBytes }));
   const foreign = d.foreignBytes > 0.1 * 2 ** 30 ? ` and ${gib(d.foreignBytes)} are held by containers that are not Laru's` : '';
-  throw new EnvError(`it does not fit: ${list.map((e) => `${e.app}/${e.env} uses ${gib(e.memBytes)}`).join(' and ') || 'nothing of Laru\'s'}${foreign}; ${ws.app}/${opts.env} needed ${gib(need)} last time and Docker has ${gib(total)}. ${d.offer ? `Stopping ${d.offer.app}/${d.offer.env} (${gib(d.offer.memBytes)}) would make it fit` : 'Stop one, give Docker more memory'}, or --force`,
-    { admission: { kind: 'memory', needBytes: need, totalBytes: total, others: list, foreignBytes: d.foreignBytes, ...(d.offer ? { offer: d.offer } : {}) } });
+  // said, not refused: the owner decides whether the machine can take it
+  return `it may not fit: ${list.map((e) => `${e.app}/${e.env} uses ${gib(e.memBytes)}`).join(' and ') || 'nothing of Laru\'s'}${foreign}; ${ws.app}/${opts.env} needed ${gib(need)} last time and Docker has ${gib(total)}. ${d.offer ? `Stopping ${d.offer.app}/${d.offer.env} (${gib(d.offer.memBytes)}) would make room` : 'Stop one or give Docker more memory if it struggles'}`;
 }
 
 export function addressesOf(app: string, cfg: { routes: Array<{ svc: string; ports: number[]; proto: string; net?: string; kind?: string }> }, state: EnvState): Address[] {
@@ -328,6 +329,8 @@ export async function up(ws: Workspace, opts: UpOptions): Promise<UpResult> {
       if (!base.from && !base.join) throw new WorkspaceError('which compose to start from: `<repo>:<path>`', `envs/${opts.env}.yaml: from`);
       const joint = Boolean(base.join);
       const memberSpecs = joint ? base.join!.map((m) => ({ env: m, spec: loadEnvSpec(ws, m) })) : [{ env: opts.env, spec: base }];
+      const ignoredKeys = memberSpecs.flatMap((m) => (m.spec.ignored ?? []).map((k) => `envs/${m.env}.yaml: ${k} is not a key Laru reads; it is left as it is (keys: ${[...ENV_KEYS].join(', ')})`));
+      for (const w of ignoredKeys) emit({ kind: 'log', source: 'laru', line: `warning: ${w}` });
       const members: Array<{ env: string; repo: string; path: string; spec: EnvSpec; snap: Awaited<ReturnType<typeof snapshotRepo>>; files: string[]; doc: ComposeDoc }> = [];
       for (const m of memberSpecs) {
         const repo = m.spec.from!.repo;
@@ -395,7 +398,8 @@ export async function up(ws: Workspace, opts: UpOptions): Promise<UpResult> {
       const { targets, stores, health } = targetsOf(normalized, included);
       for (const [svc, h] of Object.entries(health)) spec.health[svc] ??= h;
       const held = await claims(ws, opts.env, opts.run);
-      await admit(ws, opts, held.others, held.mine);
+      const tight = await admit(ws, opts, held.others, held.mine);
+      if (tight) { unread.push(tight); emit({ kind: 'log', source: 'laru', line: `warning: ${tight}` }); }
       const state: EnvState = prev ?? { subnet: 0, entrance: 0, ports: {} };
       const moved = (what: string, from: string | number, to: string | number, by: string) => emit({ kind: 'log', source: 'laru', line: `${what} moves from ${from} to ${to}: ${by} holds it` });
       const key = workspaceKey(ws);
@@ -699,7 +703,7 @@ export async function up(ws: Workspace, opts: UpOptions): Promise<UpResult> {
       emit({ kind: 'ready', ms });
       const services: ServiceStatus[] = last.map(({ k, c, health }) => ({ service: svcOf(k), compose: k, mode: k === 'ks-tap' ? 'tap' : health === 'done' ? 'job' : 'container', health, built: built[svcOf(k)], image: real(k).image, container: c }));
       for (const h of spec.hybrid) services.push({ service: h, compose: h, mode: 'host', health: 'waiting', note: 'start it with laru run' });
-      return { env: opts.env, project, ms, timings, changed, services, addresses: addressesOf(ws.app, tapCfg, state), warnings: [...unread, ...rendered.warnings, ...issues.filter((i) => i.level !== 'error').map((i) => i.message), ...consumerWarnings] };
+      return { env: opts.env, project, ms, timings, changed, services, addresses: addressesOf(ws.app, tapCfg, state), warnings: [...ignoredKeys, ...unread, ...rendered.warnings, ...issues.filter((i) => i.level !== 'error').map((i) => i.message), ...consumerWarnings] };
     }, (holder) => emit({ kind: 'log', source: 'laru', line: `waiting for ${holder} to finish` }), envLock(ws, opts.env, opts.run));
   } catch (e) {
     release?.();

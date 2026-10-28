@@ -6,6 +6,20 @@ Todos los cambios de Laru que importan a quien lo usa quedan aquí. El formato s
 
 ## [Sin publicar]
 
+## [0.1.0-beta.7] - 2026-10-28
+
+### Añadido
+
+- **Más cosas declarables en `laru.yaml`:** `stores:` dice qué es un contenedor cuya imagen Laru no conoce, o un almacén o sistema que no está en ningún compose, con un `kind` libre (`queue`, `relational`, `event-store`…) y `external: true` si es de fuera. Un servicio puede llevar su propio `group` (el aplicativo, por encima del de su proyecto), `publishes` y `consumes` (temas o colas), y puede no tener `repo` cuando ninguna parte del código lo contiene, como un gateway gestionado. Las instrucciones para la IA del proyecto lo enumeran todo.
+
+- **Cualquier base de datos o cola se explora desde Laru:** `stores.<nombre>.explore` dice qué orden de su propio contenedor la lee (`query`), qué le pregunta para listar lo que hay (`tables`) y cómo abrir una parte (`table`, con `{table}`). Aparece en «Bases» o, si su `kind` es de mensajería, en «Colas», con la consola y el resultado como tabla (CSV o TSV con cabecera) o como texto, enmascarado como lo demás. Lo que se escribe va por la entrada estándar, nunca en la línea de órdenes.
+
+### Cambiado
+
+- **Sin límite de entornos a la vez:** por defecto pueden correr todos los que quieras; «Esta máquina» deja poner un límite si lo prefieres. Si la memoria parece no alcanzar, se avisa y se levanta igual.
+- **Lo que Laru no conoce ya no bloquea:** una clave de `envs/*.yaml` que Laru no lee se deja como está y se nombra al levantar; el `role` de un proyecto puede ser cualquier palabra, y una política o una etapa de `profile` que Laru no mide no impide cargar el workspace.
+- **La documentación ya no rechaza lo que solo se sale del estándar:** un título o un resumen largos, más elementos de los previstos, un `kind` o un estado fuera de la lista, una pieza en un padre de otro tipo, un ancla a código que aún no está en la rama de referencia, una referencia a una pieza que todavía no existe, y las secciones o columnas que el estándar no tiene. Ahora se guarda y queda un aviso para mejorarlo; las secciones y columnas propias se escriben y se vuelven a leer tal cual. Siguen bloqueando un id, un tipo o un título vacíos, y los formatos que usa Laru para funcionar (la duración de un flujo, el número de una decisión, una expresión regular que no compila).
+
 ## [0.1.0-beta.6] - 2026-10-28
 
 ### Añadido
@@ -139,7 +153,8 @@ Primera beta pública.
   - `CLAUDE.md` y `AGENTS.md` generados.
   - Hooks para Claude Code.
 
-[Sin publicar]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.6...HEAD
+[Sin publicar]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.7...HEAD
+[0.1.0-beta.7]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.6...v0.1.0-beta.7
 [0.1.0-beta.6]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.5...v0.1.0-beta.6
 [0.1.0-beta.5]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.4...v0.1.0-beta.5
 [0.1.0-beta.4]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.3...v0.1.0-beta.4

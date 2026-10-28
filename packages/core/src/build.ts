@@ -10,7 +10,7 @@ import { normalizePath, type Finding, type FindingOf, type Tech } from '@laru/de
 import type { RepoExtraction } from './extract.ts';
 import type { Anchor, Fact, MapNode, Origin, Relation, SystemMap } from './model.ts';
 import { MESSAGING, placeholder } from './messaging.ts';
-import type { ServiceOverride, Workspace } from './workspace.ts';
+import type { ServiceOverride, StoreDecl, Workspace } from './workspace.ts';
 
 /** A finding with the file it came from. `file`, not `path`: endpoints and calls have a `path` of their own. */
 type Located<F extends Finding = Finding> = F & { file: string; repo: string; commit: string };
@@ -117,6 +117,9 @@ export function buildSystemMap(ws: Workspace, extractions: RepoExtraction[]): Sy
     }
   }
 
+  // Declared with no project: a piece of the application that no project's code holds (a managed gateway, a SaaS step).
+  for (const o of ws.services.filter((x) => !x.repo)) services.push({ id: `svc:${o.name}`, name: o.name, local: o.name, repo: '', commit: '', dir: '', tech: (o.kind ?? 'service') as Tech, findings: [], ports: new Set(), config: new Map(), declared: o });
+
   // Unique names across the workspace, walking the projects in laru.yaml order: a name an earlier project claimed
   // (a service or a compose service) gets the repo as prefix, so adding a project never renames what exists. Two
   // services of one project with the same name both get it, as before.
@@ -151,27 +154,40 @@ export function buildSystemMap(ws: Workspace, extractions: RepoExtraction[]): Sy
     }
     const tests = { unit: 0, integration: 0, e2e: 0 };
     for (const f of s.findings) if (f.kind === 'tests') tests[f.level] += f.count;
-    b.node({ id: s.id, type: 'service', name: s.name, kind: s.tech, repo: s.repo, attrs: { dir: s.dir || '.', tech: s.tech, ...(s.stack ? { stack: s.stack } : {}), ...(s.platform ? { platform: s.platform } : {}), tests, ports: [...s.ports].sort((a, b) => a - b) }, anchor: { repo: s.repo, commit: s.commit, path: s.dir || '.' } });
+    const group = s.declared?.group ? { group: s.declared.group } : {};
+    if (!s.repo) { b.node({ id: s.id, type: 'service', name: s.name, kind: s.tech, attrs: { tech: s.tech, declared: true, tests, ports: [], ...group } }); b.fact(appId, 'contains', s.id, 'declared'); continue; }
+    b.node({ id: s.id, type: 'service', name: s.name, kind: s.tech, repo: s.repo, attrs: { dir: s.dir || '.', tech: s.tech, ...(s.stack ? { stack: s.stack } : {}), ...(s.platform ? { platform: s.platform } : {}), tests, ports: [...s.ports].sort((a, b) => a - b), ...group }, anchor: { repo: s.repo, commit: s.commit, path: s.dir || '.' } });
     b.fact(`repo:${s.repo}`, 'contains', s.id, 'extracted', { repo: s.repo, commit: s.commit, path: s.dir || '.' });
   }
 
   // ---------- infrastructure declared in compose files ----------
   // Keyed `<repo>/<compose name>`: two projects' `postgres` are two stores, `ds:postgres` and `ds:audit-postgres`.
   const infra = new Map<string, { id: string; ports: number[] }>();
+  const placed = new Map<StoreDecl, string>(); // declared stores a compose runs → their node
   const composeBuilt = new Map<string, Service>(); // `<repo>/<compose name>` → our service built from its context
   const composeEnv = new Map<string, Record<string, string>>(); // service id → the literal environment its compose sets
   for (const f of located) {
     if (f.kind !== 'compose-service') continue;
     const built = builds(f as Located<FindingOf<'compose-service'>>);
     if (built) { composeBuilt.set(`${f.repo}/${f.name}`, built); for (const p of f.ports) { if (p.host) built.ports.add(p.host); built.ports.add(p.container); } continue; }
-    if (!f.image || /(^|-)init$|setup$/.test(f.name)) continue;
-    const hit = IMAGE_KINDS.find(([re]) => re.test(f.image!));
+    // What laru.yaml says a container is wins over what its image suggests; an image Laru does not know is infrastructure until said.
+    const said = (ws.stores ?? []).find((d) => d.name === f.name && (!d.repo || d.repo === f.repo));
+    if ((!f.image && !said) || (!said && /(^|-)init$|setup$/.test(f.name))) continue;
+    const hit: [RegExp, 'datastore' | 'external', string] | undefined = said ? [/./, said.external ? 'external' : 'datastore', said.kind] : IMAGE_KINDS.find(([re]) => re.test(f.image!));
     const type = hit?.[1] ?? 'external';
     const unique = names[f.repo]?.[f.name] ?? f.name;
     const id = `${type === 'datastore' ? 'ds' : 'ext'}:${unique}`;
     b.node({ id, type, name: unique, kind: hit?.[2] ?? 'infra', ...(several ? { repo: f.repo } : {}), attrs: { image: f.image, ports: f.ports }, anchor: anchorOf(f) });
     b.fact(appId, 'contains', id, 'extracted', anchorOf(f));
     infra.set(`${f.repo}/${f.name}`, { id, ports: f.ports.flatMap((p) => [p.host ?? p.container]) });
+    if (said) placed.set(said, id);
+  }
+  // Declared stores no compose runs: by name, so a URL or a declared call to that host reaches them.
+  const storeByName = new Map<string, string>();
+  for (const d of ws.stores ?? []) {
+    const id = `${d.external ? 'ext' : 'ds'}:${d.name}`;
+    if (!placed.has(d)) { b.node({ id, type: d.external ? 'external' : 'datastore', name: d.name, kind: d.kind, ...(d.repo && several ? { repo: d.repo } : {}), attrs: { declared: true } }); b.fact(appId, 'contains', id, 'declared'); }
+    storeByName.set(d.name, placed.get(d) ?? id);
   }
   for (const f of located) {
     if (f.kind !== 'compose-service') continue;
@@ -206,6 +222,7 @@ export function buildSystemMap(ws: Workspace, extractions: RepoExtraction[]): Sy
       return null;
     }
     if (LOCAL_HOSTS.has(t.host) || !/[a-z]/i.test(t.host)) return null;
+    if (storeByName.has(t.host)) return storeByName.get(t.host)!;
     const kind = t.scheme ? SCHEME_KINDS[t.scheme] : undefined;
     const id = `${kind ? 'ds' : 'ext'}:${t.host}`;
     b.node({ id, type: kind ? 'datastore' : 'external', name: t.host, kind: kind ?? 'service' });
@@ -243,11 +260,14 @@ export function buildSystemMap(ws: Workspace, extractions: RepoExtraction[]): Sy
       const method = (m?.[1] ?? 'ANY').toUpperCase(), path = ('/' + (m?.[2] ?? e)).replace(/\/+/g, '/').replace(/(.)\/$/, '$1');
       const id = `ep:${s.name}:${method} ${path}`;
       if (eps.some((x) => x.id === id)) continue;
-      b.node({ id, type: 'endpoint', name: `${method} ${path}`, service: s.id, repo: s.repo, attrs: { method, path, declared: true } });
+      b.node({ id, type: 'endpoint', name: `${method} ${path}`, service: s.id, ...(s.repo ? { repo: s.repo } : {}), attrs: { method, path, declared: true } });
       b.fact(s.id, 'exposes', id, 'declared', undefined, 'declared in laru.yaml');
       eps.push({ id, method, path });
     }
     endpointsOf.set(s.id, eps);
+    for (const [op, list] of [['publishes', s.declared?.publishes], ['consumes', s.declared?.consumes]] as const) {
+      for (const t of list ?? []) { b.node({ id: `topic:${t}`, type: 'topic', name: t }); b.fact(s.id, op, `topic:${t}`, 'declared', undefined, 'declared in laru.yaml'); }
+    }
 
     // Configuration values that point somewhere: another service, a datastore, an external system.
     const stores: { relational?: string; queue?: string } = {};
@@ -375,7 +395,7 @@ export function buildSystemMap(ws: Workspace, extractions: RepoExtraction[]): Sy
     for (const c of s.declared?.calls ?? []) {
       const m = c.match(/^(\S+)(?:\s+(?:([A-Za-z]+)\s+)?(\/\S*))?$/);
       const name = m?.[1] ?? c, method = m?.[2]?.toUpperCase(), path = m?.[3];
-      let id = (services.find((x) => x.repo === s.repo && x.local === name) ?? services.find((x) => x.name === name))?.id ?? infra.get(`${s.repo}/${name}`)?.id
+      let id = (services.find((x) => x.repo === s.repo && x.local === name) ?? services.find((x) => x.name === name))?.id ?? infra.get(`${s.repo}/${name}`)?.id ?? storeByName.get(name)
         ?? [...b.nodes.values()].find((n) => (n.type === 'service' || n.type === 'datastore' || n.type === 'external') && n.name === name)?.id;
       if (!id) { id = `ext:${name}`; b.node({ id, type: 'external', name, kind: 'service' }); }
       const t = b.nodes.get(id)!;

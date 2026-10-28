@@ -150,7 +150,6 @@ export async function run(argv: string[], io: Out = stdio, cwd = process.cwd()):
       case 'repo': {
         const w = ws();
         if (args[0] === 'add' && args[1]) {
-          if (o.role && !ROLES.includes(o.role as RepoRole)) { io.err(`--role is one of ${ROLES.join(', ')}`); return 2; }
           const ignore = typeof o.ignore === 'string' ? o.ignore.split(',').map((x) => x.trim()).filter(Boolean) : undefined;
           const r = await addRepo(w, args[1], { name: o.name as string, branch: o.branch as string, role: o.role as RepoRole, title: o.title as string | undefined, ignore });
           writeAgentFiles(w);

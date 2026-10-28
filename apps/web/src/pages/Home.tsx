@@ -77,7 +77,7 @@ function Machine({ rows, onChange }: { rows: WorkspaceRow[]; onChange: () => voi
   const [df, setDf] = useState<Array<{ Type: string; Size: string; Reclaimable: string }> | 'loading' | null>(null);
   const [stopping, setStopping] = useState<{ ws: string; env: string; label: string } | null>(null);
   const d = m.data;
-  const setMax = (n: number) => api('/api/machine/config', { method: 'POST', body: { maxEnvs: n } }).then(() => { m.reload(); toast(`Ahora pueden correr ${plural(n, 'entorno', 'entornos')} a la vez`); }, (e: Error) => toast(e.message));
+  const setMax = (n: number) => api('/api/machine/config', { method: 'POST', body: { maxEnvs: n } }).then(() => { m.reload(); toast(n ? `Ahora pueden correr ${plural(n, 'entorno', 'entornos')} a la vez` : 'Ahora pueden correr los entornos que quieras a la vez'); }, (e: Error) => toast(e.message));
   const DF: Record<string, string> = { Images: 'Imágenes', Containers: 'Contenedores', 'Local Volumes': 'Volúmenes', 'Build Cache': 'Caché de construcción' };
   return (
     <section className="panel" aria-labelledby="machine-h" style={{ marginTop: 16 }}>
@@ -87,7 +87,7 @@ function Machine({ rows, onChange }: { rows: WorkspaceRow[]; onChange: () => voi
           <span><Cpu size={14} aria-hidden="true" style={{ verticalAlign: -2, marginRight: 6 }} />{d.docker ? `Docker ${d.docker} · ${d.cpus} CPU · ${size(d.memBytes ?? 0).replace('GB', 'GiB')}` : 'Docker no está en marcha'}</span>
           <span className="grow" style={{ flex: 1 }} />
           <span className="lbl" id="max-l">Entornos a la vez</span>
-          <MenuButton labelledBy="max-l" value={d.maxEnvs} options={[1, 2, 3]} onPick={setMax} />
+          <MenuButton labelledBy="max-l" value={d.maxEnvs} options={[0, 1, 2, 3]} onPick={setMax} />
         </div>
         {d.memBytes ? (() => {
           const used = d.running.reduce((n, r) => n + (r.memBytes ?? 0), 0);
@@ -154,7 +154,7 @@ function MenuButton({ value, options, onPick, labelledBy }: { value: number; opt
   const close = () => { setOpen(false); btn.current?.focus(); };
   return (
     <span className="menu-wrap" onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setOpen(false); }}>
-      <button ref={btn} className="btn sm" aria-haspopup="menu" aria-expanded={open} aria-labelledby={`${labelledBy} ${labelledBy}-v`} onClick={() => setOpen((o) => !o)}><span id={`${labelledBy}-v`} className="num">{value}</span><ChevronDown /></button>
+      <button ref={btn} className="btn sm" aria-haspopup="menu" aria-expanded={open} aria-labelledby={`${labelledBy} ${labelledBy}-v`} onClick={() => setOpen((o) => !o)}><span id={`${labelledBy}-v`} className="num">{value || 'Sin límite'}</span><ChevronDown /></button>
       {open && (
         <ul className="menu" role="menu" ref={list} onKeyDown={(e) => {
           const items = [...(list.current?.querySelectorAll<HTMLElement>('button') ?? [])], i = items.indexOf(document.activeElement as HTMLElement);
@@ -162,7 +162,7 @@ function MenuButton({ value, options, onPick, labelledBy }: { value: number; opt
           if (e.key === 'ArrowDown') { e.preventDefault(); items[(i + 1) % items.length]?.focus(); }
           if (e.key === 'ArrowUp') { e.preventDefault(); items[(i - 1 + items.length) % items.length]?.focus(); }
         }}>
-          {options.map((n) => <li key={n} role="none"><button role="menuitemradio" aria-checked={n === value} onClick={() => { close(); if (n !== value) onPick(n); }}>{n} {n === 1 ? 'entorno' : 'entornos'}</button></li>)}
+          {options.map((n) => <li key={n} role="none"><button role="menuitemradio" aria-checked={n === value} onClick={() => { close(); if (n !== value) onPick(n); }}>{n ? `${n} ${n === 1 ? 'entorno' : 'entornos'}` : 'Sin límite'}</button></li>)}
         </ul>
       )}
     </span>

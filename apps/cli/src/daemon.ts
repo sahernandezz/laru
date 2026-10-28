@@ -17,7 +17,7 @@ import { dirname, extname, join, normalize, relative, resolve, sep } from 'node:
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { combineScreens, flowEnvDown, flowEnvStatus, flowEnvUp, instanceOf, instancesOf, prepareInstance, diskReport, dirBytes, dockerSizes, envLock, heldByEnvs, prune, readConfig, readRunnerFile, runnerFile, runnerFiles, snapshotRows, recentStats, docker, withLock, workspaceKey, writeConfig, type PruneWhat } from '@laru/runtime';
-import { mail, sqs, envFor, envProjects, flowDir, flowProjects, runDir, proposeJoint, maskJson, mockContracts, sweepOrphans, readRules, saveFaults, setFaults, setMockMode, kafka, storage, mongo, rabbit, redis, cancelRun, compareRuns, failedFlows, markSession, openSessionBrowser, screenOf, sessionToFlow, sessionToScenario, approveBehavior, behaviorIn, readApproved, fidelity, applyScenario, provisionScenario, appliedOn, listScenarios, scenarioState, ScenarioConfirm, shown, sessionBrowser, sessionTrace, startSession, stopSession, listFlows, listRuns, readRun, readTrace, runsDir, startRun, connection, query as dbQuery, reset as dbReset, rows as dbRows, schema as dbSchema, snapshot as dbSnapshot, storeOf, stores as dbStores, storePassword, updateRow, updateSql, type Browse, type RowUpdate, down, envDir, envMasker, missingVars, listEnvs, loadEnvSpec, logs, revealVar, varValues, mountAll, mountedOf, rebuildText, setVar, status, unsetVar, up, varTable, importEnvFile, type Level } from '@laru/runtime';
+import { mail, sqs, envFor, envProjects, flowDir, flowProjects, runDir, proposeJoint, maskJson, mockContracts, sweepOrphans, readRules, saveFaults, setFaults, setMockMode, kafka, storage, mongo, rabbit, redis, custom, cancelRun, compareRuns, failedFlows, markSession, openSessionBrowser, screenOf, sessionToFlow, sessionToScenario, approveBehavior, behaviorIn, readApproved, fidelity, applyScenario, provisionScenario, appliedOn, listScenarios, scenarioState, ScenarioConfirm, shown, sessionBrowser, sessionTrace, startSession, stopSession, listFlows, listRuns, readRun, readTrace, runsDir, startRun, connection, query as dbQuery, reset as dbReset, rows as dbRows, schema as dbSchema, snapshot as dbSnapshot, storeOf, stores as dbStores, storePassword, updateRow, updateSql, type Browse, type RowUpdate, down, envDir, envMasker, missingVars, listEnvs, loadEnvSpec, logs, revealVar, varValues, mountAll, mountedOf, rebuildText, setVar, status, unsetVar, up, varTable, importEnvFile, type Level } from '@laru/runtime';
 import { endpointMatcher, flowLast, seenIn, type EndpointMatch, type FlowLast, type Seen, type Trace } from '@laru/trace';
 import { affected, brokersOf, doctorChecks, runEnv, screenFindings, vaultServices, writeJoint } from './env-cli.ts';
 import { appHome, byCwd, envOf, idOf, initWorkspace, isWorkspace, laruHome, loadRegistry, realRoot, register, resolveId, stateDir, touch, unregister } from '@laru/core';
@@ -41,7 +41,7 @@ export function traceViewerDir(): string | null {
   } catch { viewerDir = null; }
   return viewerDir;
 }
-export const VERSION = '0.1.0-beta.6';
+export const VERSION = '0.1.0-beta.7';
 
 
 export interface Daemon { url: string; port: number; token: string | null; close: () => Promise<void> }
@@ -582,6 +582,12 @@ export function makeApi(root: Workspace['root']): { api: Record<string, Handler>
     'GET /api/redis/keys': async (_req, url) => { const w = ws(), env = envName(url), s = await redis.redisOf(w, env, url.searchParams.get('service') || undefined); return { service: s.service, keys: await redis.keys(s, maskerFor(w, env), url.searchParams.get('pattern') || '*') }; },
     'GET /api/redis/key': async (_req, url) => { const w = ws(), env = envName(url); return redis.read(await redis.redisOf(w, env, url.searchParams.get('service') || undefined), url.searchParams.get('key') ?? '', maskerFor(w, env)); },
     'POST /api/redis/del': async (_req, url, b: { env: string; service?: string; key: string }) => ({ ok: await redis.del(await redis.redisOf(ws(), envName(url, b), b.service), b.key) }),
+    // Stores laru.yaml explains how to look into (`stores.<name>.explore`): any engine, through its own container's command.
+    'GET /api/custom/stores': async (_req, url) => custom.customStores(ws(), envName(url)),
+    'POST /api/custom/run': async (_req, url, b: { env?: string; service: string; what: 'query' | 'tables' | 'table'; input?: string }) => {
+      const w = ws(), env = envName(url, b);
+      return custom.customRun(w, env, b.service, { what: b.what, input: b.input }, maskerFor(w, env));
+    },
     'GET /api/mongo/stores': async (_req, url) => (await mongo.mongoStores(ws(), envName(url))).map((s) => ({ ...s, conn: mongo.connection(s) })),
     'GET /api/mongo/dbs': async (_req, url) => mongo.dbs(await mongo.mongoOf(ws(), envName(url), url.searchParams.get('service') ?? undefined)),
     'GET /api/mongo/collections': async (_req, url) => mongo.collections(await mongo.mongoOf(ws(), envName(url), url.searchParams.get('service') ?? undefined), url.searchParams.get('db') ?? ''),
@@ -950,7 +956,7 @@ function machineApi(port: () => number): Record<string, Handler> {
     },
     'GET /api/machine/docker': async () => (await docker(['system', 'df', '--format', '{{json .}}'], { timeoutMs: 120_000 })).split('\n').filter(Boolean).map((l) => JSON.parse(l)),
     'POST /api/machine/config': async (_req, _url, b: { maxEnvs?: number }) => {
-      if (!Number.isInteger(b.maxEnvs) || b.maxEnvs! < 1 || b.maxEnvs! > 9) throw new HttpError(400, 'maxEnvs: a whole number from 1 to 9');
+      if (!Number.isInteger(b.maxEnvs) || b.maxEnvs! < 0) throw new HttpError(400, 'maxEnvs: 0 for no limit, or how many at once');
       return writeConfig({ maxEnvs: b.maxEnvs });
     },
     'POST /api/machine/reveal': async (_req, _url, b: { what?: string; path?: unknown }) => {

@@ -50,8 +50,8 @@ test('a POST must say it is JSON: none, a form, a plain text, a type that only m
     }
     assert.equal((await send('POST', `${base}/api/machine/config`, { headers: { cookie } })).status, 415, 'no type and no body');
     assert.equal(readConfig().maxEnvs, before, 'nothing of the refused requests ran');
-    // JSON gets to the handler (which refuses 0 itself), with or without a charset
-    for (const type of ['application/json', 'application/json; charset=utf-8', 'Application/JSON']) assert.equal((await post(type, '{"maxEnvs":0}')).status, 400, type);
+    // JSON gets to the handler (which refuses a negative number itself), with or without a charset
+    for (const type of ['application/json', 'application/json; charset=utf-8', 'Application/JSON']) assert.equal((await post(type, '{"maxEnvs":-1}')).status, 400, type);
     assert.equal((await post('application/json', '{"maxEnvs":2}')).status, 200);
     assert.equal(readConfig().maxEnvs, 2);
   } finally { await d.close(); }

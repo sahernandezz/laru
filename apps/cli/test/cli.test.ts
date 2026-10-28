@@ -32,7 +32,7 @@ test('the CLI from init to context, with exit codes', async () => {
   assert.match(ctx.out.join('\n'), /# svc:billing-api/);
 
   const bad = capture();
-  assert.equal(await run(['repo', 'add', fx.billingUrl, '--role', 'nope'], bad.io, root), 2);
+  assert.equal(await run(['repo', 'add'], bad.io, root), 2, 'a role is the project\'s own word; a missing source is not');
   assert.equal(await run(['bogus'], bad.io, root), 2);
   assert.equal(await run(['status'], bad.io, fx.tmp), 1, 'outside a workspace');
   assert.match(bad.err.at(-1)!, /not inside a Laru workspace/);

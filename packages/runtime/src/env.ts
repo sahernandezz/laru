@@ -10,7 +10,7 @@ import { stateDir, WorkspaceError, type Graph, type Workspace } from '@laru/core
 import { createMasker, PROVIDER_HOSTS, readLearned, readMaskFile, type Masker } from '@laru/trace';
 import type { EnvSpec } from './types.ts';
 
-const KEYS = new Set(['from', 'join', 'share', 'extends', 'refs', 'persistent', 'services', 'hybrid', 'cache', 'resources', 'health', 'seed', 'mocks', 'faults', 'intercept', 'overlay', 'hosts', 'egress']);
+export const ENV_KEYS = new Set(['from', 'join', 'share', 'extends', 'refs', 'persistent', 'services', 'hybrid', 'cache', 'resources', 'health', 'seed', 'mocks', 'faults', 'intercept', 'overlay', 'hosts', 'egress']);
 /** Env names, everywhere one is written: `envs/<env>.yaml`, the vault's `env.<env>` level. */
 export const ENV_NAME = /^[a-z0-9][a-z0-9-]*$/;
 
@@ -37,7 +37,6 @@ function readRaw(ws: Workspace, env: string, seen: string[] = []): Record<string
   if (seen.includes(env)) throw new WorkspaceError(`extends makes a cycle: ${[...seen, env].join(' → ')}`, `envs/${seen[0]}.yaml: extends`);
   const raw = (parse(readFileSync(file, 'utf8')) ?? {}) as Record<string, any>;
   if (!isObj(raw)) throw new WorkspaceError('must be a map', `envs/${env}.yaml`);
-  for (const k of Object.keys(raw)) if (!KEYS.has(k)) throw new WorkspaceError(`unknown key; keys are ${[...KEYS].join(', ')}`, `envs/${env}.yaml: ${k}`);
   return raw.extends ? merge(readRaw(ws, String(raw.extends), [...seen, env]), { ...raw, extends: undefined }) : raw;
 }
 
@@ -56,7 +55,8 @@ export const envKeys = (ws: Workspace, env: string): string[] => Object.entries(
  */
 export function specFrom(ws: Workspace, env: string, raw: Record<string, any>, services?: string[], pending: Record<string, Record<string, any>> = {}): EnvSpec {
   const at = (k: string) => `envs/${env}.yaml: ${k}`;
-  for (const k of Object.keys(raw)) if (!KEYS.has(k)) throw new WorkspaceError(`unknown key; keys are ${[...KEYS].join(', ')}`, at(k));
+  // a key Laru does not read is left alone and said when the env comes up, never a reason not to
+  const ignored = Object.keys(raw).filter((k) => !ENV_KEYS.has(k) && raw[k] !== undefined);
   const list = (k: string): string[] => {
     const v = raw[k] ?? [];
     if (!Array.isArray(v) || v.some((x) => typeof x !== 'string')) throw new WorkspaceError('a list of names', at(k));
@@ -130,6 +130,7 @@ export function specFrom(ws: Workspace, env: string, raw: Record<string, any>, s
     for (const k of ['resources', 'health', 'faults', 'seed'] as const) check(k, Object.keys(spec[k]).filter((n) => !(k === 'faults' && spec.mocks[n]?.mode === 'sink')));
     for (const [svc, file] of Object.entries(spec.seed)) if (!existsSync(join(ws.root, String(file)))) throw new WorkspaceError(`${file} does not exist in the workspace`, at(`seed.${svc}`));
   }
+  if (ignored.length) spec.ignored = ignored;
   return spec;
 }
 

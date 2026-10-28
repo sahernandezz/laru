@@ -8,6 +8,7 @@ import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, CircleX, Columns3, Datab
 import { useDeferredValue, useEffect, useId, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
 import { api, useApi, type Column, type EnvSummary, type Filter, type Indexed, type MongoStoreInfo, type QueryResult, type RedisStoreInfo, type StoreInfo, type Table } from '../api.ts';
 import { MongoView, RedisView } from './NoSql.tsx';
+import { CustomView, type CustomStoreInfo } from './Custom.tsx';
 import { Code, CodeBlock, copy, Dialog, Field, Origin, Reveal, Segmented, Skeleton, Tabs, toast } from '../components/ui.tsx';
 import { plural } from '../lib/es.ts';
 import { useEnvList } from '../lib/useEnvs.ts';
@@ -20,6 +21,8 @@ const NUMERIC = /^(smallint|integer|bigint|numeric|decimal|real|double|int|tinyi
 const OPS: Array<[Filter['op'], string]> = [['=', '='], ['!=', '≠'], ['<', '<'], ['>', '>'], ['<=', '≤'], ['>=', '≥'], ['contains', 'contiene'], ['null', 'es NULL'], ['not-null', 'no es NULL']];
 const opLabel = (op: Filter['op']) => OPS.find(([o]) => o === op)?.[1] ?? op;
 const tableKey = (t: Table) => `${t.schema}.${t.name}`;
+/** A declared kind that is messaging, not storage: shown in «Colas». */
+export const MESSAGING = /queue|topic|stream|broker|messag|event|bus|cola|mensaj/i;
 
 export function Data({ parts, g }: { parts: string[]; g: Indexed | null }) {
   const [envArg, svcArg, a, b, c] = parts;
@@ -31,14 +34,17 @@ export function Data({ parts, g }: { parts: string[]; g: Indexed | null }) {
   const sql = useApi<StoreInfo[]>(of('/api/db/stores'));
   const mongos = useApi<MongoStoreInfo[]>(of('/api/mongo/stores'));
   const redises = useApi<RedisStoreInfo[]>(of('/api/redis/stores'));
+  const customs = useApi<CustomStoreInfo[]>(of('/api/custom/stores'));
   // Relational first, then MongoDB and Redis: one list, each store opens in its own view.
-  const all: Array<{ service: string; kind: string; sql?: StoreInfo; mongo?: MongoStoreInfo; redis?: RedisStoreInfo }> = [
+  const all: Array<{ service: string; kind: string; sql?: StoreInfo; mongo?: MongoStoreInfo; redis?: RedisStoreInfo; custom?: CustomStoreInfo }> = [
     ...(sql.data ?? []).map((s) => ({ service: s.service, kind: s.kind, sql: s })),
     ...(mongos.data ?? []).map((s) => ({ service: s.service, kind: 'mongodb', mongo: s })),
     ...(redises.data ?? []).map((s) => ({ service: s.service, kind: 'redis', redis: s })),
+    // any other engine laru.yaml explains (queues and brokers live in «Colas»)
+    ...(customs.data ?? []).filter((s) => !MESSAGING.test(s.kind)).map((s) => ({ service: s.service, kind: s.kind, custom: s })),
   ];
   const store = all.find((s) => s.service === svcArg) ?? all[0];
-  const lists = [{ r: sql, what: 'relacionales' }, { r: mongos, what: 'MongoDB' }, { r: redises, what: 'Redis' }];
+  const lists = [{ r: sql, what: 'relacionales' }, { r: mongos, what: 'MongoDB' }, { r: redises, what: 'Redis' }, { r: customs, what: 'declaradas en laru.yaml' }];
   const failed = lists.filter((l) => l.r.error);
 
   const head = (
@@ -53,7 +59,7 @@ export function Data({ parts, g }: { parts: string[]; g: Indexed | null }) {
   const switcher = list.length > 1 && <nav className="seg" aria-label="Entorno">{list.map((e) => <a key={e.env} href={href('data', e.env)} aria-current={e.env === env ? 'page' : undefined}>{e.env}</a>)}</nav>;
   if (!ready) return <div className="page">{head}{switcher}<section className="panel" style={{ marginTop: 12 }}><div className="empty"><span>{env} no está en marcha. Levántalo en <a className="rowlink" href={href('envs', env)}>Entornos</a> o con <code>laru up {env}</code>.</span></div></section></div>;
   const unread = failed.map((l) => <p key={l.what} className="form-err aside-note" role="alert">No se pudieron leer las bases {l.what}: {l.r.error}</p>);
-  if (!store) return <div className="page">{head}{switcher}<section className="panel" style={{ marginTop: 12 }}><div className="empty">{env} no tiene ninguna base en marcha. Postgres, MySQL, MongoDB y Redis aparecen aquí en cuanto arrancan.</div></section>{unread}</div>;
+  if (!store) return <div className="page">{head}{switcher}<section className="panel" style={{ marginTop: 12 }}><div className="empty">{env} no tiene ninguna base en marcha que Laru sepa leer. Postgres, MySQL, SQL Server, Oracle, MongoDB y Redis aparecen solas; cualquier otra aparece si laru.yaml dice cómo leerla, en <code>stores.&lt;nombre&gt;.explore</code>.</div></section>{unread}</div>;
 
   const nav = (
     <>
@@ -68,6 +74,7 @@ export function Data({ parts, g }: { parts: string[]; g: Indexed | null }) {
     <div className="page flush">
       <h1 className="sr-only">Bases de {env}</h1>
       {store.sql ? <StoreView key={key} env={env} nav={nav} store={store.sql} schemaArg={a} tableArg={b} g={g} />
+        : store.custom ? <CustomView key={key} env={env} nav={nav} store={store.custom} tableArg={a} at={(n) => href('data', env, store.service, n)} />
         : store.mongo ? <MongoView key={key} env={env} nav={nav} store={store.mongo} dbArg={a} collArg={b} idArg={c} />
         : <RedisView key={key} env={env} nav={nav} store={store.redis!} keyArg={a} />}
     </div>

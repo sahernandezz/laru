@@ -26,7 +26,7 @@ export function Settings() {
             <div><dt>Laru</dt><dd className="mono">{m.version} · escucha en 127.0.0.1:{m.port}</dd></div>
             <div><dt>Workspaces</dt><dd>{plural(m.workspaces, 'registrado', 'registrados')}</dd></div>
             <div><dt>Docker</dt><dd>{m.docker ? `Motor ${m.docker}` : 'No responde'}</dd></div>
-            <div><dt>Recursos</dt><dd>{m.cpus ?? '—'} CPU · {m.memBytes ? gib(m.memBytes) : '—'} de memoria · hasta {plural(m.maxEnvs, 'entorno', 'entornos')} a la vez</dd></div>
+            <div><dt>Recursos</dt><dd>{m.cpus ?? '—'} CPU · {m.memBytes ? gib(m.memBytes) : '—'} de memoria · {m.maxEnvs ? `hasta ${plural(m.maxEnvs, 'entorno', 'entornos')} a la vez` : 'entornos a la vez sin límite'}</dd></div>
             <div><dt>En marcha</dt><dd>{m.running.length ? m.running.map((r) => `${r.title ?? r.app}/${r.env}`).join(', ') : 'ningún entorno'}</dd></div>
             <div><dt>Datos de Laru</dt><dd className="mono">{m.home.path}</dd></div>
           </dl>

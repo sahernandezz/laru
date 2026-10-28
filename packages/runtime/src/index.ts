@@ -25,6 +25,7 @@ export { sanitizeHtml } from './explore/html.ts';
 export * as redis from './explore/redis.ts';
 export * as rabbit from './explore/rabbit.ts';
 export * as mongo from './explore/mongo.ts';
+export * as custom from './explore/custom.ts';
 export * from './rules.ts';
 export * from './tls.ts';
 export * from './sweep.ts';

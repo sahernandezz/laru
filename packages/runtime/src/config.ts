@@ -21,7 +21,7 @@ export interface MachineConfig {
   stepHoldMs: number;
 }
 
-export const CONFIG_DEFAULTS: MachineConfig = { maxEnvs: 1, videoOffsetMs: 0, retention: { videoDays: 7, runDays: 30, maxGB: 5 }, workers: 0, stepHoldMs: 0 };
+export const CONFIG_DEFAULTS: MachineConfig = { maxEnvs: 0, videoOffsetMs: 0, retention: { videoDays: 7, runDays: 30, maxGB: 5 }, workers: 0, stepHoldMs: 0 };
 const file = () => join(laruHome(), 'config.yaml');
 const num = (v: unknown, dflt: number) => (typeof v === 'number' && Number.isFinite(v) ? v : typeof v === 'string' && v.trim() && Number.isFinite(Number(v)) ? Number(v) : dflt);
 

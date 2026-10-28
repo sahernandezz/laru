@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import type { Exchange, Participant, Trace } from '@laru/trace';
 import type { Fact, MapNode, SystemMap } from '@laru/core';
-import { archGraph, expectedGraph, flowGraph, groupsOf, homeOf, LABEL_H, layout, litBy, NODE_H, NODE_W, type MapEdge } from '../src/lib/sysmap.ts';
+import { appsOf, archGraph, expectedGraph, flowGraph, groupsOf, homeOf, LABEL_H, layout, litBy, NODE_H, NODE_W, type MapEdge } from '../src/lib/sysmap.ts';
 
 const nodes: MapNode[] = [
   { id: 'svc:frontend', type: 'service', name: 'frontend', kind: 'web' },
@@ -474,4 +474,15 @@ test('bands: one per application, in order, each piece in its own; an external t
   assert.deepEqual(layout(one, es, { keep: true, bands: true }).bands, [], 'one application: no bands');
   assert.deepEqual(layout({ ...x, map: { ...x.map, repos: [] } }, es, { keep: true, bands: true }).bands, [], 'no groups: no bands');
   assert.deepEqual(layout(x, es, { keep: true }).bands, [], 'not asked: no bands');
+});
+
+test('a service’s own group (laru.yaml) places it and its endpoints, over its project’s; two named are enough for applications', () => {
+  const ns: MapNode[] = [
+    { id: 'svc:a', type: 'service', name: 'a', repo: 'portal', attrs: { group: 'Usuarios' } },
+    { id: 'svc:b', type: 'service', name: 'b', repo: 'portal', attrs: { group: 'Pagos' } },
+    { id: 'ep:a:GET /x', type: 'endpoint', name: 'GET /x', service: 'svc:a', repo: 'portal' },
+    { id: 'svc:gw', type: 'service', name: 'gw', attrs: { group: 'Usuarios' } },
+  ];
+  const apps = appsOf(index(ns, []) as unknown as Parameters<typeof appsOf>[0]);
+  assert.deepEqual(['svc:a', 'svc:b', 'ep:a:GET /x', 'svc:gw'].map((id) => apps?.get(id)), ['Usuarios', 'Pagos', 'Usuarios', 'Usuarios']);
 });

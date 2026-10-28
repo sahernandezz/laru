@@ -94,14 +94,16 @@ test('the documentation model over a real workspace', async (t) => {
     assert.deepEqual(knowledgeShape(ws, 'flow')!.standard, { guide: E2E_GUIDE.id, rules: E2E_RULES });
   });
 
-  await t.test('an invalid write never reaches disk', () => {
+  await t.test('a broken write never reaches disk; what only departs from the standard is a warning', () => {
     const before = readdirSync(join(ws.root, 'docs', 'modules', 'pagos', 'modules', 'devoluciones'));
-    const r = w({ type: 'contract', in: 'mod:devoluciones', title: 'API', summary: 'x', fields: { purpose: 'p', operations: [{ method: 'FETCH', path: '/refunds', service: 'svc:nope' }] } });
+    const r = w({ type: 'contract', in: 'mod:devoluciones', title: 'API', summary: '', fields: { purpose: 'p', operations: [{ method: 'FETCH', path: '/refunds', service: 'svc:nope' }] } });
     assert.equal(r.ok, false);
-    assert.deepEqual(r.issues.filter((i) => i.level === 'error').map((i) => i.at), ['fields.operations[0].method', 'fields.operations[0].service']);
+    assert.deepEqual(r.issues.filter((i) => i.level === 'error').map((i) => i.at), ['summary'], 'an empty summary breaks it');
+    assert.deepEqual(r.issues.filter((i) => i.level === 'warning' && i.at.startsWith('fields.operations')).map((i) => i.at), ['fields.operations[0].method', 'fields.operations[0].service'], 'an unknown method or service is said, not refused');
     assert.deepEqual(readdirSync(join(ws.root, 'docs', 'modules', 'pagos', 'modules', 'devoluciones')), before);
-    assert.equal(w({ type: 'infrastructure', in: 'mod:devoluciones', title: 'R', summary: 's', fields: { envs: [{ env: 'local', purpose: 'p' }] } }).issues[0].key, 'wrong-parent');
-    assert.equal(w({ type: 'note', in: 'mod:pagos', title: 'N', summary: 's', anchors: ['billing:nothing/here/**'], fields: { body: 'x' } }).issues[0].key, 'anchor-empty');
+    const said = (x: ReturnType<typeof w>) => x.issues.filter((i) => i.level === 'warning').map((i) => i.key);
+    assert.ok(said(w({ type: 'infrastructure', in: 'mod:devoluciones', title: 'R', summary: '', fields: { envs: [{ env: 'local', purpose: 'p' }] } })).includes('wrong-parent'));
+    assert.ok(said(w({ type: 'note', in: 'mod:pagos', title: 'N', summary: '', anchors: ['billing:nothing/here/**'], fields: { body: 'x' } })).includes('anchor-empty'), 'code not on the reference branch yet');
   });
 
   await t.test('a contract is contrasted with the extracted endpoints, in both directions', () => {
@@ -188,4 +190,15 @@ test('versioning, architecture, data stores and infrastructure owe their diagram
   assert.deepEqual(owed('architecture', { components: [{ component: 'a', role: 'r' }] }), ['fields.views']);
   assert.deepEqual(owed('datastore', { ownership: 'o' }), ['fields.dataflow']);
   assert.deepEqual(owed('infrastructure', { network: 'Solo el ingress es público.' }), ['fields.topology', 'fields.network']);
+});
+
+test('a section or a column the standard does not have is kept as written and read back the same', async () => {
+  const { renderPiece, parsePiece } = await import('../src/knowledge/piece.ts');
+  const p = { id: 'ctr:pagos', type: 'contract' as const, title: 'Pagos', status: 'draft', summary: 's', fields: {
+    purpose: 'Cobrar.', operations: [{ method: 'POST', path: '/cobros', service: 'svc:pagos', idempotencia: 'clave del cliente' }],
+    'Riesgos': 'Un cobro doble.', 'Contactos': ['equipo pagos'],
+  } };
+  const back = parsePiece(renderPiece(p, 'es'));
+  assert.deepEqual(back.issues, []);
+  assert.deepEqual(back.piece?.fields, p.fields);
 });

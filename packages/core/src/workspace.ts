@@ -11,7 +11,8 @@ import { dirname, join, resolve } from 'node:path';
 import { isMap, isSeq, parse, parseDocument, stringify } from 'yaml';
 
 export const ROLES = ['service', 'frontend', 'library', 'infra', 'docs'] as const;
-export type RepoRole = (typeof ROLES)[number];
+/** The roles Laru acts on (a library or docs project holds no services); any other is the project's own word, kept as said. */
+export type RepoRole = (typeof ROLES)[number] | (string & {});
 
 /**
  * A project: a git repo (by URL and branch) or a plain folder (`source: folder`). A folder has no URL and no branch:
@@ -23,7 +24,21 @@ export interface RepoConfig { name: string; source: 'git' | 'folder'; url: strin
  * `kind` its technology, `endpoints` «GET /x» (or just «/x»), `calls` the names it reaches («pagos», «pagos POST /cobros»,
  * «postgres», «api.vendor.example»). Without `dir`, a name the project's compose runs is that container.
  */
-export interface ServiceOverride { name: string; repo: string; dir: string; kind?: string; endpoints?: string[]; calls?: string[] }
+export interface ServiceOverride {
+  name: string; repo?: string; dir: string; kind?: string; endpoints?: string[]; calls?: string[];
+  /** the application it belongs to, over its project's `group`; the topics or queues it sends to and listens on */
+  group?: string; publishes?: string[]; consumes?: string[];
+}
+/** A store or system said by hand: a container whose image Laru does not know, or something outside any compose. `kind` is free text. */
+export interface StoreDecl {
+  name: string; repo?: string; kind: string; external?: boolean;
+  /**
+   * How to look inside it from Laru, with what its container already has: `query` is a shell command that reads what is
+   * typed from stdin and prints the answer (CSV or TSV with a header shows as a table); `tables` is input whose answer
+   * lists what there is to open; `table` is the input that opens one, `{table}` replaced by its name.
+   */
+  explore?: { query: string; tables?: string; table?: string };
+}
 export interface Workspace {
   root: string;
   app: string;
@@ -31,6 +46,7 @@ export interface Workspace {
   docsLanguage: string;
   repos: RepoConfig[];
   services: ServiceOverride[];
+  stores?: StoreDecl[];
   /** repo name → absolute path of its checkout on this machine */
   checkouts: Record<string, string>;
   /** repo name → last verified commit */
@@ -118,19 +134,30 @@ export function loadWorkspace(root: string): Workspace {
     if (ignore !== undefined && (!Array.isArray(ignore) || ignore.some((x) => typeof x !== 'string'))) throw new WorkspaceError('a list of paths in gitignore syntax', `repos.${name}.ignore`);
     if (r?.group !== undefined && (typeof r.group !== 'string' || !r.group.trim())) throw new WorkspaceError('the name of the application it belongs to, e.g. `Tienda`', `repos.${name}.group`);
     const role = (r?.role ?? 'service') as RepoRole;
-    if (!ROLES.includes(role)) throw new WorkspaceError(`one of ${ROLES.join(', ')}`, `repos.${name}.role`);
     return {
       name, source, url: source === 'git' ? String(r.url) : '', branch: source === 'git' ? String(r.branch ?? 'main') : '', role,
       ...(r?.title ? { title: String(r.title) } : {}), ...(ignore ? { ignore: ignore as string[] } : {}),
       ...(r?.group ? { group: String(r.group).trim() } : {}),
     };
   });
-  const services: ServiceOverride[] = Object.entries((raw.services as Record<string, { repo?: string; dir?: string; kind?: string; endpoints?: unknown; calls?: unknown }>) ?? {}).map(([name, s]) => {
-    if (!s?.repo || !repos.some((r) => r.name === s.repo)) throw new WorkspaceError(`unknown repo "${s?.repo}"`, `services.${name}.repo`);
-    const strings = (v: unknown) => (Array.isArray(v) ? v : v == null ? [] : [v]).map((x) => String(x).trim()).filter(Boolean);
-    const endpoints = strings(s.endpoints), calls = strings(s.calls);
-    return { name, repo: s.repo, dir: (s.dir ?? '').replace(/^\.?\/|\/$/g, ''), ...(s.kind ? { kind: String(s.kind) } : {}), ...(endpoints.length ? { endpoints } : {}), ...(calls.length ? { calls } : {}) };
-  });
+  const exploreOf = (e: unknown): StoreDecl['explore'] => {
+    if (!e || typeof e !== 'object' || !String((e as Record<string, unknown>).query ?? '').trim()) return undefined;
+    const x = e as Record<string, unknown>;
+    return { query: String(x.query), ...(x.tables ? { tables: String(x.tables) } : {}), ...(x.table ? { table: String(x.table) } : {}) };
+  };
+  const strings = (v: unknown) => (Array.isArray(v) ? v : v == null ? [] : [v]).map((x) => String(x).trim()).filter(Boolean);
+  const lists = (s: Record<string, unknown>, ...keys: string[]) => Object.fromEntries(keys.map((k) => [k, strings(s[k])]).filter(([, v]) => v.length));
+  // A project named must exist; without one, the piece belongs to the application and to no project's code.
+  const known = (repo: unknown, at: string) => { if (repo !== undefined && !repos.some((r) => r.name === repo)) throw new WorkspaceError(`unknown repo "${repo}"`, at); return repo === undefined ? {} : { repo: String(repo) }; };
+  const services: ServiceOverride[] = Object.entries((raw.services as Record<string, Record<string, unknown>>) ?? {}).map(([name, s]) => ({
+    name, ...known(s?.repo, `services.${name}.repo`), dir: String(s?.dir ?? '').replace(/^\.?\/|\/$/g, ''),
+    ...(s?.kind ? { kind: String(s.kind) } : {}), ...(String(s?.group ?? '').trim() ? { group: String(s.group).trim() } : {}),
+    ...lists(s ?? {}, 'endpoints', 'calls', 'publishes', 'consumes'),
+  }));
+  const stores: StoreDecl[] = Object.entries((raw.stores as Record<string, Record<string, unknown>>) ?? {}).map(([name, d]) => ({
+    name, ...known(d?.repo, `stores.${name}.repo`), kind: String(d?.kind ?? 'store'), ...(d?.external ? { external: true } : {}),
+    ...(exploreOf(d?.explore) ? { explore: exploreOf(d?.explore)! } : {}),
+  }));
   // Only the projects this laru.yaml names: another workspace with this app id shares the file.
   const checkouts = Object.fromEntries(Object.entries(readCheckouts(app)).filter(([name]) => repos.some((r) => r.name === name)));
   // A folder not linked on this machine is read from the copy the workspace carries, as a teammate's clone has it.
@@ -142,18 +169,21 @@ export function loadWorkspace(root: string): Workspace {
   const lock = existsSync(lockFile) ? (((parse(readFileSync(lockFile, 'utf8')) ?? {}) as { repos?: Record<string, string> }).repos ?? {}) : {};
   const stages = ['plan', 'design', 'build', 'test', 'deploy', 'operate'];
   const profile = (raw.profile ?? undefined) as Workspace['profile'];
+  // a stage Laru has no measure for is left out of the count; a class it does not know is kept as said
   for (const [cls, list] of Object.entries(profile ?? {})) {
-    if (!Array.isArray(list) || list.some((s) => !stages.includes(s))) throw new WorkspaceError(`a list of ${stages.join(', ')}`, `profile.${cls}`);
+    if (!Array.isArray(list)) throw new WorkspaceError(`a list of stages: ${stages.join(', ')}`, `profile.${cls}`);
+    profile![cls] = list.filter((s) => stages.includes(s));
   }
   const policies = (raw.policies ?? undefined) as Workspace['policies'];
   for (const [name, v] of Object.entries(policies ?? {})) {
-    if (!['documento', 'hoja'].includes(name)) throw new WorkspaceError('policies are documento and hoja', `policies.${name}`);
+    if (!['documento', 'hoja'].includes(name)) continue; // a policy Laru does not measure blocks nothing
     if (typeof v !== 'number' || v < 0 || v > 100) throw new WorkspaceError('a note between 0 and 100', `policies.${name}`);
   }
   const ignoreExternals = raw['ignore-externals'];
   if (ignoreExternals !== undefined && (!Array.isArray(ignoreExternals) || ignoreExternals.some((x) => typeof x !== 'string' || !x.trim()))) throw new WorkspaceError('a list of hosts; * stands for any part, e.g. `*.example.com`', 'ignore-externals');
   return {
     root, app, title: String(raw.title ?? app), docsLanguage: String(raw['docs-language'] ?? 'en'), repos, services, checkouts, lock, profile, policies,
+    ...(stores.length ? { stores } : {}),
     ...(ignoreExternals ? { ignoreExternals: ignoreExternals as string[] } : {}),
   };
 }

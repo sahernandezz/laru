@@ -506,3 +506,10 @@ test('mail enable: the new env\'s name is checked before anything is written, so
   assert.ok(!existsSync(join(root, '..', 'evil.yaml')));
   rmSync(root, { recursive: true, force: true });
 });
+
+test('an env file: a key Laru does not read is left alone and named, never a reason not to come up', () => {
+  const root = mkdtempSync(join(tmpdir(), 'ks-envs-'));
+  const ws = { root, app: 'shop', repos: [{ name: 'app', source: 'git', url: 'https://x.test/app.git', branch: 'main', role: 'service' }], services: [], checkouts: {}, lock: {}, title: 'Shop', docsLanguage: 'es' } as unknown as Workspace;
+  assert.deepEqual(specFrom(ws, 'local', { from: 'app:c.yml', notas: 'para el equipo', region: 'eu' }).ignored, ['notas', 'region']);
+  assert.equal(specFrom(ws, 'local', { from: 'app:c.yml' }).ignored, undefined);
+});

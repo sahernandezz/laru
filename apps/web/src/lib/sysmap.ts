@@ -72,20 +72,24 @@ export const ACTORS = 'Actores', NO_GROUP = 'Sin grupo', SHARED = 'Compartido';
  */
 export function groupsOf(g: Indexed, edges: MapEdge[]): { of: Map<string, string>; order: string[] } {
   const byRepo = new Map(g.map.repos.map((r) => [r.name, r.group]));
+  // A service's own `group` (laru.yaml) wins over its project's; its endpoints go with it.
+  const own = (n: MapNode): string | undefined => (n.attrs?.group as string | undefined) ?? (n.service ? (g.nodes.get(n.service)?.attrs?.group as string | undefined) : undefined);
   const of = new Map<string, string>();
-  for (const n of g.map.nodes) if (n.kind === 'actor') of.set(n.id, ACTORS); else if (n.repo) of.set(n.id, byRepo.get(n.repo) ?? NO_GROUP);
+  for (const n of g.map.nodes) if (n.kind === 'actor') of.set(n.id, ACTORS); else if (own(n) || n.repo) of.set(n.id, own(n) ?? byRepo.get(n.repo!) ?? NO_GROUP);
   for (const n of g.map.nodes) {
     if (of.has(n.id)) continue;
     const users = new Set(edges.filter((e) => e.to === n.id || e.from === n.id).map((e) => of.get(e.to === n.id ? e.from : e.to)).filter((x) => x && x !== ACTORS && x !== NO_GROUP));
     of.set(n.id, users.size === 1 ? [...users][0]! : users.size ? SHARED : NO_GROUP);
   }
-  const named = g.map.repos.map((r) => r.group).filter((x): x is string => Boolean(x));
-  return { of, order: [...new Set([ACTORS, ...named, NO_GROUP, SHARED])] };
+  return { of, order: [...new Set([ACTORS, ...namedGroups(g), NO_GROUP, SHARED])] };
 }
+
+/** The applications laru.yaml names: projects' `group`, then services' own. */
+const namedGroups = (g: Indexed): string[] => [...new Set([...g.map.repos.map((r) => r.group), ...g.map.nodes.map((n) => n.attrs?.group as string | undefined)].filter((x): x is string => Boolean(x)))];
 
 /** Each piece's application when the workspace names more than one (`group` in laru.yaml); undefined otherwise. */
 export function appsOf(g: Indexed): Map<string, string> | undefined {
-  return new Set(g.map.repos.map((r) => r.group).filter(Boolean)).size > 1 ? groupsOf(g, edgesOf(g)).of : undefined;
+  return namedGroups(g).length > 1 ? groupsOf(g, edgesOf(g)).of : undefined;
 }
 
 /**
@@ -143,7 +147,7 @@ export function layout<E extends MapEdge>(g: Indexed, edges: E[], o: { keep?: bo
 
   const step = NODE_H + ROW_GAP;
   const rowY = new Map<string, number>();
-  const grp = o.bands && new Set(g.map.repos.map((r) => r.group).filter(Boolean)).size > 1 ? groupsOf(g, edges) : undefined;
+  const grp = o.bands && namedGroups(g).length > 1 ? groupsOf(g, edges) : undefined;
   const bands: Layout['bands'] = [];
   let bottom: number;
   if (grp) {
