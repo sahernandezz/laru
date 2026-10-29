@@ -6,6 +6,19 @@ Todos los cambios de Laru que importan a quien lo usa quedan aquí. El formato s
 
 ## [Sin publicar]
 
+## [0.1.0-beta.10] - 2026-10-29
+
+### Cambiado
+
+- **El estudio en vivo es el de los runs:** sus paneles (el aplicativo, la evidencia y las pistas) se redimensionan y se ocultan desde su borde, y guardan el mismo tamaño que en el estudio de un run; tiene «Dispositivo» para seguir a uno solo y «Atajos».
+- **El árbol agrupa por tipo:** debajo de cada pieza salen primero los módulos, luego los procesos y luego los flujos, y cuando hay más de un tipo cada grupo lleva su nombre (Módulos, Procesos; Submódulos, Flujos dentro de un módulo), con cuántos tiene, y se pliega como los grupos del menú; abrir una pieza de un grupo plegado lo abre.
+- **Procesos en el menú:** el aplicativo tiene una pestaña «Procesos», con una tarjeta por proceso; solo aparece si hay alguno. Los procesos siguen también en el árbol.
+- **Menú plegable, con Sistema arriba:** cada grupo del menú (Sistema, el aplicativo, Piezas, Manual, Ajustes) lleva delante una flecha, su nombre en versalitas y cuántas entradas tiene, y se pliega con un clic en esa línea; y este navegador recuerda los que cierras; el grupo de la página abierta se abre solo. «Sistema» pasa encima del aplicativo.
+
+### Corregido
+
+- **«Atajos» del estudio:** la lista se abría fuera de su sitio desde la beta 9; vuelve a salir bajo el botón.
+
 ## [0.1.0-beta.9] - 2026-10-29
 
 ### Cambiado
@@ -176,7 +189,8 @@ Primera beta pública.
   - `CLAUDE.md` y `AGENTS.md` generados.
   - Hooks para Claude Code.
 
-[Sin publicar]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.9...HEAD
+[Sin publicar]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.10...HEAD
+[0.1.0-beta.10]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.9...v0.1.0-beta.10
 [0.1.0-beta.9]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.8...v0.1.0-beta.9
 [0.1.0-beta.8]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.7...v0.1.0-beta.8
 [0.1.0-beta.7]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.6...v0.1.0-beta.7

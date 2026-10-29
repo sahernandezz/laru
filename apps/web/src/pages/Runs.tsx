@@ -60,12 +60,32 @@ function useStudioLayout(): [StudioLayout, (f: (l: StudioLayout) => StudioLayout
   }), []);
   return [l, set];
 }
-/** The bar between two panels: dragged, or moved with the arrow keys, it hands the distance moved to `onMove`. */
+/**
+ * A studio's panels, the recorded one's and the live one's alike: the layout the person left, a panel resized (only as far
+ * as the middle view keeps STAGE_MIN), put away or brought back, and the style that draws it.
+ */
+export function useStudioPanels(studioRef: RefObject<HTMLElement | null>) {
+  const [lay, setLay] = useStudioLayout();
+  // From the size the panel is drawn at (a width saved on a larger screen is drawn smaller), and only as far as the middle
+  // view keeps STAGE_MIN of its own: what it has now, less that, is the room there is.
+  const resize = (p: Panel, d: number) => {
+    const at = (sel: string) => studioRef.current?.querySelector<HTMLElement>(sel);
+    const st = at('.st-stage'), el = at(p === 'video' ? '.st-video' : p === 'side' ? '.st-side' : '.tracks');
+    const room = st ? Math.max(0, p === 'tracks' ? st.clientHeight - STAGE_MIN.h : st.clientWidth - STAGE_MIN.w) : Infinity;
+    setLay((l) => {
+      const cur = el ? (p === 'tracks' ? el.offsetHeight : el.offsetWidth) : l[p];
+      return { ...l, [p]: Math.min(SIZES[p][1], cur + room, Math.max(SIZES[p][0], cur + d)) };
+    });
+  };
+  const flip = (p: Panel) => setLay((l) => ({ ...l, hide: { ...l.hide, [p]: !l.hide[p] } }));
+  const style = { '--st-video': lay.hide.video ? '0px' : `${lay.video}px`, '--st-side': lay.hide.side ? '0px' : `${lay.side}px`, '--st-tracks': lay.hide.tracks ? '0px' : `${lay.tracks}px` } as React.CSSProperties;
+  return { lay, resize, flip, style };
+}
 /**
  * A panel's edge: dragged (or arrowed) it resizes the panel, and the tab on it puts the panel away or brings it back.
  * A panel put away leaves its edge with the tab only.
  */
-function Splitter({ axis, label, area, onMove, panel }: { axis: 'x' | 'y'; label: string; area: string; onMove: (d: number) => void; panel: { name: string; hidden: boolean; onFlip: () => void; /** where the panel lies from its edge */ side: 'left' | 'right' | 'down' } }) {
+export function Splitter({ axis, label, area, onMove, panel }: { axis: 'x' | 'y'; label: string; area: string; onMove: (d: number) => void; panel: { name: string; hidden: boolean; onFlip: () => void; /** where the panel lies from its edge */ side: 'left' | 'right' | 'down' } }) {
   const Icon = panel.side === 'down' ? (panel.hidden ? ChevronUp : ChevronDown) : (panel.side === 'left') !== panel.hidden ? ChevronLeft : ChevronRight;
   return (
     <div className={`st-edge st-edge-${axis}`} style={{ gridArea: area }}>
@@ -497,20 +517,8 @@ function Player({ run, slug, trace, story, flow, g, view: asked, onView, k, arch
   };
   // the run's own page opens in the studio unless the person left it last time
   useEffect(() => { if (!only && studioFirst) { let on = true; try { on = localStorage.getItem(STUDIO) !== '0'; } catch { /* on */ } if (on) openStudio(true); } }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  const [lay, setLay] = useStudioLayout();
-  // From the size the panel is drawn at (a width saved on a larger screen is drawn smaller), and only as far as the middle
-  // view keeps STAGE_MIN of its own: what it has now, less that, is the room there is.
-  const resize = (p: Panel, d: number) => {
-    const at = (sel: string) => studioRef.current?.querySelector<HTMLElement>(sel);
-    const st = at('.st-stage'), el = at(p === 'video' ? '.st-video' : p === 'side' ? '.st-side' : '.tracks');
-    const room = st ? Math.max(0, p === 'tracks' ? st.clientHeight - STAGE_MIN.h : st.clientWidth - STAGE_MIN.w) : Infinity;
-    setLay((l) => {
-      const cur = el ? (p === 'tracks' ? el.offsetHeight : el.offsetWidth) : l[p];
-      return { ...l, [p]: Math.min(SIZES[p][1], cur + room, Math.max(SIZES[p][0], cur + d)) };
-    });
-  };
-  const flip = (p: Panel) => setLay((l) => ({ ...l, hide: { ...l.hide, [p]: !l.hide[p] } }));
   const studioRef = useRef<HTMLDivElement>(null);
+  const { lay, resize, flip, style: panels } = useStudioPanels(studioRef);
   const toggleStudio = () => (studio ? leaveStudio() : openStudio());
   useEffect(() => { if (studio) studioRef.current?.focus({ preventScroll: true }); }, [studio]);
   // The clock runs to whichever ends later: the trace or the video (which can outlast it by a second).
@@ -869,7 +877,7 @@ function Player({ run, slug, trace, story, flow, g, view: asked, onView, k, arch
 
   if (studio) return (
     <div ref={studioRef} className={`studio st-resizable${mode === 'step' ? ' stepping' : ''}`} tabIndex={-1} onKeyDown={studioKeys} role="region" aria-label={`Estudio de «${trace.test}»`}
-      style={{ '--st-video': lay.hide.video ? '0px' : `${lay.video}px`, '--st-side': lay.hide.side ? '0px' : `${lay.side}px`, '--st-tracks': lay.hide.tracks ? '0px' : `${lay.tracks}px` } as React.CSSProperties}>
+      style={panels}>
       <header className="st-bar">
         <b className="st-title" title={trace.test}>{trace.test}</b>
         <span className="faint num">run {run.id} · {run.env}</span>

@@ -9,7 +9,7 @@ import {
 import { forwardRef } from 'react';
 import type { DocPiece, KnowledgeData } from '../api.ts';
 import { FLOW_TABS } from '../components/FlowScope.tsx';
-import { piecesLabel } from './es.ts';
+import { piecesLabel, STAGE } from './es.ts';
 import { href } from './route.ts';
 import type { Scope } from './scope.ts';
 import { typeColor } from './typeColor.ts';
@@ -19,7 +19,7 @@ export const TYPE_ICON: Record<string, LucideIcon> = {
   plan: CalendarRange, decision: Scale, contract: Braces, 'data-model': Table, convention: Ruler, guide: BookOpen, 'test-plan': ListChecks, flow: Route, scenario: DatabaseBackup, artifact: Archive, runbook: LifeBuoy, architecture: Network, versioning: Tag, stack: Package, infrastructure: Cloud, secrets: KeyRound, glossary: BookText, term: Quote, note: StickyNote,
 };
 const SECTION_ICON: Record<string, LucideIcon> = {
-  summary: FileText, arch: Network, built: Layers, modules: Layers, fronts: Monitor, flows: Route, envs: Container, gov: Scale, owed: ListChecks, doc: BookText, rel: GitFork,
+  summary: FileText, arch: Network, built: Layers, modules: Layers, processes: Workflow, fronts: Monitor, flows: Route, envs: Container, gov: Scale, owed: ListChecks, doc: BookText, rel: GitFork,
   live: Radio, env: Database, scope: ListChecks, interfaces: Braces, data: Database, tests: ListChecks, vars: KeyRound, code: GitBranch,
 };
 const KIND_ICON: Record<string, LucideIcon> = { area: Layers, feature: Puzzle, story: Bookmark, subprocess: GitFork };
@@ -46,7 +46,7 @@ export function ownFlows(k: KnowledgeData, id: string): string[] {
 
 /** The tabs of the classes that have their own sheet (as the approved mock has them): key and label. ⌘K reaches each one. */
 export const TABS_OF: Record<string, Array<[string, string]>> = {
-  application: [['summary', 'Resumen'], ['arch', 'Diagramas'], ['modules', 'Módulos'], ['fronts', 'Clientes'], ['flows', 'Escenarios y flujos'], ['envs', 'Entornos'], ['owed', 'Lo que debe'], ['doc', 'Documento']],
+  application: [['summary', 'Resumen'], ['arch', 'Diagramas'], ['modules', 'Módulos'], ['processes', 'Procesos'], ['fronts', 'Clientes'], ['flows', 'Escenarios y flujos'], ['envs', 'Entornos'], ['owed', 'Lo que debe'], ['doc', 'Documento']],
   flow: FLOW_TABS,
   module: [['summary', 'Resumen'], ['flows', 'Escenarios y flujos'], ['owed', 'Lo que debe'], ['doc', 'Documento'], ['code', 'Código']],
 };
@@ -64,16 +64,19 @@ const NOT_HERE = ['module', 'process', 'repository', 'service', 'datastore', 'ex
 export function kindsOf(k: KnowledgeData, byId: Map<string, DocPiece>, owner: DocPiece, keep?: string) {
   if (owner.type !== 'application' && owner.type !== 'module') return [];
   const under = (x: DocPiece): boolean => { for (let c = byId.get(x.parent ?? ''); c; c = byId.get(c.parent ?? '')) if (c.id === owner.id) return true; return false; };
-  return Object.values(k.shapes).filter((s) => (s.livesIn as string[]).includes(owner.type) && !NOT_HERE.includes(s.type)).map((s) => ({ type: s.type as string, n: k.pieces.filter((x) => x.type === s.type && under(x)).length })).filter((x) => x.n > 0 || keep === x.type || (owner.type === 'application' && x.type === 'secrets') || (owner.type === 'module' && Boolean(owner.anchors?.length) && x.type in CODE_OF));
+  return Object.values(k.shapes).filter((s) => (s.livesIn as string[]).includes(owner.type) && !NOT_HERE.includes(s.type)).map((s) => ({ type: s.type as string, stage: s.stage as string, n: k.pieces.filter((x) => x.type === s.type && under(x)).length })).filter((x) => x.n > 0 || keep === x.type || (owner.type === 'application' && x.type === 'secrets') || (owner.type === 'module' && Boolean(owner.anchors?.length) && x.type in CODE_OF));
 }
 
 
-/** A container's sections: its own tabs, then a section per kind of piece it holds. */
+const STAGES = Object.keys(STAGE);
+/** A container's sections: its own tabs, then a section per kind of piece it holds, all under «Piezas», in the order of the stage each answers to. */
 export function sectionsOf(k: KnowledgeData, byId: Map<string, DocPiece>, owner: DocPiece, keep?: string, fronts = 0): Scope['sections'] {
-  const counts: Record<string, number | undefined> = { modules: k.pieces.filter((x) => x.parent === owner.id && x.type === 'module').length, flows: ownFlows(k, owner.id).length, owed: owner.sheet?.owed.length ?? 0, code: owner.anchors?.length };
+  const counts: Record<string, number | undefined> = { modules: k.pieces.filter((x) => x.parent === owner.id && x.type === 'module').length, processes: k.pieces.filter((x) => x.parent === owner.id && x.type === 'process').length, flows: ownFlows(k, owner.id).length, owed: owner.sheet?.owed.length ?? 0, code: owner.anchors?.length };
   return [
-    ...TABS_OF[owner.type].filter(([key]) => key !== 'fronts' || fronts).map(([key, label]) => ({ key, label, n: key === 'fronts' ? fronts : counts[key], icon: SECTION_ICON[key], to: key === 'summary' ? href('docs', owner.id) : href('docs', owner.id, 't', key) })),
-    ...kindsOf(k, byId, owner, keep).map((x) => ({ key: `p-${x.type}`, label: piecesLabel(x.type), n: x.n || undefined, icon: iconOf({ type: x.type }), to: href('docs', owner.id, 't', `p-${x.type}`), group: 'Piezas' })),
+    // a tab with nothing in it that the application may lack is not shown: clients nobody recognised, processes nobody wrote
+    ...TABS_OF[owner.type].filter(([key]) => (key !== 'fronts' || fronts) && (key !== 'processes' || counts.processes)).map(([key, label]) => ({ key, label, n: key === 'fronts' ? fronts : counts[key], icon: SECTION_ICON[key], to: key === 'summary' ? href('docs', owner.id) : href('docs', owner.id, 't', key) })),
+    ...kindsOf(k, byId, owner, keep).sort((a, b) => STAGES.indexOf(a.stage) - STAGES.indexOf(b.stage))
+      .map((x) => ({ key: `p-${x.type}`, label: piecesLabel(x.type), n: x.n || undefined, icon: iconOf({ type: x.type }), to: href('docs', owner.id, 't', `p-${x.type}`), group: 'Piezas' })),
   ];
 }
 

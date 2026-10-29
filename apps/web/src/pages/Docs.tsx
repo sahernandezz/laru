@@ -32,6 +32,9 @@ import type { FlowView } from './Runs.tsx';
 const SYSTEM = ['repository', 'service', 'datastore', 'external'];
 /** What the tree holds: the application, its modules and processes; services, stores and externals live in the map. */
 const TREE = ['application', 'module', 'process'];
+/** Below a piece, its children by type first, in this order; the name of each group, under the application and below. */
+const TREE_ORDER = ['module', 'process', 'flow'];
+const GROUP_NAME: Record<string, [string, string]> = { module: ['Módulos', 'Submódulos'], process: ['Procesos', 'Subprocesos'], flow: ['Flujos', 'Flujos'] };
 
 /** A flow's links: what must run (on the map) and the process it walks (in the documentation). */
 const META: Record<string, string> = { needs: 'Necesita', realizes: 'Realiza' };
@@ -128,11 +131,12 @@ function DocsTree({ k, flows, current, onHide }: { k: KnowledgeData; flows?: Flo
   const box = useRef<HTMLElement>(null);
   const byFlow = new Map((flows ?? []).map((f) => [f.id, f]));
   const app = k.pieces.find((p) => p.type === 'application');
-  const kids = (id: string) => [...k.pieces.filter((p) => p.parent === id && TREE.includes(p.type)), ...k.pieces.filter((p) => p.parent === id && p.type === 'flow')];
+  const kids = (id: string) => k.pieces.filter((p) => p.parent === id && (TREE.includes(p.type) || p.type === 'flow')).sort((a, b) => TREE_ORDER.indexOf(a.type) - TREE_ORDER.indexOf(b.type));
   // Opening a piece opens the branches above it.
   useEffect(() => {
     const up: string[] = [];
-    for (let p = k.pieces.find((x) => x.id === current); p; p = k.pieces.find((x) => x.id === p!.parent)) up.push(p.id);
+    // and the group of each one's type in its parent (`<parent>#<type>`), when it was folded
+    for (let p = k.pieces.find((x) => x.id === current); p; p = k.pieces.find((x) => x.id === p!.parent)) { up.push(p.id); if (p.parent) up.push(`${p.parent}#${p.type}`); }
     setClosed((s) => (up.some((id) => s.has(id)) ? new Set([...s].filter((id) => !up.includes(id))) : s));
   }, [current, k]);
   // Opening another piece puts the tab stop back on it.
@@ -141,6 +145,8 @@ function DocsTree({ k, flows, current, onHide }: { k: KnowledgeData; flows?: Flo
   const flowOk = (id: string) => !only || flowDot(byFlow.get(id)) === only;
   const below = (id: string): boolean => kids(id).some((c) => (c.type === 'flow' ? flowOk(c.id) : below(c.id)));
   const match = (p: { title?: string; id: string; type?: string }) => (only && (p.type === 'flow' ? !flowOk(p.id) : !below(p.id))) ? false : !q || `${p.id} ${p.title ?? ''}`.toLowerCase().includes(q.toLowerCase());
+  // whether a piece shows, itself or through something below it that the filter keeps
+  const seen = (p: DocPiece): boolean => match(p) || (p.type !== 'flow' && kids(p.id).some(seen));
   const toggle = (id: string, open: boolean) => setClosed((s) => { const n = new Set(s); if (open) n.delete(id); else n.add(id); return n; });
 
   const flowSaid = (id: string) => {
@@ -176,7 +182,29 @@ function DocsTree({ k, flows, current, onHide }: { k: KnowledgeData; flows?: Flo
             {st && <Dot state={st} />}
           </div>
         )}
-        {children.length > 0 && open && <ul role="group">{children.map((c) => node(c, depth + 1, shown ? p.id : parent))}</ul>}
+        {children.length > 0 && open && <ul role="group">{(() => {
+          // grouped by type, each group named, when there is more than one kind below; one kind needs no name
+          const types = TREE_ORDER.filter((t) => children.some((c) => c.type === t));
+          const draw = (c: DocPiece) => node(c, depth + 1, shown ? p.id : parent);
+          if (types.length < 2) return children.map(draw);
+          return types.map((t) => {
+            const name = GROUP_NAME[t][p.type === 'application' ? 0 : 1];
+            const items = children.filter((c) => c.type === t);
+            // a group folds as the menu's do: its key is the parent's and the type's, among the branches closed
+            const key = `${p.id}#${t}`, gopen = !closed.has(key);
+            return (
+              <li key={t} role="none">
+                {/* shown whenever something in it matches, even with its parent filtered out: else a folded group's matches could not be reached */}
+                {items.some(seen) && (
+                  <button type="button" className="tree-type" aria-expanded={gopen} onClick={() => toggle(key, !gopen)} style={{ paddingLeft: 8 + (depth + 1) * 14 }}>
+                    <ChevronDown aria-hidden="true" /><span className="name">{name}</span><span className="count num">{items.length}</span>
+                  </button>
+                )}
+                {gopen && <ul role="group" aria-label={name}>{items.map(draw)}</ul>}
+              </li>
+            );
+          });
+        })()}</ul>}
       </li>
     );
   };
@@ -238,16 +266,15 @@ function Sheet({ k, g, p, byId, reload, flows, envs, seen, view, test, op, tabAr
   const { facets: all, inherited } = facetsOf(k, p);
   // Flows are in the tree and in «Estado»: the facets are the rest.
   const facets = all.filter((f) => f.type !== 'flow');
-  const box = TREE.includes(p.type);
   const flow = p.type === 'flow' ? flows.data?.find((f) => f.id === p.id) : undefined;
   const Icon = iconOf(p);
   // Every kind of piece that may live in this one has its own section, with what there is and a way to add: nobody has to know where a decision goes.
   const under = (x: DocPiece): boolean => { for (let c = byId.get(x.parent ?? ''); c; c = byId.get(c.parent ?? '')) if (c.id === p.id) return true; return false; };
   const kinds = kindsOf(k, byId, p, tab.startsWith('p-') ? tab.slice(2) : undefined);
-  const counts: Record<string, number | undefined> = { modules: k.pieces.filter((x) => x.parent === p.id && x.type === 'module').length, flows: ownFlows(k, p.id).length, owed: (p.sheet?.owed.length ?? 0), code: p.anchors?.length };
+  const counts: Record<string, number | undefined> = { modules: k.pieces.filter((x) => x.parent === p.id && x.type === 'module').length, processes: k.pieces.filter((x) => x.parent === p.id && x.type === 'process').length, flows: ownFlows(k, p.id).length, owed: (p.sheet?.owed.length ?? 0), code: p.anchors?.length };
   const nFronts = g ? frontNodes(g).length : 0;
   const tabs = [
-    ...(TABS_OF[p.type] ? TABS_OF[p.type].filter(([key]) => key !== 'fronts' || nFronts).map(([key, label]) => ({ key, label, n: key === 'fronts' ? nFronts : counts[key] })) : []),
+    ...(TABS_OF[p.type] ? TABS_OF[p.type].filter(([key]) => (key !== 'fronts' || nFronts) && (key !== 'processes' || counts.processes)).map(([key, label]) => ({ key, label, n: key === 'fronts' ? nFronts : counts[key] })) : []),
     ...kinds.map((x) => ({ key: `p-${x.type}`, label: piecesLabel(x.type), n: x.n || undefined })),
     ...(TABS_OF[p.type] ? [] : [{ key: 'summary', label: p.type === 'contract' || p.type === 'data-model' ? 'Referencia' : 'Resumen' }]),
     ...(['service'].includes(p.type) && p.anchors?.length ? [{ key: 'interfaces', label: 'Interfaces' }, { key: 'tests', label: 'Pruebas' }, { key: 'vars', label: 'Variables y secretos' }] : []),
@@ -312,13 +339,15 @@ function Sheet({ k, g, p, byId, reload, flows, envs, seen, view, test, op, tabAr
         </>
       ) : (
         <>
-          {box && p.type !== 'application' && p.type !== 'module' && <Estado key={p.id} k={k} g={g} p={p} flows={flows} envs={envs} toCode={toCode} />}
+          {/* a process's state and its flows, which the tree no longer shows */}
+          {p.type === 'process' && <Estado key={p.id} k={k} g={g} p={p} flows={flows} envs={envs} toCode={toCode} />}
           {CONTAINERS.includes(p.type) && p.type !== 'application' && p.type !== 'module' && <DesignList k={k} g={g} p={p} seen={seen.data} />}
           <Tabs id="piece" label={`Secciones de ${p.title}`} value={tab} onChange={pick} tabs={tabs} className="tabs piece-tabs" />
           <div role="tabpanel" id="piece-panel" aria-labelledby={`piece-tab-${tab}`}>
             {p.type === 'application' && tab === 'summary' && <AppSummary k={k} p={p} g={g} flows={flows.data} envs={envs} />}
             {p.type === 'application' && tab === 'arch' && <Architecture />}
             {p.type === 'application' && tab === 'modules' && <ModuleCards k={k} p={p} />}
+            {p.type === 'application' && tab === 'processes' && <ModuleCards k={k} p={p} type="process" />}
             {p.type === 'application' && tab === 'fronts' && <FrontCards g={g} envs={envs} />}
             {p.type === 'application' && tab === 'flows' && <><Scenarios embedded /><div style={{ height: 24 }} /><FlowList embedded /></>}
             {p.type === 'application' && tab === 'envs' && <ProjectsEnvs k={k} g={g} envs={envs} />}

@@ -56,11 +56,11 @@ export function AppSummary({ k, p, g, flows, envs }: { k: KnowledgeData; p: DocP
   );
 }
 
-/** The modules as cards, each with its note (the smaller of its two) and how many flows it has. */
-export function ModuleCards({ k, p }: { k: KnowledgeData; p: DocPiece }) {
-  const mods = k.pieces.filter((x) => x.parent === p.id && x.type === 'module');
-  if (!mods.length) return <section className="panel"><div className="empty">Todavía no hay módulos. <a className="rowlink" href={href('docs', 'new', 'module', p.id)}>Crear el primero</a></div></section>;
-  const nested = (id: string): DocPiece[] => k.pieces.filter((x) => x.parent === id && x.type === 'module').flatMap((m) => [m, ...nested(m.id)]);
+/** The modules (or the processes) as cards, each with its note (the smaller of its two) and how many it holds below. */
+export function ModuleCards({ k, p, type = 'module' }: { k: KnowledgeData; p: DocPiece; type?: 'module' | 'process' }) {
+  const mods = k.pieces.filter((x) => x.parent === p.id && x.type === type);
+  if (!mods.length) return <section className="panel"><div className="empty">Todavía no hay {type === 'module' ? 'módulos' : 'procesos'}. <a className="rowlink" href={href('docs', 'new', type, p.id)}>Crear el primero</a></div></section>;
+  const nested = (id: string): DocPiece[] => k.pieces.filter((x) => x.parent === id && x.type === type).flatMap((m) => [m, ...nested(m.id)]);
   return (
     <div className="cards">{mods.map((m) => {
       const I = iconOf(m), subs = nested(m.id);
@@ -68,7 +68,7 @@ export function ModuleCards({ k, p }: { k: KnowledgeData; p: DocPiece }) {
         <a key={m.id} className="card" href={pageOf(m.id)}>
           <span className="card-h"><I />{m.title}</span>
           <span className="card-s">{m.summary}</span>
-          <span className="card-f"><NoteChip note={m.note} shown={m.sheet?.shown} />{subs.length > 0 && <span className="faint">{plural(subs.length, 'submódulo', 'submódulos')}</span>}</span>
+          <span className="card-f"><NoteChip note={m.note} shown={m.sheet?.shown} />{subs.length > 0 && <span className="faint">{type === 'module' ? plural(subs.length, 'submódulo', 'submódulos') : plural(subs.length, 'subproceso', 'subprocesos')}</span>}</span>
         </a>
       );
     })}</div>

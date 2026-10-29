@@ -17,7 +17,8 @@ import { sayCtx } from '../lib/say.ts';
 import { layoutSeq } from '../lib/seq.ts';
 import { archGraph, layout as mapLayout } from '../lib/sysmap.ts';
 import { ExchangeIO, Journey } from './Journey.tsx';
-import { ExchangeTable, FlowMap, LogsTab, NetTab, SeqView, Tracks } from './Runs.tsx';
+import { ExchangeTable, FlowMap, LogsTab, NetTab, SeqView, Splitter, Tracks, useStudioPanels } from './Runs.tsx';
+import { devicesOf, onlyDevice } from '../lib/devices.ts';
 
 interface SessionBrowser { state: 'none' | 'opening' | 'open' | 'closed' | 'error'; url?: string; error?: string; outside: Array<{ t: number; url: string }> }
 interface Live { run: RunInfo; trace: Trace; browser: SessionBrowser }
@@ -150,15 +151,24 @@ export function Session({ id, g, embedded }: { id: string; g: Indexed | null; em
   const [side, setSide] = useState<Side>('steps');
   const open = live?.run.phase === 'tests';
   // a mark is written in «Pasos»: every «Marcar» opens that tab and puts the cursor in the field, wherever the side was
-  const startMark = () => { setMarking(true); setSide('steps'); requestAnimationFrame(() => requestAnimationFrame(() => input.current?.focus())); };
+  // …and in the studio, brings the evidence back when it was put away, or the field would be nowhere to type in
+  const startMark = () => { setMarking(true); setSide('steps'); if (studio && lay.hide.side) flip('side'); requestAnimationFrame(() => requestAnimationFrame(() => input.current?.focus())); };
   // «Estudio»: the app, the architecture, the message and a timeline growing as the person uses it, on the whole window.
   // On its own page it opens there (unless the person left it); inside a flow's sheet, only on request.
   const [studio, setStudio] = useState(() => { if (embedded) return false; try { return localStorage.getItem(STUDIO) !== '0'; } catch { return true; } });
-  const toggleStudio = () => { if (!embedded) try { localStorage.setItem(STUDIO, studio ? '0' : '1'); } catch { /* only for this view */ } setStudio(!studio); };
+  // following a device is the studio's: leaving or entering it shows everything again
+  const toggleStudio = () => { if (!embedded) try { localStorage.setItem(STUDIO, studio ? '0' : '1'); } catch { /* only for this view */ } setStudio(!studio); setDevice(''); };
   // the hop opened: from the Secuencia or a bar of the timeline
   const [sel, setSel] = useState(-1);
-  const layout = useMemo(() => (live ? layoutSeq(live.trace) : null), [live]);
-  const noise = useMemo(() => (live ? chainOf(live.trace).noise : new Map()), [live]);
+  // the panels as in the recorded studio: sized, put away and brought back, kept for both
+  const studioRef = useRef<HTMLDivElement>(null);
+  const { lay, resize, flip, style: panels } = useStudioPanels(studioRef);
+  // «Dispositivo», as in the recorded studio: only what one device sent and what that caused
+  const [device, setDevice] = useState('');
+  const devices = useMemo(() => (live ? devicesOf(live.trace, chainOf(live.trace).cause) : undefined), [live]);
+  const shown = useMemo(() => (live && device && devices ? onlyDevice(live.trace, devices, device) : live?.trace), [live, device, devices]);
+  const layout = useMemo(() => (shown ? layoutSeq(shown) : null), [shown]);
+  const noise = useMemo(() => (shown ? chainOf(shown).noise : new Map()), [shown]);
   useEffect(() => {
     const on = (e: KeyboardEvent) => {
       if (!open || e.metaKey || e.ctrlKey || e.altKey || e.key.toLowerCase() !== 'm') return;
@@ -169,7 +179,8 @@ export function Session({ id, g, embedded }: { id: string; g: Indexed | null; em
     };
     addEventListener('keydown', on);
     return () => removeEventListener('keydown', on);
-  }, [open]);
+    // startMark reads whether this is the studio and whether its evidence is put away: the key takes them as they are now
+  }, [open, studio, lay.hide.side]); // eslint-disable-line react-hooks/exhaustive-deps
 
 
   // the env's menu from the first frame: while the session loads, the env it was reached from (else the menu waits for it)
@@ -177,7 +188,8 @@ export function Session({ id, g, embedded }: { id: string; g: Indexed | null; em
   const scope = !embedded && known ? <EnvScope env={known} active="live" session={id} /> : null;
   if (error && !live) return <div className="page">{scope}<div className="notice" role="alert"><CircleX />{error}</div></div>;
   if (!live) return <div className="page wide">{scope}<Skeleton lines={3} /><div style={{ height: 16 }} /><Skeleton lines={10} /></div>;
-  const { run, trace, browser } = live;
+  const { run, browser } = live;
+  const trace = shown ?? live.trace;
   const saving = run.phase === 'evidence';
   const sendMark = (e: FormEvent) => {
     e.preventDefault();
@@ -200,7 +212,7 @@ export function Session({ id, g, embedded }: { id: string; g: Indexed | null; em
   const marks = (
     <div className="panel">
       <header><h3>Marcas</h3><div className="meta">Cada una abre un paso</div></header>
-      {marking && open && <form className="mark-form" onSubmit={sendMark}><input ref={input} value={mark} onChange={(e) => setMark(e.target.value)} onKeyDown={(e) => { if (e.key === 'Escape') setMarking(false); }} aria-label="Qué vas a hacer" placeholder="Qué vas a hacer ahora" maxLength={120} /><button className="btn sm" type="submit">Marcar</button></form>}
+      {marking && open && <form className="mark-form" onSubmit={sendMark}><input ref={input} autoFocus value={mark} onChange={(e) => setMark(e.target.value)} onKeyDown={(e) => { if (e.key === 'Escape') setMarking(false); }} aria-label="Qué vas a hacer" placeholder="Qué vas a hacer ahora" maxLength={120} /><button className="btn sm" type="submit">Marcar</button></form>}
       <ul className="steps">{trace.steps.length ? trace.steps.map((s) => <li key={s.n}><span className="num faint">{s.n}</span><span>{s.title}</span><span className="faint num">{clock(s.t0, base)}</span></li>)
         : <li className="faint" style={{ cursor: 'default' }}><span /><span>Sin marcas: los saltos se agrupan por tus acciones</span></li>}</ul>
     </div>
@@ -230,8 +242,16 @@ export function Session({ id, g, embedded }: { id: string; g: Indexed | null; em
       </div>
     </>
   );
+  const follow = devices && devices.list.length > 1 && (
+    <label className="faint st-device">Dispositivo{' '}
+      <select value={device} onChange={(e) => { setDevice(e.target.value); setSel(-1); }} title="Solo lo que envió ese dispositivo y lo que provocó en el sistema">
+        <option value="">Todos</option>
+        {devices.list.map((d) => <option key={d.name} value={d.name}>{d.name} ({d.count})</option>)}
+      </select>
+    </label>
+  );
   if (studio) return (
-    <div className="studio live-studio" role="region" aria-label={`Estudio de la sesión ${run.id}`}
+    <div ref={studioRef} className="studio live-studio st-resizable" role="region" aria-label={`Estudio de la sesión ${run.id}`} style={panels}
       onKeyDown={(e) => { const t = e.target as HTMLElement; if (e.key === 'Escape' && !t.closest('.screen-box, input, textarea, select, dialog')) { e.preventDefault(); toggleStudio(); } }}>
       {scope}
       <header className="st-bar">
@@ -239,17 +259,28 @@ export function Session({ id, g, embedded }: { id: string; g: Indexed | null; em
         <b className="st-title" title={run.title ?? ''}>{run.title ?? `Sesión ${run.id}`}</b>
         <span className="faint">entorno <a className="rowlink mono" href={href('envs', run.env)}>{run.env}</a> · leído {ago(read?.at)}</span>
         <span className="grow" />
+        {follow}
         {actions}
+        <details className="st-help">
+          <summary className="btn sm">Atajos</summary>
+          <dl className="st-help-pop">
+            {open && <><dt><kbd>M</kbd></dt><dd>marca lo que vas a hacer</dd></>}
+            <dt><kbd>Esc</kbd></dt><dd>sale del estudio</dd>
+          </dl>
+        </details>
         <button type="button" className="btn sm" onClick={toggleStudio} title="Volver a la página de la sesión (Esc)"><Minimize2 />Salir del estudio</button>
       </header>
-      <div className="st-video">
+      <div className="st-video" hidden={lay.hide.video}>
         <div className="screen">
           <Screen id={id} env={run.env} g={g} open={open} browser={browser} entrance={run.entrance ?? browser.url} wide={false} setWide={() => undefined} compact />
         </div>
       </div>
+      <Splitter axis="x" area="vs" label="Ancho del aplicativo" onMove={(d) => resize('video', d)} panel={{ name: 'Aplicativo', hidden: Boolean(lay.hide.video), onFlip: () => flip('video'), side: 'left' }} />
       <div className="st-stage"><LiveViews trace={trace} g={g} base={base} open={open} sel={sel} setSel={setSel} /></div>
-      <aside className="st-side" aria-label="Evidencia">{evidence}</aside>
-      {layout && <Tracks layout={layout} trace={trace} noise={noise} now={now} T={Math.max(1000, now, trace.durationMs)} sel={picked?.id} onSeek={(t) => setSel(layout.rows.findLastIndex((r) => !r.reply && r.t <= t))} onPick={setSel} />}
+      <Splitter axis="x" area="ss" label="Ancho de la evidencia" onMove={(d) => resize('side', -d)} panel={{ name: 'Evidencia', hidden: Boolean(lay.hide.side), onFlip: () => flip('side'), side: 'right' }} />
+      <aside className="st-side" aria-label="Evidencia" hidden={lay.hide.side}>{evidence}</aside>
+      <Splitter axis="y" area="ts" label="Alto de las pistas" onMove={(d) => resize('tracks', -d)} panel={{ name: 'Pistas', hidden: Boolean(lay.hide.tracks), onFlip: () => flip('tracks'), side: 'down' }} />
+      {layout && <Tracks hidden={lay.hide.tracks} layout={layout} trace={trace} noise={noise} now={now} T={Math.max(1000, now, trace.durationMs)} sel={picked?.id} onSeek={(t) => setSel(layout.rows.findLastIndex((r) => !r.reply && r.t <= t))} onPick={setSel} />}
       {drafting && <ToDraft kind={drafting} id={id} title={run.title ?? `Sesión ${run.id}`} onClose={() => setDrafting(false)} />}
     </div>
   );

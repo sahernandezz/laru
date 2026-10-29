@@ -129,6 +129,18 @@ kbd {
   display: flex; flex-direction: column; gap: 14px;
 }
 .nav-group h2 { margin: 6px 8px 4px; font-size: var(--t-12); font-weight: 500; color: var(--ink-3); }
+/* a group of the menu that folds: a chevron, its name, how many entries it holds; the whole line is the button */
+.fold > summary { list-style: none; display: flex; align-items: center; gap: 6px; cursor: pointer; padding: 4px 8px; border-radius: var(--r-sm); }
+.fold > summary::-webkit-details-marker { display: none; }
+.fold > summary h2 { flex: 1; margin: 0; font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
+.fold > summary svg { width: 13px; height: 13px; flex: none; color: var(--ink-3); transition: transform .15s; }
+.fold:not([open]) > summary svg { transform: rotate(-90deg); }
+.fold > summary .count { font-size: var(--t-12); color: var(--ink-3); }
+.fold > summary:hover { background: var(--fill-1); }
+.fold > summary:hover h2, .fold > summary:hover svg { color: var(--ink-1); }
+.fold[open] > summary { margin-bottom: 2px; }
+.fold.sub { margin-top: 8px; }
+@media (prefers-reduced-motion: reduce) { .fold > summary svg { transition: none; } }
 .nav-group a {
   display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 8px; border-radius: var(--r-sm);
   color: var(--ink-2); font-size: var(--t-14);
@@ -314,6 +326,14 @@ table.t { width: 100%; border-collapse: collapse; font-size: var(--t-13); }
 .tree .tw svg { width: 12px; height: 12px; }
 .tree .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 .tree .node .dot { flex: none; margin-right: 2px; }
+/* a group of children by type (Módulos, Procesos, Flujos): folds as the menu's groups, with its count */
+.tree .tree-type { display: flex; align-items: center; gap: 6px; width: 100%; margin-top: 6px; padding-top: 4px; padding-bottom: 4px; padding-right: 8px; border: 0; border-radius: var(--r-sm); background: none; color: var(--ink-3); cursor: pointer; text-align: left; }
+.tree .tree-type .name { flex: 1; font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
+.tree .tree-type .count { font-size: var(--t-12); }
+.tree .tree-type svg { width: 13px; height: 13px; flex: none; transition: transform .15s; }
+.tree .tree-type[aria-expanded="false"] svg { transform: rotate(-90deg); }
+.tree .tree-type:hover { background: var(--fill-1); color: var(--ink-1); }
+@media (prefers-reduced-motion: reduce) { .tree .tree-type svg { transition: none; } }
 .tree li > .node:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
 .sheet { overflow-y: auto; }
@@ -1786,7 +1806,6 @@ ul.cases { font-size: var(--t-13); color: var(--ink-2); }
 .changes-bar ul { margin: 4px 0 0; padding-left: 18px; }
 .changes-bar .btn { flex: none; margin-left: auto; }
 /* a kind of living piece under the application's sections, inside the one main menu */
-.nav-group h2.sub { margin-top: 10px; }
 
 /* Runs: a card per run, one thumbnail and what it played */
 .run-cards { display: grid; gap: 12px; }
@@ -1961,8 +1980,7 @@ body.dragging, body.dragging * { user-select: none; cursor: inherit; }
 .st-bar > * { flex: none; }
 .st-title { font-size: var(--t-14); max-width: 32ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .st-bar .grow { flex: 1; }
-/* the flow's tests take what the bar has left, and scroll when they need more */
-.st-bar .st-bar .st-bar .st-help { position: relative; }
+.st-help { position: relative; }
 .st-help summary { list-style: none; }
 .st-help summary::-webkit-details-marker { display: none; }
 .st-help-pop { position: absolute; right: 0; top: calc(100% + 6px); z-index: 50; margin: 0; padding: 10px 12px; display: grid; grid-template-columns: auto auto; gap: 6px 12px; align-items: center; white-space: nowrap; font-size: var(--t-13); background: var(--bg-200); border: 1px solid var(--line-2); border-radius: 8px; box-shadow: 0 8px 24px rgb(0 0 0 / .4); }
@@ -2068,6 +2086,8 @@ body.dragging, body.dragging * { user-select: none; cursor: inherit; }
 /* the live studio: the app the person uses is the widest column; the timeline grows under all of it */
 /* the live studio is the recorded one (its columns) without a transport: the session's clock is the bar's */
 .live-studio { grid-template-rows: auto minmax(0, 1fr) auto; grid-template-areas: "bar bar bar" "video stage side" "tracks tracks tracks"; }
+/* sized and put away as the recorded one, without its transport row */
+.live-studio.st-resizable { grid-template-rows: auto minmax(160px, 1fr) 6px minmax(0, var(--st-tracks)); grid-template-areas: "bar bar bar bar bar" "video vs stage ss side" "ts ts ts ts ts" "tracks tracks tracks tracks tracks"; }
 .live-studio .st-bar .status { display: inline-flex; align-items: center; gap: 6px; font-size: var(--t-13); }
 .live-studio .st-stage .live-main { height: 100%; min-height: 0; }
 .live-studio .live-main .seq-wrap, .live-studio .live-map, .live-studio .journey { height: auto; min-height: 0; }

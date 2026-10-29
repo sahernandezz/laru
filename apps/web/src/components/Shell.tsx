@@ -1,6 +1,6 @@
 /** Top bar, side menu and the ⌘K menu, which reaches every screen as well as every node of the map. */
 import {
-  ArrowLeft, ArrowLeftRight, Box, Check, ChevronsUpDown, Container, Database, DatabaseBackup, FolderOpen, GitBranch, HardDrive, Home as HomeIcon, KeyRound, LayoutDashboard, Library, Mail,
+  ArrowLeft, ArrowLeftRight, Box, Check, ChevronDown, ChevronsUpDown, Container, Database, DatabaseBackup, FolderOpen, GitBranch, HardDrive, Home as HomeIcon, KeyRound, LayoutDashboard, Library, Mail,
   Network, PanelLeft, PanelLeftClose, PlayCircle, Plug, Plus, Radio, ScrollText, Search, Settings2, Shapes, Workflow, type LucideIcon,
 } from 'lucide-react';
 import { lazy, type ReactNode, Suspense, useEffect, useId, useRef, useState } from 'react';
@@ -161,17 +161,17 @@ export function Shell({ app, active, counts, jumps, menu, children }: { app: str
                 : counts[i.route] !== undefined && <span className="count num">{counts[i.route]}</span>}
             </a>
           );
-          // «La aplicación» is one menu: what is written about it (and every living piece) first, then what runs it.
+          const here = (list: NavItem[]) => list.some((i) => (PARENT[active] ?? active) === i.route);
+          // «La aplicación» is one menu: what runs it first, then what is written about it (and every living piece).
           if (group === 'La aplicación' && menu) return (
             <span key={group} style={{ display: 'contents' }}>
+              <div className="nav-group"><Fold name="Sistema" count={items.filter((i) => i.route !== 'docs').length} here={here(items.filter((i) => i.route !== 'docs'))} at={location.hash}>{items.filter((i) => i.route !== 'docs').map(link)}</Fold></div>
               <AppMenu title={menu.title} sections={menu.sections} active={scope?.app ? scope.active : undefined} />
-              <div className="nav-group"><h2>Sistema</h2>{items.filter((i) => i.route !== 'docs').map(link)}</div>
             </span>
           );
           return (
             <div className="nav-group" key={group || 'top'}>
-              {group && <h2>{group}</h2>}
-              {items.map(link)}
+              {group ? <Fold name={group} count={items.length} here={here(items)} at={location.hash}>{items.map(link)}</Fold> : items.map(link)}
             </div>
           );
         })}
@@ -199,18 +199,41 @@ export function Shell({ app, active, counts, jumps, menu, children }: { app: str
   );
 }
 
-/** The application's menu: its sections, then a section per kind of living piece, each lit up when it is the one open. */
+const FOLDED = 'laru.menu.closed';
+const folded = (): string[] => { try { return JSON.parse(localStorage.getItem(FOLDED) ?? '[]') as string[]; } catch { return []; } };
+/**
+ * A group of the menu that folds (a native <details>): the groups the person closed stay closed in this browser, by
+ * name; one holding the page that is open opens.
+ */
+function Fold({ name, here, at, sub, count, children }: { name: string; here?: boolean; /** the page open: arriving at another one of the group opens it again */ at?: string; sub?: boolean; count?: number; children: ReactNode }) {
+  const [open, setOpen] = useState(() => here || !folded().includes(name));
+  useEffect(() => { if (here) setOpen(true); }, [here, at]);
+  const keep = (now: boolean) => {
+    setOpen(now);
+    try { localStorage.setItem(FOLDED, JSON.stringify([...folded().filter((x) => x !== name), ...(now ? [] : [name])])); } catch { /* not kept */ }
+  };
+  return (
+    <details className={sub ? 'fold sub' : 'fold'} open={open} onToggle={(e) => { if (e.currentTarget.open !== open) keep(e.currentTarget.open); }}>
+      <summary><ChevronDown aria-hidden="true" /><h2>{name}</h2>{count !== undefined && <span className="count num" aria-label={`${count} entradas`}>{count}</span>}</summary>
+      {children}
+    </details>
+  );
+}
+
+/** The application's menu: its sections, then a group per stage of the living pieces, each lit up when it is the one open; every group folds. */
 function AppMenu({ title, sections, active }: { title: string; sections: Scope['sections']; active?: string }) {
+  const groups: Array<[string | undefined, Scope['sections']]> = [];
+  for (const x of sections) { const last = groups.at(-1); if (last && last[0] === x.group) last[1].push(x); else groups.push([x.group, [x]]); }
   return (
     <div className="nav-group">
-      <h2>{title}</h2>
-      {sections.map((x, i) => (
-        <span key={x.key} style={{ display: 'contents' }}>
-          {x.group && x.group !== sections[i - 1]?.group && <h2 className="sub">{x.group}</h2>}
-          <a href={x.to} aria-current={active === x.key ? 'page' : undefined}>
-            {x.icon && <x.icon />}<span>{x.label}</span>{x.n !== undefined && <span className="count num">{x.n}</span>}
-          </a>
-        </span>
+      {groups.map(([group, xs]) => (
+        <Fold key={group ?? ''} name={group ?? title} sub={Boolean(group)} count={xs.length} here={xs.some((x) => x.key === active)} at={active}>
+          {xs.map((x) => (
+            <a key={x.key} href={x.to} aria-current={active === x.key ? 'page' : undefined}>
+              {x.icon && <x.icon />}<span>{x.label}</span>{x.n !== undefined && <span className="count num">{x.n}</span>}
+            </a>
+          ))}
+        </Fold>
       ))}
     </div>
   );
