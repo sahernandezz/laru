@@ -18,7 +18,7 @@ import { ActionButton, PathChip, Code, CodeBlock, copy, Dialog, Dot, HttpStatus,
 import { askFirst } from '../lib/ask.ts';
 import { devicesOf, onlyDevice } from '../lib/devices.ts';
 import { ago, KIND, plural, RUN_DOT, RUN_PHASE, RUN_STATUS, secs, size } from '../lib/es.ts';
-import { href, liveHref, partsOf, queryOf, splitStop, stopIn, testIn, withStop } from '../lib/route.ts';
+import { href, liveHref, partsOf, queryOf, splitStop, stopIn, withStop } from '../lib/route.ts';
 import { filterRuns, filtersOf, flowsOf, NO_FILTERS, queryString, type RunFilters } from '../lib/runsFilter.ts';
 import { at as atMs, say, sayCtx } from '../lib/say.ts';
 import { CH, clock, curl, ends, failTime, fit, HEAD_H, LANE_W, labelRoom, layoutSeq, PROJECT_H, ROW_H, route, rowState, sameStop, stepAt, stepStop, stopId, stopOf, walk, type Row, type SeqLayout, type Stop } from '../lib/seq.ts';
@@ -302,19 +302,10 @@ function liveTests(events: RunnerEvent[], slug: string): LiveTest[] {
 
 function LiveView({ run, slug, events, flow }: { run: RunInfo; slug: string; events: RunnerEvent[]; flow?: FlowInfo }) {
   const tests = liveTests(events, slug);
-  const [pick, setPick] = useState<string | null>(null);
-  const cur = tests.find((t) => t.id === pick) ?? tests.at(-1);
+  const cur = tests.find((t) => t.story) ?? tests.at(-1);
   return (
     <>
-      <div className="tests-strip" role="group" aria-label="Pruebas del flujo">
-        {tests.map((t) => (
-          <button key={t.id} className="tcase" aria-pressed={t === cur} onClick={() => setPick(t.id)}>
-            <span className="n"><Dot state={t.status ? RUN_DOT[t.status === 'timedOut' ? 'failed' : t.status] ?? 'idle' : 'run'} />{t.story ? 'Historia' : t.title}{t.status && <span className="sr-only">, {RUN_STATUS[t.status === 'timedOut' ? 'failed' : t.status] ?? t.status}</span>}</span>
-            <span className="s">{t.story ? t.title : 'Caso'}{t.ms !== undefined ? `, ${secs(t.ms)}` : ', en curso'}</span>
-          </button>
-        ))}
-        {!tests.length && <p className="faint live-wait">{run.phase === 'tests' ? 'El runner está arrancando el navegador…' : `${RUN_PHASE[run.phase]}: las pruebas empiezan después.`}</p>}
-      </div>
+      {!tests.length && <p className="faint live-wait">{run.phase === 'tests' ? 'El runner está arrancando el navegador…' : `${RUN_PHASE[run.phase]}: las pruebas empiezan después.`}</p>}
       <section className="panel" aria-labelledby="live-h">
         <header><h3 id="live-h">Pasos{cur ? ` de «${cur.title}»` : ''}</h3><div className="meta">El vídeo, la secuencia y la red llegan al guardar la evidencia</div></header>
         <ol className="steps live" aria-live="polite">
@@ -375,20 +366,17 @@ export function Studio({ parts, g }: { parts: string[]; g: Indexed | null }) {
 /** The full map of a page, laid out once for the story and its cases: each test lights its part of it. */
 export interface Arch { lay: Layout<MapEdge>; pieces: MapNode[] }
 
-function FlowTraces({ run, slug, flow, g, view, onView, test: named, address, k, studio, only }: Evidence) {
+function FlowTraces({ run, slug, flow, g, view, onView, address, k, studio, only }: Evidence) {
   const res = useApi<{ trace: Trace | null; cases: Trace[] }>(`/api/run/trace?id=${encodeURIComponent(run.id)}&flow=${encodeURIComponent(slug)}`);
-  const tests = useMemo(() => (res.data ? [...(res.data.trace ? [res.data.trace] : []), ...res.data.cases] : []), [res.data]);
+  const tests = useMemo(() => (res.data?.trace ? [res.data.trace] : []), [res.data]);
   const arch = useMemo(() => {
     if (!g || !tests.length) return null;
     const a = archGraph(g, tests, { onlyUsed: true });
     return { lay: mapLayout(a.sub, a.edges, { keep: true, bands: true }), pieces: a.pieces, lits: a.lits };
   }, [g, tests]);
-  // It opens on the story; only an address that names a test («Ver dónde falló») opens that one. A stop in the
-  // address («Paso a paso») is read once, for the test it opens on.
-  const [picked, setPick] = useState<number>();
+  // The story: a flow is one recorded test. A stop in the address («Paso a paso») is read once.
   const [asked] = useState(() => stopIn(location.hash));
-  const pick = picked ?? testIn(tests, named);
-  const test = tests[pick] ?? tests[0];
+  const test = tests[0];
   // «Seguir un dispositivo»: only what it sent and what that caused, for the studio's follow-along
   const [device, setDevice] = useState('');
   const devices = useMemo(() => (test ? devicesOf(test, chainOf(test).cause) : undefined), [test]);
@@ -401,28 +389,7 @@ function FlowTraces({ run, slug, flow, g, view, onView, test: named, address, k,
       <span>Lo que el runner escribió está en <code>.laru/runs/{run.id}/out/runner.log</code>.</span>
     </div></section>
   );
-  // Traces say whether they are the story; older ones did not, and then the story is trace.json.
-  const isStory = (i: number) => tests[i].story ?? (i === 0 && Boolean(res.data!.trace));
-  const choose = (i: number) => {
-    setPick(i);
-    setDevice('');
-    // the address names the test that shows (none: the story), so a reload opens it; without the stop, which was the other's
-    if (address) history.replaceState(history.state, '', address(view ?? savedView(), isStory(i) ? undefined : tests[i].test));
-  };
-  const at = tests.indexOf(test);
-  const strip = (
-      <div className="tests-strip" role="group" aria-label="Pruebas del flujo">
-        {tests.map((t, i) => {
-          const story = isStory(i);
-          return (
-            <button key={i} className="tcase" aria-pressed={t === test} onClick={() => choose(i)}>
-              <span className="n"><Dot state={RUN_DOT[t.status] ?? 'idle'} />{story ? 'Historia' : t.test}<span className="sr-only">, {RUN_STATUS[t.status] ?? t.status}</span></span>
-              <span className="s">{story ? t.test : 'Caso'}, {secs(t.durationMs)}</span>
-            </button>
-          );
-        })}
-      </div>
-  );
+  const at = 0;
   // one device has nothing to pick
   const follow = devices && devices.list.length > 1 && (
     <label className="faint st-device">Dispositivo{' '}
@@ -434,10 +401,8 @@ function FlowTraces({ run, slug, flow, g, view, onView, test: named, address, k,
   );
   return (
     <>
-      {/* a flow with one test has nothing to pick */}
-      {tests.length > 1 && !only && strip}
-      <Player key={`${at}/${device}`} run={run} slug={slug} trace={shown!} story={isStory(at)} flow={flow} g={g} view={view} onView={onView} k={k}
-        arch={arch} lit={arch?.lits[at]} address={address} stop={picked === undefined && !device ? asked : undefined} strip={tests.length > 1 ? strip : undefined} devices={follow || undefined} studioFirst={studio} only={only} />
+      <Player key={`${at}/${device}`} run={run} slug={slug} trace={shown!} story={test.story ?? true} flow={flow} g={g} view={view} onView={onView} k={k}
+        arch={arch} lit={arch?.lits[at]} address={address} stop={!device ? asked : undefined} devices={follow || undefined} studioFirst={studio} only={only} />
     </>
   );
 }
@@ -492,7 +457,7 @@ type Mode = 'clock' | 'step';
 /** What the player-level keys never take: typing, and widgets with their own arrows. */
 const OWN_KEYS = 'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="tablist"], [role="slider"], [role="radiogroup"]';
 
-function Player({ run, slug, trace, story, flow, g, view: asked, onView, k, arch, lit, address, stop: askedStop, strip, devices, studioFirst, only }: Evidence & { trace: Trace; story: boolean; k?: KnowledgeData; arch?: Arch | null; lit?: Lit; stop?: string; /** the tests of the flow, to pick another from the studio */ strip?: ReactNode; /** the studio's pick of one device to follow */ devices?: ReactNode; studioFirst?: boolean }) {
+function Player({ run, slug, trace, story, flow, g, view: asked, onView, k, arch, lit, address, stop: askedStop, devices, studioFirst, only }: Evidence & { trace: Trace; story: boolean; k?: KnowledgeData; arch?: Arch | null; lit?: Lit; stop?: string; /** the studio's pick of one device to follow */ devices?: ReactNode; studioFirst?: boolean }) {
   const layout = useMemo(() => layoutSeq(trace), [trace]);
   const ch = useMemo(() => chainOf(trace), [trace]);
   const ctx = useMemo(() => sayCtx({ trace, rows: layout.rows, chain: ch, map: g?.map, pieces: k?.pieces }), [trace, layout, ch, g, k]);
@@ -908,7 +873,7 @@ function Player({ run, slug, trace, story, flow, g, view: asked, onView, k, arch
       <header className="st-bar">
         <b className="st-title" title={trace.test}>{trace.test}</b>
         <span className="faint num">run {run.id} · {run.env}</span>
-        {strip ?? <span className="grow" />}
+        <span className="grow" />
         <details className="st-help">
           <summary className="btn sm">Atajos</summary>
           <dl className="st-help-pop">

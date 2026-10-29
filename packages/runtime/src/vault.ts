@@ -136,7 +136,9 @@ function writeAtomic(file: string, text: string, mode = 0o666): void {
 
 // ---------- encryption ----------
 
-const aad = (app: string) => Buffer.from(`laru:${app}:v1`);
+const aad = (app: string, name = 'laru') => Buffer.from(`${name}:${app}:v1`);
+/** A vault sealed before the rename names the product as it was then; it opens, and the next write seals it anew. */
+const LEGACY_AAD = 'keelson'; // legacy-name
 
 function seal(app: string, key: Buffer, secrets: Record<string, string>): string {
   const iv = randomBytes(12);
@@ -146,15 +148,16 @@ function seal(app: string, key: Buffer, secrets: Record<string, string>): string
 }
 
 function unseal(app: string, key: Buffer, text: string): Record<string, string> {
-  try {
-    const f = JSON.parse(text) as { v: number; iv: string; tag: string; data: string };
-    if (f.v !== 1) throw new Error('version');
-    const d = createDecipheriv('aes-256-gcm', key, Buffer.from(f.iv, 'base64'), { authTagLength: 16 }).setAAD(aad(app));
-    d.setAuthTag(Buffer.from(f.tag, 'base64'));
-    return JSON.parse(Buffer.concat([d.update(Buffer.from(f.data, 'base64')), d.final()]).toString('utf8'));
-  } catch {
-    throw new WorkspaceError('cannot be opened with this key: the key is wrong or the file was altered', 'vault/secrets.enc');
+  for (const name of ['laru', LEGACY_AAD]) {
+    try {
+      const f = JSON.parse(text) as { v: number; iv: string; tag: string; data: string };
+      if (f.v !== 1) throw new Error('version');
+      const d = createDecipheriv('aes-256-gcm', key, Buffer.from(f.iv, 'base64'), { authTagLength: 16 }).setAAD(aad(app, name));
+      d.setAuthTag(Buffer.from(f.tag, 'base64'));
+      return JSON.parse(Buffer.concat([d.update(Buffer.from(f.data, 'base64')), d.final()]).toString('utf8'));
+    } catch { /* the other name, then the error below */ }
   }
+  throw new WorkspaceError('cannot be opened with this key: the key is wrong or the file was altered', 'vault/secrets.enc');
 }
 
 // ---------- files only this user may read ----------

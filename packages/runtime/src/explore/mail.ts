@@ -60,7 +60,8 @@ export function rows(ws: Workspace, env: string, f: Folded = fold(ws, env)): Row
     const s = f.sms.get(id)!;
     out.push({ id, kind: 'sms', t: s.t, from: s.sender, to: s.to, subject: s.body, attachments: 0, codes: s.codes, lints: [], status: s.direction === 'inbound' ? 'received' : stateOf(f.status.get(id)), service: s.direction === 'inbound' ? undefined : (peers[s.from] ?? s.from), direction: s.direction, sender: s.sender });
   }
-  return out.sort((a, b) => b.t - a.t);
+  // newest first; two received in the same millisecond, the later one first (reversed, the sort keeps that order)
+  return out.reverse().sort((a, b) => b.t - a.t);
 }
 
 /** `de:ana para:luis -asunto:pedido tiene:adjunto código:482913 etiqueta:pedido servicio:api run:12 flujo:x` and free words, all combinable, `-` negates. */

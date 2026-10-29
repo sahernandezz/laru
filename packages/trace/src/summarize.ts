@@ -8,7 +8,7 @@ import type { EndpointMatch } from './assemble.ts';
 import { causes, noiseOf, type Cause } from './chain.ts';
 import type { Exchange, RunInfo, Trace } from './trace.ts';
 
-export interface EvidenceQuery { flow?: string; step?: number; exchange?: string; service?: string; budget?: number; /** a short case, by its title (or part of it) */ case?: string }
+export interface EvidenceQuery { flow?: string; step?: number; exchange?: string; service?: string; budget?: number }
 
 const tokens = (s: string) => Math.ceil(s.length / 4);
 const ms = (e: Exchange) => (e.t1 === undefined ? 'open' : `${e.t1 - e.t0} ms`);
@@ -186,13 +186,8 @@ export function summarize(run: RunInfo, traces: Trace[], q: EvidenceQuery = {}):
     ];
     return fit(parts, budget, (n) => `… ${n} more lines left out (raise budget)`);
   }
-  if (q.step !== undefined || q.service || q.case) {
-    const t = q.case ? pick.find((x) => !x.story && x.test.toLowerCase().includes(q.case!.toLowerCase())) : (pick.find((x) => x.story) ?? pick[0]);
-    if (q.case && !t) return `No case «${q.case}»${q.flow ? ` in ${q.flow}` : ''} in run ${run.id}; cases: ${pick.filter((x) => !x.story).map((x) => x.test).join(', ')}`;
-    if (q.case && t && q.step === undefined && !q.service) {
-      const parts = [`${t.flow} case «${t.test}» ${t.status}${t.failure ? `: ${t.failure.message}` : ''}`, ...anomalyChain(t).slice(0, 5).map((c, i) => `  ${i + 1}. ${c.why}: ${c.e ? line(c.e) : c.log}`), ...t.exchanges.map(line)];
-      return fit(parts, budget, (n) => `… ${n} more left out; drill with exchange=<id>`);
-    }
+  if (q.step !== undefined || q.service) {
+    const t = pick.find((x) => x.story) ?? pick[0];
     if (!t) return `No flow ${q.flow ?? ''} in run ${run.id}.`;
     const s = q.step !== undefined ? t.steps.find((x) => x.n === q.step) : undefined;
     if (q.step !== undefined && !s) return `${t.flow} has steps 1–${t.steps.length}.`;

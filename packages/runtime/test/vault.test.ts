@@ -4,7 +4,7 @@
  * under a temp LARU_HOME: these tests never touch the real keychain.
  */
 import assert from 'node:assert/strict';
-import { randomBytes } from 'node:crypto';
+import { createCipheriv, randomBytes } from 'node:crypto';
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -123,6 +123,19 @@ test('the vault of a workspace', async (t) => {
     await assert.rejects(importKey(ws, other), /cannot be opened/, 'a key that does not open secrets.enc is not stored');
     await importKey(ws, await exportKey(ws));
     assert.equal((await loadVault(ws)).find((e) => e.key === 'DB_PASSWORD')!.value, DB);
+  });
+
+  await t.test('a vault sealed before the rename, under the old name, still opens and the next write seals it anew', async () => {
+    const good = readFileSync(enc, 'utf8');
+    const key = Buffer.from(readFileSync(keyFile, 'utf8').trim(), 'hex');
+    const iv = randomBytes(12);
+    const c = createCipheriv('aes-256-gcm', key, iv).setAAD(Buffer.from('keelson:shop:v1')); // legacy-name
+    const data = Buffer.concat([c.update(JSON.stringify({ 'app.DB_PASSWORD': DB, 'app.JWT_SECRET': JWT }), 'utf8'), c.final()]);
+    writeFileSync(enc, JSON.stringify({ v: 1, iv: iv.toString('base64'), tag: c.getAuthTag().toString('base64'), data: data.toString('base64') }));
+    assert.equal((await loadVault(ws)).find((e) => e.key === 'DB_PASSWORD')!.value, DB);
+    await setVar(ws, { key: 'DB_PASSWORD', value: DB, level: 'app', secret: true });
+    assert.notEqual(readFileSync(enc, 'utf8'), good);
+    assert.equal((await loadVault(ws)).find((e) => e.key === 'JWT_SECRET')!.value, JWT);
   });
 
   await t.test('precedence: compose default < app < env < service < personal', async () => {

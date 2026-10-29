@@ -6,6 +6,17 @@ Todos los cambios de Laru que importan a quien lo usa quedan aquí. El formato s
 
 ## [Sin publicar]
 
+## [0.1.0-beta.9] - 2026-10-29
+
+### Cambiado
+
+- **Un flujo es una sola historia, en un solo vídeo; desaparecen los casos cortos:** «Casos cortos» sale del estándar de los flujos, de la plantilla, de `laru check` y de la guía del agente, y con él `apiCase()`. Las validaciones de cada formulario pasan a ser pasos de la historia, con Tipo `validation` en «Pasos», y «Validaciones en» apunta a esos pasos. Un `test()` o un `apiCase()` junto a la historia sale en `laru check` como `flow-e2e-case`. El run y el estudio ya no muestran la tira de casos, y `run_evidence` y `laru runs show` pierden `case`. Los flujos que ya tengan «Casos cortos» los conservan como texto, sin que se jueguen aparte: hay que pasarlos a pasos.
+
+### Corregido
+
+- **Workspaces creados antes de llamarse Laru:** sus flujos no llegaban a correr. La bóveda (`vault/secrets.enc`) no se abría con su propia clave, porque se cifró con el nombre anterior; ahora se abre, y se vuelve a cifrar con el nombre nuevo la próxima vez que se guarda. El runner escondía `.laru`, que esos workspaces no tienen, y fallaba al montarlo; ahora esconde su carpeta de estado, `.keelson`, que guarda `mask.json`. Y los specs que importan `@keelson/flow` vuelven a encontrarlo.
+- **Buzón:** dos mensajes recibidos en el mismo milisegundo salían en el orden de llegada; ahora sale primero el más reciente, como el resto.
+
 ## [0.1.0-beta.8] - 2026-10-29
 
 ### Añadido
@@ -165,7 +176,9 @@ Primera beta pública.
   - `CLAUDE.md` y `AGENTS.md` generados.
   - Hooks para Claude Code.
 
-[Sin publicar]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.7...HEAD
+[Sin publicar]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.9...HEAD
+[0.1.0-beta.9]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.8...v0.1.0-beta.9
+[0.1.0-beta.8]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.7...v0.1.0-beta.8
 [0.1.0-beta.7]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.6...v0.1.0-beta.7
 [0.1.0-beta.6]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.5...v0.1.0-beta.6
 [0.1.0-beta.5]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.4...v0.1.0-beta.5

@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
-import { href, idOf, keyAddress, keyMasked, keyOf, moved, partsOf, splitStop, stopIn, testIn, whereFailed, withStop } from '../src/lib/route.ts';
+import { href, idOf, keyAddress, keyMasked, keyOf, moved, partsOf, splitStop, stopIn, whereFailed, withStop } from '../src/lib/route.ts';
 
 test('old addresses land on their new home; the rest stay', () => {
   assert.equal(moved(['services']), '#/map');
@@ -14,13 +14,6 @@ test('old addresses land on their new home; the rest stay', () => {
   assert.equal(moved(['docs', 'mod:a']), null);
   assert.equal(moved(['map', 'svc:x']), null);
   assert.equal(moved([]), null);
-});
-
-test('a flow’s evidence opens on the story, even when a case failed; only an address that names a test opens it', () => {
-  const tests = [{ test: 'Mandar a la papelera y restaurar', status: 'passed' }, { test: 'Borrar un fichero pendiente de escaneo', status: 'failed' }];
-  assert.equal(testIn(tests), 0);
-  assert.equal(testIn(tests, 'Borrar un fichero pendiente de escaneo'), 1);
-  assert.equal(testIn(tests, 'un caso que ya no existe'), 0);
 });
 
 test('«Ver dónde falló» says in its address which test failed: the story by default, else the case', () => {

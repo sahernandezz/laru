@@ -95,8 +95,6 @@ export function whereFailed(f: { id: string; last: { status: string; failure?: u
   return href('docs', f.id, 'map', ...(c ? [c.test] : []));
 }
 
-/** The test a flow's evidence opens on: the story (the first), unless the address names another. */
-export const testIn = (tests: Array<{ test: string }>, named?: string) => Math.max(0, named ? tests.findIndex((t) => t.test === named) : 0);
 
 /**
  * A MongoDB _id as its address, read back by /api/mongo/doc: an ObjectId by its hex, a string as itself unless it would

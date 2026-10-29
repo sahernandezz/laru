@@ -31,7 +31,7 @@ export const runDir = (ws: Workspace, id: string) => { if (!NAME.test(id)) throw
 /** Where a run keeps one flow's evidence. */
 export const flowDir = (ws: Workspace, id: string, slug: string) => { if (!NAME.test(slug)) throw new Error(`no flow ${JSON.stringify(slug)}`); return join(runDir(ws, id), 'flows', slug); };
 
-export interface FlowSpec { slug: string; id: string; title: string; spec: string; dir: string; exists: boolean; steps: Row[]; cases: Row[]; needs: string[]; /** the scenario it starts from */ scenario?: string; /** its time limit (`timeout` in flow.md), in ms */ timeoutMs?: number }
+export interface FlowSpec { slug: string; id: string; title: string; spec: string; dir: string; exists: boolean; steps: Row[]; needs: string[]; /** the scenario it starts from */ scenario?: string; /** its time limit (`timeout` in flow.md), in ms */ timeoutMs?: number }
 
 /** Every flow of the documentation with the spec that plays it (`<flow dir>/<slug>.spec.ts`). */
 export function listFlows(ws: Workspace): FlowSpec[] {
@@ -41,7 +41,7 @@ export function listFlows(ws: Workspace): FlowSpec[] {
     const needs = p.meta?.needs;
     const scenario = p.meta?.scenario;
     const limit = parseLimit(p.meta?.timeout);
-    return { slug, id: p.id, title: p.title, spec, dir: p.dir, exists: existsSync(join(ws.root, spec)), steps: (p.fields.steps ?? []) as Row[], cases: (p.fields.cases ?? []) as Row[], needs: Array.isArray(needs) ? needs : needs ? [needs] : [], ...(scenario ? { scenario: String(Array.isArray(scenario) ? scenario[0] : scenario) } : {}), ...(limit ? { timeoutMs: limit } : {}) };
+    return { slug, id: p.id, title: p.title, spec, dir: p.dir, exists: existsSync(join(ws.root, spec)), steps: (p.fields.steps ?? []) as Row[], needs: Array.isArray(needs) ? needs : needs ? [needs] : [], ...(scenario ? { scenario: String(Array.isArray(scenario) ? scenario[0] : scenario) } : {}), ...(limit ? { timeoutMs: limit } : {}) };
   }).sort((a, b) => a.slug.localeCompare(b.slug));
 }
 
@@ -344,9 +344,10 @@ export function runnerArgs(ws: Workspace, env: string, runLabel: string | undefi
   return ['run', '-d', '--init', '--shm-size=1g', '--network', projectName(ws, env, runLabel),
     '--label', `${LABEL.workspace}=${workspaceKey(ws)}`, '--label', `${LABEL.app}=${ws.app}`, '--label', `${LABEL.env}=${env}`, '--label', `${LABEL.run}=${id}`, '--label', `${LABEL.service}=runner`,
     '-v', `${join(import.meta.dirname, '..', '..')}:/ks/packages:ro`, '-v', `${ws.root}:/ks/ws:ro`, '-v', `${out}:/ks/out`,
-    // The runner is untrusted code: .laru holds the env's mask.json (every secret value) and the scenarios' states.
-    // An empty tmpfs hides it; `out` and the tap files are mounted on their own, above.
-    '--tmpfs', '/ks/ws/.laru:size=1m',
+    // The runner is untrusted code: the state folder (.laru, or its old name in a workspace made before the rename)
+    // holds the env's mask.json (every secret value) and the scenarios' states. An empty tmpfs hides it; `out` and the
+    // tap files are mounted on their own, above.
+    '--tmpfs', `/ks/ws/${basename(stateDir(ws))}:size=1m`,
     '-v', `${join(tap, 'traffic.jsonl')}:/ks/tap/traffic.jsonl:ro`, '-v', `${join(tap, 'rules.json')}:/ks/tap/rules.json:ro`,
     // the env's mailbox, for the `mail` and `sms` fixtures: a file only an env with a sink has (the codes in it are the ones a test needs)
     ...(existsSync(join(tap, 'mail', 'messages.jsonl')) ? ['-v', `${join(tap, 'mail', 'messages.jsonl')}:/ks/tap/messages.jsonl:ro`] : []),

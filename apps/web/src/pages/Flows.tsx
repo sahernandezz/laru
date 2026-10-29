@@ -106,7 +106,7 @@ export function FlowTable({ rows, pick, home, sub, label }: { rows: FlowInfo[]; 
                 <td className="pick">{f.exists && <input type="checkbox" aria-label={`Elegir ${f.title}`} checked={pick.picked.has(f.slug)} onChange={() => pick.toggle(f.slug)} />}</td>
                 <td className="wrap">
                   <a className="rowlink" href={href('docs', f.id)} style={{ fontWeight: 500 }}>{f.title}</a>
-                  <div className="faint mono sub">{sub?.(f) ?? `${f.id} · ${plural(f.steps.length, 'paso', 'pasos')}${f.cases.length ? `, ${plural(f.cases.length, 'caso', 'casos')}` : ''}`}</div>
+                  <div className="faint mono sub">{sub?.(f) ?? `${f.id} · ${plural(f.steps.length, 'paso', 'pasos')}`}</div>
                   <div className="only-sm sub"><Status state={dot}>{word}</Status>{fail}</div>
                   {!f.exists && <div className="scaffold"><span className="faint">Créala con</span> <code>{cmd}</code><CopyButton value={cmd} label={`Copiar el comando para crear la prueba de ${f.title}`} /></div>}
                 </td>

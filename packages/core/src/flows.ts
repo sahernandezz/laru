@@ -1,6 +1,6 @@
 /**
- * A flow is documentation and a test at once: its Pasos are the steps of a recorded story and its Casos cortos are
- * short tests. The scaffold writes the spec once, UI first; the check keeps both sides saying the same thing (a step
+ * A flow is documentation and a test at once: its Pasos, the validations of its forms among them, are the steps of one
+ * recorded story. The scaffold writes the spec once, UI first; the check keeps both sides saying the same thing (a step
  * renamed in flow.md and not in the spec is drift) and the spec inside Laru's e2e standard (`guide:flujos-e2e`):
  * the story is what a person does on screen, the API only prepares what another flow proves there.
  */
@@ -15,16 +15,16 @@ const q = (s: string) => `'${s.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
 const rows = (p: Pick<Loaded, 'fields'>, name: string) => (p.fields[name] ?? []) as Row[];
 const one = (s: unknown) => String(s ?? '').replace(/\n/g, ' ');
 
-/** The spec of a flow, UI first: a prepare() per Precondiciones row, a step() per Pasos row, a test() per Casos row. */
+/** The spec of a flow, UI first: a prepare() per Precondiciones row, a step() per Pasos row. */
 export function scaffoldSpec(p: Loaded): string {
-  const steps = rows(p, 'steps'), cases = rows(p, 'cases'), pre = rows(p, 'preconditions');
+  const steps = rows(p, 'steps'), pre = rows(p, 'preconditions');
   const click = `await page.getByRole('button', { name: '…' }).click();`;
   const see = `await expect(page.getByText('…')).toBeVisible();`;
-  const used = ['expect', ...(pre.length ? ['prepare'] : []), 'step', 'story', ...(cases.some((c) => c.kind !== 'api') ? ['test'] : []), ...(cases.some((c) => c.kind === 'api') ? ['apiCase'] : []), 'todo'];
+  const used = ['expect', ...(pre.length ? ['prepare'] : []), 'step', 'story', 'todo'];
   const lines = [
     `// ${p.title}: the recorded story of ${p.id}, written to guide:flujos-e2e. Each step() is a row of its Pasos and acts`,
-    `// on screen, each test() a row of its Casos cortos. Replace every '…' and todo(), keep the titles, run it until only`,
-    `// its // app: expect.soft fail, then laru check.`,
+    `// on screen, its validations too. Replace every '…' and todo(), keep the titles, run it until only its // app:`,
+    `// expect.soft fail, then laru check.`,
     `import { ${used.sort().join(', ')} } from '@laru/flow';`,
     '',
     `story(${q(p.title)}, async ({ page, uniq, vars, api }) => {`,
@@ -34,18 +34,12 @@ export function scaffoldSpec(p: Loaded): string {
       `  await step(${q(one(s.step))}, async () => {`,
       `    // ${s.actor}${s.service ? ` · ${s.service}` : ''}. Se espera: ${one(s.expected)}`,
       '    todo();',
-      `    ${click}`,
-      `    ${see}`,
+      ...(s.kind === 'validation'
+        ? [`    await page.getByLabel('…').fill('…'); // empty, wrong format, past a limit, or not allowed`, `    ${click}`, `    ${see} // the message the person sees`]
+        : [`    ${click}`, `    ${see}`]),
       '  });',
     ]),
     '});',
-    ...cases.flatMap((c) => c.kind === 'api'
-      ? ['', `apiCase(${q(one(c.case))}, '… why no person can cause it from the screen', async ({ api }) => {`, `  // Se espera: ${one(c.expected)}`, '  todo();', '});']
-      : ['', `test(${q(one(c.case))}, async ({ page }) => {`, `  // Se espera: ${one(c.expected)}`, '  todo();',
-        ...(c.kind === 'validation'
-          ? [`  await page.getByLabel('…').fill('…'); // empty, wrong format, past a limit, or not allowed`, `  ${click}`, `  ${see} // the message the person sees`]
-          : [`  ${click}`, `  ${see}`]),
-        '});']),
     '',
   ];
   return lines.join('\n');
@@ -438,13 +432,13 @@ function formsOf(code: string, fns: Fn[], known: Forms, self: string): Forms {
 }
 
 /**
- * The forms the validation cases among `tests` test: the one each fills last itself, inline or by calling the function
+ * The forms the validation steps among `steps` test: the one each fills last itself, inline or by calling the function
  * that fills it (`fills`); a helper that fills it on the way somewhere (`signIn`) is not testing it.
  */
-function validatedForms(code: string, fills: Map<string, Set<string>>, tests: Call[], p: Pick<Loaded, 'fields'>): string[] {
-  const validation = new Set(rows(p, 'cases').filter((c) => c.kind === 'validation').map((c) => String(c.case).trim()));
+function validatedForms(code: string, fills: Map<string, Set<string>>, steps: Call[], p: Pick<Loaded, 'fields'>): string[] {
+  const validation = new Set(rows(p, 'steps').filter((c) => c.kind === 'validation').map((c) => String(c.step).trim()));
   const at: Array<[number, Set<string>]> = [...positions(code, FORM).map((i): [number, Set<string>] => [i, new Set()]), ...[...fills].flatMap(([n, o]) => callsTo(code, [n]).map((i): [number, Set<string>] => [i, o]))];
-  return tests.filter((t) => validation.has(t.title.trim())).flatMap((t) => {
+  return steps.filter((t) => validation.has(t.title.trim())).flatMap((t) => {
     const last = at.filter(([i]) => i > t.at && i < t.end).sort((a, b) => b[0] - a[0])[0];
     return last ? [...last[1]] : [];
   });
@@ -531,13 +525,13 @@ function moduleDoes(from: string, read: Read, memo: Map<string, Does | null>): D
   return does;
 }
 
-export type FlowCheckKey = 'flow-spec-missing' | 'flow-steps-drift' | 'flow-cases-drift' | 'flow-e2e-api' | 'flow-e2e-invisible' | 'flow-e2e-wait' | 'flow-e2e-prepare' | 'flow-e2e-validation' | 'flow-e2e-api-case' | 'flow-e2e-fake' | 'flow-e2e-hidden' | 'flow-e2e-todo' | 'flow-message-unchecked';
+export type FlowCheckKey = 'flow-spec-missing' | 'flow-steps-drift' | 'flow-e2e-case' | 'flow-e2e-api' | 'flow-e2e-invisible' | 'flow-e2e-wait' | 'flow-e2e-prepare' | 'flow-e2e-validation' | 'flow-e2e-fake' | 'flow-e2e-hidden' | 'flow-e2e-todo' | 'flow-message-unchecked';
 export interface FlowCheck { id: string; spec: string; line?: number; level: 'error' | 'warning'; key: FlowCheckKey; message: string }
 const UNDER_WHAT = 'the API, fetch, a request context, or a session the script sets';
 
 /**
  * The spec against the e2e standard. `proves(id, data)`: flow `id` walks on screen the path that makes `data`, so this
- * flow may prepare it underneath. `validates(id)`: flow `id`, named in «Validaciones en», holds validation cases played
+ * flow may prepare it underneath. `validates(id)`: flow `id`, named in «Validaciones en», holds validation steps played
  * on screen, and these are the forms they test (`holdsValidations`). `read(from)`: the source of a module the spec
  * imports, when it is the workspace's own (support/ or a relative path); an imported helper then counts for what it
  * does, its own imports followed: what the person sees or gets, a check, something underneath, a fake, a failure it
@@ -553,10 +547,9 @@ export function lintSpec(src: string, p: Pick<Loaded, 'id' | 'fields'>, proves: 
   const story = callsOf(src, code, 'story')[0];
   const steps = callsOf(src, code, 'step').filter((s) => inside(s, story));
   const preps = callsOf(src, code, 'prepare');
-  const tests = callsOf(src, code, 'test').filter((t) => !inside(t, story));
-  const apiCases = callsOf(src, code, 'apiCase');
-  const pre = rows(p, 'preconditions'), cases = rows(p, 'cases');
-  const caseOf = (title: string) => cases.find((c) => String(c.case).trim() === title.trim());
+  // A flow is its story: a test() or apiCase() beside it is a short case, which flows no longer have.
+  const apart = [...callsOf(src, code, 'test').filter((t) => !inside(t, story)), ...callsOf(src, code, 'apiCase')];
+  const pre = rows(p, 'preconditions');
   const spans: Range[] = fns.map((f) => [f.at, f.end - 1]);
   const prepSpans = preps.map(span);
   // What a prepare() does underneath stays in it: a helper of the spec that prepares does not act underneath for that,
@@ -576,27 +569,23 @@ export function lintSpec(src: string, p: Pick<Loaded, 'id' | 'fields'>, proves: 
   const hit = (text: string, c: Call, ps: number[]) => first(text, c.at, c.end, ps);
   const declared = blankOut(code, prepSpans);
 
-  // A preparation is what exists before the flow: written in the story before its first step, or in a case before its
-  // first action, awaited there, or in a helper of the spec, whose calls are preparations in turn. Written in any other
-  // function (a callback, an event handler, an object's method, a hook) it runs whenever that function runs.
+  // A preparation is what exists before the flow: written in the story before its first step, awaited there, or in a
+  // helper of the spec, whose calls are preparations in turn. Written in any other function (a callback, an event
+  // handler, an object's method, a hook) it runs whenever that function runs.
   const sites = [...preps.map((r) => ({ at: r.at, end: r.end, what: `prepare('${r.title}')` })), ...handed.map((c) => ({ ...c, what: `${/^[\w$]+/.exec(code.slice(c.at))![0]}(), which calls prepare(),` }))];
   const bodies = functionBodies(code);
   const fnAt = (i: number) => bodies.filter(([a, b]) => i >= a && i < b).reduce<Range | undefined>((s, r) => (!s || r[0] > s[0] ? r : s), undefined);
   const bodyOf = (c: Call) => bodies.filter(([a, b]) => a > c.at && b <= c.end).reduce<Range | undefined>((s, r) => (!s || r[0] < s[0] ? r : s), undefined);
-  const ofSite = (i: number) => sites.some((s) => (i > s.at && i < s.end) || (s.at > i && s.at < statementEnd(code, i)));
-  const firstAction = (c: Call) => positions(code, /\bawait\b/g).find((i) => i > c.at && i < c.end && fnAt(i) === bodyOf(c) && !ofSite(i)) ?? c.end;
-  // A case taken out of the run (flow-e2e-hidden) is still a case.
-  const whole = [...tests, ...apiCases, ...callsOf(src, code, 'test\\s*\\.\\s*(?:skip|only|fixme|fail)')];
   const placed = (at: number) => {
     const f = fnAt(at);
     if (!f || !(code[f[0]] !== '{' || /\b(?:await|return)\b/.test(code.slice(statementStart(code, f[0], at), at)))) return false;
-    return fns.some((h) => h.open === f[0]) || (story !== undefined && f === bodyOf(story) && at < (steps[0]?.at ?? story.end)) || whole.some((c) => f === bodyOf(c) && at < firstAction(c));
+    return fns.some((h) => h.open === f[0]) || (story !== undefined && f === bodyOf(story) && at < (steps[0]?.at ?? story.end));
   };
-  for (const s of sites) if (!placed(s.at)) add(s.at, 'flow-e2e-prepare', `${s.what} is not where a precondition goes: what exists before the flow is prepared before the story's first step or a case's first action, awaited where it is written, in the story, the case or a helper of the spec (not in a callback, an event handler, an object's method or a hook); what changes during the flow, a person does on screen`);
+  for (const s of sites) if (!placed(s.at)) add(s.at, 'flow-e2e-prepare', `${s.what} is not where a precondition goes: what exists before the flow is prepared before the story's first step, awaited where it is written, in the story or a helper of the spec (not in a callback, an event handler, an object's method or a hook); what changes during the flow, a person does on screen`);
   // A helper that prepares is called or given another name (`const s = account`); handed on as a value (`later(account)`,
   // `{ account }`, `once('response', account)`) it runs whenever what holds it calls it.
   const asValue = preparers.length ? positions(code, new RegExp(`(?<![\\w$.])(?:${preparers.map(esc).join('|')})(?![\\w$])(?!\\s*[(:])`, 'g')).filter((i) => !/\b(?:const|let|var)\s+(?:[\w$]+\s*(?::[^=;]*?)?=\s*)?$/.test(code.slice(Math.max(0, i - 80), i))) : [];
-  for (const i of asValue) add(i, 'flow-e2e-prepare', `${/^[\w$]+/.exec(code.slice(i))![0]}() calls prepare() and is handed on as a value: it runs whenever what holds it calls it; call it, awaited, before the story's first step or a case's first action`);
+  for (const i of asValue) add(i, 'flow-e2e-prepare', `${/^[\w$]+/.exec(code.slice(i))![0]}() calls prepare() and is handed on as a value: it runs whenever what holds it calls it; call it, awaited, before the story's first step`);
 
   for (const s of steps) {
     const a = hit(declared, s, under);
@@ -607,48 +596,36 @@ export function lintSpec(src: string, p: Pick<Loaded, 'id' | 'fields'>, proves: 
     const a = hit(blankOut(declared, [...steps.map(span), ...spans]), story, under);
     if (a >= 0) add(a, 'flow-e2e-prepare', `the story acts underneath outside prepare() (${UNDER_WHAT}): data that exists before the flow goes in prepare('<Precondiciones row>', …)`);
   }
-  // Hooks and the top of the spec: all that is not the story, a case or a helper (a helper counts where it is called).
-  const top = first(blankOut(declared, [...[story, ...tests, ...apiCases].filter(Boolean).map((c) => span(c!)), ...spans]), 0, code.length, under);
-  if (top >= 0) add(top, 'flow-e2e-prepare', `a hook or the top of the spec acts underneath (${UNDER_WHAT}): data that exists before the flow goes in prepare('<Precondiciones row>', …), inside the story or the case`);
+  // Hooks and the top of the spec: all that is not the story or a helper (a helper counts where it is called); a case apart is told as one.
+  const top = first(blankOut(declared, [...[story, ...apart].filter(Boolean).map((c) => span(c!)), ...spans]), 0, code.length, under);
+  if (top >= 0) add(top, 'flow-e2e-prepare', `a hook or the top of the spec acts underneath (${UNDER_WHAT}): data that exists before the flow goes in prepare('<Precondiciones row>', …), inside the story`);
   for (const r of preps) {
     const row = pre.find((x) => String(x.data).trim() === r.title.trim());
     if (!row) add(r.at, 'flow-e2e-prepare', `prepare('${r.title}') is not a row of Precondiciones: declare it there`);
     else if (hit(code, r, under) >= 0 && !(row.proven && row.proven !== p.id && proves(String(row.proven), String(row.data)))) add(r.at, 'flow-e2e-prepare', `prepare('${r.title}') acts underneath and no other flow walks that path on screen: name in «Probado en» a flow that makes it through the interface (not underneath itself, and relying only on flows that do the same), or make it through the interface`);
   }
-  for (const t of tests) {
-    const a = hit(declared, t, under);
-    if (a >= 0) add(a, 'flow-e2e-api-case', `test('${t.title}') acts underneath (${UNDER_WHAT}): do it on screen, or, when no person can cause it from the screen, make it apiCase('${t.title}', '<why>', …) with Tipo api`);
-    else if (caseOf(t.title)?.kind === 'api') add(t.at, 'flow-e2e-api-case', `Casos cortos marks «${t.title}» as api and the spec plays it on screen: one of the two is wrong`);
-    if (hit(code, t, visible) < 0) add(t.at, 'flow-e2e-invisible', `test('${t.title}') checks nothing the person sees or gets: its «Se espera» is an expect on the screen`);
-  }
-  for (const c of apiCases) {
-    if (!c.why?.trim()) add(c.at, 'flow-e2e-api-case', `apiCase('${c.title}') does not say why no person can cause it from the screen`);
-    if (caseOf(c.title)?.kind !== 'api') add(c.at, 'flow-e2e-api-case', `apiCase('${c.title}') and Casos cortos does not mark it api`);
-  }
-  const titles = [...tests, ...apiCases];
-  for (const c of cases) if (!titles.some((t) => t.title.trim() === String(c.case).trim())) add(story?.at ?? 0, 'flow-cases-drift', `Casos cortos has «${c.case}» and the spec has no test('${c.case}')`);
-  for (const t of titles) if (!caseOf(t.title)) add(t.at, 'flow-cases-drift', `the spec has test('${t.title}') and Casos cortos has no such row`);
-  // Each form the story fills has its validation cases: one it fills itself, here; one it fills through an imported
-  // helper, a validation case that tests that same form (`validatedForms`), here or in a flow «Validaciones en» names.
+  for (const t of apart) add(t.at, 'flow-e2e-case', `${t.kind}('${t.title}') is a short case beside the story, and a flow is one recorded story: make it a step() of the story, with its row in Pasos (Tipo validation when it validates a form)`);
+  // Each form the story fills has its validation steps: one it fills itself, here; one it fills through an imported
+  // helper, a validation step that tests that same form (`validatedForms`), here or in a flow «Validaciones en» names.
   const named = ((p.fields.validated ?? []) as string[]).map((x) => String(x).trim()).filter(Boolean);
-  const covered = new Set(validatedForms(code, fills, tests, p));
+  const covered = new Set(validatedForms(code, fills, steps, p));
   for (const id of named) {
     const v = id === p.id ? undefined : validates(id);
     if (v) for (const x of v) covered.add(x);
-    else add(story?.at ?? 0, 'flow-e2e-validation', `«Validaciones en» names ${id}, which holds no validation case played on screen: name the flow whose Casos cortos test that form (Tipo validation, its spec clean), or give this flow its own`);
+    else add(story?.at ?? 0, 'flow-e2e-validation', `«Validaciones en» names ${id}, which holds no validation step played on screen: name the flow whose Pasos validate that form (Tipo validation, its spec clean), or give this flow its own`);
   }
   const ownForm = [...positions(code, FORM), ...callsTo(code, [...forms].filter(([, o]) => [...o].some((x) => x.startsWith('#'))).map(([n]) => n))];
   const own = steps.map((s) => hit(code, s, ownForm)).find((i) => i >= 0);
-  if (own !== undefined && !cases.some((c) => c.kind === 'validation')) add(own, 'flow-e2e-validation', 'the story fills a form and Casos cortos has no validation case: empty, format, limits, permission, each checking the message the person sees');
+  if (own !== undefined && !rows(p, 'steps').some((c) => c.kind === 'validation')) add(own, 'flow-e2e-validation', 'the story fills a form and Pasos has no validation step: empty, format, limits, permission, each a step (Tipo validation) checking the message the person sees');
   const told = new Set<string>();
   for (const s of steps) for (const [n, o] of forms) for (const at of callsTo(code, [n]).filter((i) => i > s.at && i < s.end)) {
     const open = [...o].filter((x) => !x.startsWith('#') && !covered.has(x) && !told.has(x));
     for (const x of open) told.add(x);
-    if (open.length) add(at, 'flow-e2e-validation', `the story fills a form through ${n}() and no validation case tests it: give this flow a validation case that fills it last with the function that fills it (not one that fills it on the way, like a sign-in that waits for the next page), or name in «Validaciones en» a flow whose validation case does`);
+    if (open.length) add(at, 'flow-e2e-validation', `the story fills a form through ${n}() and no validation step tests it: give this flow a validation step that fills it last with the function that fills it (not one that fills it on the way, like a sign-in that waits for the next page), or name in «Validaciones en» a flow whose validation step does`);
   }
   for (const i of positions(code, WAIT)) add(i, 'flow-e2e-wait', 'a fixed wait: wait for what the person sees (await expect(…).toBeVisible())');
-  for (const i of fake) if (!fns.some((f) => i >= f.open && i < f.end)) add(i, 'flow-e2e-fake', 'a mocked route, a synthetic event or the page changed by a script: the flow runs against the real services and the person changes the page; what no person can cause from the screen is an apiCase');
-  for (const i of positions(code, HIDDEN)) add(i, 'flow-e2e-hidden', 'a case skipped, left as fixme, expected to fail or hidden by an only: it runs; a deviation of the app is an expect.soft on what it should do, with // app:');
+  for (const i of fake) if (!fns.some((f) => i >= f.open && i < f.end)) add(i, 'flow-e2e-fake', 'a mocked route, a synthetic event or the page changed by a script: the flow runs against the real services and the person changes the page');
+  for (const i of positions(code, HIDDEN)) add(i, 'flow-e2e-hidden', 'a test skipped, left as fixme, expected to fail or hidden by an only: it runs; a deviation of the app is an expect.soft on what it should do, with // app:');
   for (const s of sw.spots) if (checks.some((i) => within(i, s.covers))) add(s.at, 'flow-e2e-hidden', 'a check whose failure is swallowed (a .catch or a two-argument .then on it, Promise.allSettled, any or race around it, a try whose catch does not always throw again, or a helper that does that to what it is handed) checks nothing: let it fail; a deviation of the app is an expect.soft on what it should do, with // app:');
   // The finish line is a run where only the soft checks marked // app: fail: each one says what the app does today.
   const text = codeOnly(src, true);
@@ -657,7 +634,7 @@ export function lintSpec(src: string, p: Pick<Loaded, 'id' | 'fields'>, proves: 
   for (const m of code.matchAll(/(?<![\w$.])expect\s*\.\s*configure\s*\(/g)) if (/\bsoft\s*:\s*true\b/.test(code.slice(m.index, closing(code, m.index + m[0].length - 1)))) add(m.index, 'flow-e2e-hidden', 'expect.configure({ soft: true }) makes every check soft: each deviation of the app is its own expect.soft, with // app:');
   const unwritten = new Set<Call>();
   for (const i of placeholders(src, code)) {
-    const c = [...(story ? [story] : []), ...steps, ...preps, ...tests, ...apiCases].filter((b) => i > b.at && i <= b.end).sort((a, b) => b.at - a.at)[0];
+    const c = [...(story ? [story] : []), ...steps, ...preps].filter((b) => i > b.at && i <= b.end).sort((a, b) => b.at - a.at)[0];
     if (!c) add(i, 'flow-e2e-todo', "a todo() or a '…' of the scaffold is still here");
     else if (!unwritten.has(c)) { unwritten.add(c); add(c.at, 'flow-e2e-todo', `${c.kind}('${c.title}') is not written yet: the scaffold's todo() or '…' is still there`); }
   }
@@ -686,17 +663,16 @@ export function provesOnScreen(src: string, f: Pick<Loaded, 'id' | 'fields'>, da
   return specSteps(src).length > 0 && !stepsDrift(src, f).length && !asked.has(data.trim()) && !found.some((x) => WALKS.has(x.key));
 }
 
-const HOLDS = new Set<FlowCheckKey>([...WALKS, 'flow-cases-drift', 'flow-e2e-api-case']);
 /**
- * The forms flow `f`, named in another flow's «Validaciones en», tests, or undefined when it holds no validation cases:
- * its Casos cortos has some, and its spec plays every case written and visible, nothing hidden, faked or prepared
- * without a flow that proves it. A validation case tests the form it fills last itself (`validatedForms`).
+ * The forms flow `f`, named in another flow's «Validaciones en», tests, or undefined when it holds no validation steps:
+ * its Pasos has some, and its spec plays its story as written (provesOnScreen's checks), nothing hidden, faked or
+ * prepared without a flow that proves it. A validation step tests the form it fills last itself (`validatedForms`).
  */
 export function holdsValidations(src: string, f: Pick<Loaded, 'id' | 'fields'>, proves: (id: string, data: string) => boolean, read: Read = () => undefined): Set<string> | undefined {
-  if (!rows(f, 'cases').some((c) => c.kind === 'validation') || lintSpec(src, f, proves, read).some((x) => HOLDS.has(x.key))) return undefined;
+  if (!rows(f, 'steps').some((c) => c.kind === 'validation') || stepsDrift(src, f).length || lintSpec(src, f, proves, read).some((x) => WALKS.has(x.key))) return undefined;
   const code = codeOnly(src), story = callsOf(src, code, 'story')[0];
   const { fills } = formsOf(code, helpers(code), imported(src, code, read, '', new Map()), '');
-  return new Set(validatedForms(code, fills, callsOf(src, code, 'test').filter((t) => !inside(t, story)), f));
+  return new Set(validatedForms(code, fills, callsOf(src, code, 'step').filter((t) => inside(t, story)), f));
 }
 
 /** How many mail or SMS the flow's app sent in its last run (the story's, from `runs/index.jsonl`); 0 when it has none or was never run. */

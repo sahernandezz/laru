@@ -22,7 +22,7 @@ export function createServer(root: Workspace['root']): McpServer {
   const guide = existsSync(join(w0.root, 'CLAUDE.md')) || existsSync(join(w0.root, 'AGENTS.md'))
     ? 'Laru: this workspace\'s guide (the loop, how the documentation is written, how flows are tested) is in CLAUDE.md and AGENTS.md at its root; follow it. Start with `context` on what you will change, and `impact` after it.'
     : agentGuide(w0);
-  const server = new McpServer({ name: 'laru', version: '0.1.0-beta.8' }, { instructions: guide });
+  const server = new McpServer({ name: 'laru', version: '0.1.0-beta.9' }, { instructions: guide });
   // Every tool is kept by name, so the ones for stores this application does not have can be left out of the list.
   const tools = new Map<string, ReturnType<McpServer['registerTool']>>();
   const register = server.registerTool.bind(server);
@@ -234,7 +234,7 @@ export function createServer(root: Workspace['root']): McpServer {
   });
 
   server.registerTool('flow_scaffold', {
-    description: 'Write a flow\'s spec skeleton beside flow.md: prepare() per Precondición, step() per Paso, test() per Caso corto. Never overwrites.',
+    description: 'Write a flow\'s spec skeleton beside flow.md: prepare() per Precondición, step() per Paso (its validations among them). Never overwrites.',
     inputSchema: { flow: z.string().describe('flow:<slug>') },
   }, async ({ flow }) => {
     const w = ws(), id = flow.startsWith('flow:') ? flow : `flow:${flow}`;
@@ -243,7 +243,7 @@ export function createServer(root: Workspace['root']): McpServer {
     const file = join(w.root, specPath(p));
     if (existsSync(file)) return text(`${specPath(p)} already exists`);
     writeFileSync(file, scaffoldSpec(p));
-    return text(`${specPath(p)} written. Fill every '…' and todo() from the app's templates (roles, labels and visible text), keep the titles equal to Pasos and Casos cortos, follow guide:flujos-e2e (knowledge_shape flow has its rules), run it with flow_run until only its // app: expect.soft fail, then check.`);
+    return text(`${specPath(p)} written. Fill every '…' and todo() from the app's templates (roles, labels and visible text), keep the titles equal to Pasos, follow guide:flujos-e2e (knowledge_shape flow has its rules), run it with flow_run until only its // app: expect.soft fail, then check.`);
   });
 
   server.registerTool('flow_run', {
@@ -292,8 +292,8 @@ export function createServer(root: Workspace['root']): McpServer {
   }, async ({ run }) => text(await whereText(ws(), run)));
 
   server.registerTool('run_evidence', {
-    description: 'A run\'s evidence within a budget: results, the failed step vs flow.md, the first anomaly chain, error logs. Drill down by flow+step, case, exchange or service.',
-    inputSchema: { run: z.string(), flow: z.string().optional(), step: z.number().int().optional(), case: z.string().optional().describe('a short case by (part of) its title'), exchange: z.string().optional(), service: z.string().optional(), budget: z.number().int().min(200).max(4000).default(600) },
+    description: 'A run\'s evidence within a budget: results, the failed step vs flow.md, the first anomaly chain, error logs. Drill down by flow+step, exchange or service.',
+    inputSchema: { run: z.string(), flow: z.string().optional(), step: z.number().int().optional(), exchange: z.string().optional(), service: z.string().optional(), budget: z.number().int().min(200).max(4000).default(600) },
     annotations: { readOnlyHint: true },
   }, async ({ run, ...q }) => {
     const w = ws(), r = readRun(w, run);

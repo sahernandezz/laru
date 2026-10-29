@@ -50,6 +50,12 @@ test('a runner\'s values go through a 0600 file that is gone when docker returns
   assert.match(run, /--env-file \S+\.runner-0\.env/);
   assert.match(run, /--tmpfs \/ks\/ws\/\.laru(:|\s)/, 'the runner sees an empty .laru: its mask.json and scenario states stay out of its reach');
   assert.doesNotMatch(run, new RegExp(`${SECRET}|KS_|\\s-e\\s|--env\\s`), `no value or variable on the command line: ${run}`);
+  // a workspace made before the rename keeps its state under the old name: that is the folder hidden
+  const ws0 = { root: join(tmp, 'ws0'), app: 'demo' } as Workspace;
+  mkdirSync(join(ws0.root, '.keelson'), { recursive: true }); // legacy-name
+  mkdirSync(join(envDir(ws0, 'local'), 'tap'), { recursive: true });
+  const old = await withFakeDocker(async () => { await startRunner(ws0, 'local', undefined, '1', join(tmp, 'out'), envFile, vars, ['flows/pagar.spec.ts']); });
+  assert.match(old.argv.find((l) => l.startsWith('run '))!, /--tmpfs \/ks\/ws\/\.keelson(:|\s)/); // legacy-name
 
   // docker refusing to start it leaves nothing behind either
   const bad = await withFakeDocker(async (dir) => {

@@ -396,12 +396,6 @@ ul.plain { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; fon
 .phase .d { font-size: var(--t-12); color: var(--ink-3); font-variant-numeric: tabular-nums; }
 .phase::after { content: ""; position: absolute; left: 0; bottom: 0; height: 2px; width: 100%; background: var(--ok); }
 .phase.err::after { background: var(--err); }
-.tests-strip { display: flex; gap: 8px; overflow-x: auto; margin-bottom: 16px; }
-.tcase { display: grid; gap: 2px; padding: 8px 12px; border: 1px solid var(--line-1); border-radius: var(--r-md); min-width: 200px; cursor: pointer; background: var(--bg-100); text-align: left; }
-.tcase:hover { border-color: var(--line-3); }
-.tcase[aria-pressed="true"] { border-color: var(--ink-1); }
-.tcase .n { display: flex; align-items: center; gap: 8px; font-size: var(--t-13); font-weight: 500; }
-.tcase .s { font-size: var(--t-12); color: var(--ink-3); }
 
 .stage-run { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.4fr); border: 1px solid var(--line-1); border-radius: var(--r-lg); overflow: hidden; }
 .screen { border-right: 1px solid var(--line-1); background: var(--bg-200); padding: 16px; display: grid; gap: 10px; align-content: start; }
@@ -809,7 +803,7 @@ dialog.dlg.wide { width: min(760px, calc(100vw - 32px)); }
 .inline-ic { vertical-align: -3px; }
 
 /* A focus ring inside a box that clips or scrolls is drawn inward: drawn outward, the box would cut it. */
-.seg :focus-visible, .speed :focus-visible, .tabs :focus-visible, .doc-tabs :focus-visible, .tests-strip :focus-visible,
+.seg :focus-visible, .speed :focus-visible, .tabs :focus-visible, .doc-tabs :focus-visible,
 .env-list :focus-visible, .scroll-x :focus-visible, .stage-run :focus-visible, .panel.clip :focus-visible, .grid-wrap :focus-visible,
 .pick-list :focus-visible, .chips :focus-visible, .schema :focus-visible, .sql-box :focus-visible, .run-tab :focus-visible,
 .seq-wrap:focus-visible, .grid-wrap:focus-visible, .logs:focus-visible, .json:focus-visible, pre.ctx:focus-visible { outline-offset: -2px; }
@@ -1968,11 +1962,7 @@ body.dragging, body.dragging * { user-select: none; cursor: inherit; }
 .st-title { font-size: var(--t-14); max-width: 32ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .st-bar .grow { flex: 1; }
 /* the flow's tests take what the bar has left, and scroll when they need more */
-.st-bar .tests-strip { margin: 0; gap: 4px; flex: 1 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: thin; }
-.st-bar .tcase { min-width: 0; max-width: 180px; flex: none; padding: 3px 10px; display: flex; gap: 6px; align-items: center; }
-.st-bar .tcase .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; gap: 6px; align-items: center; }
-.st-bar .tcase .s { display: none; }
-.st-help { position: relative; }
+.st-bar .st-bar .st-bar .st-help { position: relative; }
 .st-help summary { list-style: none; }
 .st-help summary::-webkit-details-marker { display: none; }
 .st-help-pop { position: absolute; right: 0; top: calc(100% + 6px); z-index: 50; margin: 0; padding: 10px 12px; display: grid; grid-template-columns: auto auto; gap: 6px 12px; align-items: center; white-space: nowrap; font-size: var(--t-13); background: var(--bg-200); border: 1px solid var(--line-2); border-radius: 8px; box-shadow: 0 8px 24px rgb(0 0 0 / .4); }

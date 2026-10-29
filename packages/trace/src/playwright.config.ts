@@ -9,7 +9,9 @@ export default defineConfig({
   testMatch: ['**/flows/*/*.spec.ts', '**/scenarios/*/*.setup.ts'],
   // a run grouped by scenario plays one runner per group, each with its own results folder
   outputDir: process.env.KS_RESULTS ?? '/ks/out/results',
-  tsconfig: '/ks/tsconfig.json',
+  // read from the mounted packages, not the image's copy, so a new alias needs no new image; @keelson/flow is the
+  // name specs written before the rename import (legacy-name)
+  tsconfig: '/ks/packages/runtime/runner/tsconfig.json',
   workers: 1,
   fullyParallel: false,
   retries: Number(process.env.KS_RETRIES ?? 0),
@@ -25,7 +27,7 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     actionTimeout: 15_000,
   },
-  // Stories are recorded; short cases are not. One worker plays both projects in turn.
+  // Stories are recorded; scenario setups are not. One worker plays both projects in turn.
   projects: [
     { name: 'story', grep: /@story/, use: { video: { mode: 'on', size: { width: 1280, height: 720 } } } },
     { name: 'case', grepInvert: /@story/ },

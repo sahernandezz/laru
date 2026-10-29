@@ -201,7 +201,7 @@ const perFlow = JSON.parse(process.env.KS_BASE_URLS_JSON ?? '{}') as Record<stri
 /** A flow's own time limit (`timeout` in its flow.md), in ms, by the name of its spec file; the runner passes them. */
 const limits = JSON.parse(process.env.KS_FLOW_TIMEOUTS_JSON ?? '{}') as Record<string, number>;
 /**
- * story, apiCase and scenario declare their test in this file, so Playwright's `info.file` is flow.ts: each keeps the
+ * story and scenario declare their test in this file, so Playwright's `info.file` is flow.ts: each keeps the
  * name of the spec that called it as a `spec` annotation, read from the call's stack while the spec loads.
  */
 const callerSpec = () => new Error().stack?.match(/([\w.-]+)\.spec\.ts:\d+/)?.[1];
@@ -330,11 +330,6 @@ export function scenario(title: string, fn: (fx: { page: Page; api: Fixtures['ap
     writeFileSync('/ks/out/scenario.json', JSON.stringify({ identities: out.identities ?? [] }));
     if (out.signedIn) await page.context().storageState({ path: '/ks/out/storage.json' });
   });
-}
-
-/** A short case no person can cause from the screen, played against the API; `why` says why, and the report keeps it. */
-export function apiCase(title: string, why: string, fn: Parameters<typeof test>[2]) {
-  test(title, { tag: '@api', annotation: [{ type: 'api', description: why }, ...specAnnotation()] }, fn);
 }
 
 /** Shows text on the video until the next caption or step. */

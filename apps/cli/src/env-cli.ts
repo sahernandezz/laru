@@ -446,7 +446,7 @@ export async function runtimeCommand(cmd: string, args: string[], o: Opts, ws: (
         const file = join(w.root, specPath(p));
         if (existsSync(file)) { io.err(`${specPath(p)} already exists; the scaffold never overwrites a spec`); return 1; }
         writeFileSync(file, scaffoldSpec(p));
-        io.log(`${specPath(p)} written UI first: a prepare() per row of Precondiciones, a step() per row of Pasos, a test() per row of Casos cortos. Fill every '…' and todo() to guide:flujos-e2e, run it with laru test until only its // app: expect.soft fail, then laru check`);
+        io.log(`${specPath(p)} written UI first: a prepare() per row of Precondiciones, a step() per row of Pasos. Fill every '…' and todo() to guide:flujos-e2e, run it with laru test until only its // app: expect.soft fail, then laru check`);
         return 0;
       }
       if (args[0] === 'env' && args[1]) {
@@ -613,7 +613,7 @@ export async function runtimeCommand(cmd: string, args: string[], o: Opts, ws: (
         const r = readRun(w, args[1]);
         if (!r) { io.err(`no run ${args[1]}`); return 1; }
         const traces = runTraces(w, r.id);
-        io.log(summarize(r, traces, { flow: o.flow as string, step: o.step ? Number(o.step) : undefined, exchange: o.exchange as string, service: o.service as string, case: o.case as string | undefined, budget: Number(o.budget ?? 900) }));
+        io.log(summarize(r, traces, { flow: o.flow as string, step: o.step ? Number(o.step) : undefined, exchange: o.exchange as string, service: o.service as string, budget: Number(o.budget ?? 900) }));
         return 0;
       }
       if (sub === 'share') {
@@ -631,7 +631,7 @@ export async function runtimeCommand(cmd: string, args: string[], o: Opts, ws: (
         for (const x of c.exchanges) if (JSON.stringify(x.a) !== JSON.stringify(x.b)) io.log(`${x.flow}  ${x.from}→${x.to} ${x.label}: ${x.a ? `${x.a.count}× ${x.a.statuses.join('/')} p50 ${x.a.p50 ?? '-'} ms` : 'absent'}  →  ${x.b ? `${x.b.count}× ${x.b.statuses.join('/')} p50 ${x.b.p50 ?? '-'} ms` : 'absent'}`);
         return 0;
       }
-      io.err('usage: laru runs [list] | share [flow…] | show <id> [--flow f] [--step n | --case "<title>" | --exchange id | --service s] | cancel <id> | compare <a> <b>'); return 2;
+      io.err('usage: laru runs [list] | share [flow…] | show <id> [--flow f] [--step n | --exchange id | --service s] | cancel <id> | compare <a> <b>'); return 2;
     }
     case 'impact': {
       const w = ws();

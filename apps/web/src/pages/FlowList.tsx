@@ -60,7 +60,7 @@ export function FlowList({ embedded }: { embedded?: boolean }) {
                       return (
                         <tr key={f.slug} className="clickrow" onClick={(e) => { if (!(e.target as HTMLElement).closest('a,button,input,select')) location.hash = pageOf(f.id); }}>
                           <td className="pick">{f.exists && <input type="checkbox" aria-label={`Elegir ${f.title}`} checked={pick.picked.has(f.slug)} onChange={() => pick.toggle(f.slug)} />}</td>
-                          <td className="wrap"><a className="rowlink" href={pageOf(f.id)} style={{ fontWeight: 500 }}>{f.title}</a><div className="faint sub">{plural(f.steps.length, 'paso', 'pasos')}{f.cases.length ? `, ${plural(f.cases.length, 'caso', 'casos')}` : ''}</div></td>
+                          <td className="wrap"><a className="rowlink" href={pageOf(f.id)} style={{ fontWeight: 500 }}>{f.title}</a><div className="faint sub">{plural(f.steps.length, 'paso', 'pasos')}</div></td>
                           <td className="c-last"><Status state={dot}>{word}</Status></td>
                           <td className="c-spark"><Spark history={f.history} /></td>
                           <td>{f.scenario ? <a className="rowlink mono" href={pageOf(f.scenario)}>{f.scenario.replace(/^scn:/, '')}</a> : <span className="faint">ninguno</span>}</td>

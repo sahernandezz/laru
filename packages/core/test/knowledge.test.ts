@@ -170,7 +170,7 @@ test('the documentation model over a real workspace', async (t) => {
   await t.test('the shape the AI reads has the docs-language headings and a worked example', () => {
     const shape = knowledgeShape(ws, 'flow')!;
     assert.equal(shape.fields.find((f) => f.name === 'steps')!.heading, 'Pasos');
-    assert.match(shape.example!.markdown, /## Casos cortos/);
+    assert.match(shape.example!.markdown, /\| Tipo \|[\s\S]*\| validation \|/, 'a validation is a step of the story');
     assert.equal(shape.folder, 'flows/<slug>/flow.md');
   });
 });
