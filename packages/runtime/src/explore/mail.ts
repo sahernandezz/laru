@@ -8,7 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { loadGraph, WorkspaceError, type Workspace } from '@laru/core';
-import { createMasker, parseMime, readMaskFile, type Masker } from '@laru/trace';
+import { createMasker, maskerOf, parseMime, readMaskFile, type Masker } from '@laru/trace';
 import { parseDocument } from 'yaml';
 import { ENV_NAME, envDir, envFile, listEnvs, loadEnvSpec, readState } from '../env.ts';
 import { readRules } from '../rules.ts';
@@ -21,7 +21,7 @@ export const mailDir = (ws: Workspace, env: string) => join(envDir(ws, env), 'ta
 /** The mailbox is the one place a code or a link with a token shows: it is masked with the vault's values only, not with what the sinks learned. */
 const vault = (ws: Workspace, env: string): Masker => {
   const f = join(envDir(ws, env), 'tap', 'mask.json');
-  try { const { key, values } = readMaskFile(f); return createMasker(values, key); } catch { return createMasker([]); }
+  try { return maskerOf(readMaskFile(f)); } catch { return createMasker([]); }
 };
 
 interface Line { id: string; kind: string; t: number; [k: string]: any }

@@ -19,9 +19,11 @@ export interface MachineConfig {
   workers: number;
   /** how long a recorded story holds the screen still at the end of each step, so its video can be followed */
   stepHoldMs: number;
+  /** mask secrets in what Laru records and shows; off by default: it runs locally, and what it shows is what passed (an env's next up applies it) */
+  mask: boolean;
 }
 
-export const CONFIG_DEFAULTS: MachineConfig = { maxEnvs: 0, videoOffsetMs: 0, retention: { videoDays: 7, runDays: 30, maxGB: 5 }, workers: 0, stepHoldMs: 0 };
+export const CONFIG_DEFAULTS: MachineConfig = { maxEnvs: 0, videoOffsetMs: 0, retention: { videoDays: 7, runDays: 30, maxGB: 5 }, workers: 0, stepHoldMs: 0, mask: false };
 const file = () => join(laruHome(), 'config.yaml');
 const num = (v: unknown, dflt: number) => (typeof v === 'number' && Number.isFinite(v) ? v : typeof v === 'string' && v.trim() && Number.isFinite(Number(v)) ? Number(v) : dflt);
 
@@ -29,13 +31,13 @@ export function readConfig(): MachineConfig {
   const raw = (existsSync(file()) ? parseDocument(readFileSync(file(), 'utf8')).toJS() : null) as Record<string, any> | null;
   const r = raw?.retention ?? {}, d = CONFIG_DEFAULTS;
   return {
-    maxEnvs: num(raw?.maxEnvs, d.maxEnvs), videoOffsetMs: num(raw?.videoOffsetMs, d.videoOffsetMs), workers: num(raw?.workers, d.workers), stepHoldMs: Math.max(0, num(raw?.stepHoldMs, d.stepHoldMs)),
+    maxEnvs: num(raw?.maxEnvs, d.maxEnvs), videoOffsetMs: num(raw?.videoOffsetMs, d.videoOffsetMs), workers: num(raw?.workers, d.workers), stepHoldMs: Math.max(0, num(raw?.stepHoldMs, d.stepHoldMs)), mask: raw?.mask === true,
     retention: { videoDays: num(r.videoDays, d.retention.videoDays), runDays: num(r.runDays, d.retention.runDays), maxGB: num(r.maxGB, d.retention.maxGB) },
   };
 }
 
 /** Sets the keys given; comments and the rest of the file stay as they were. */
-export function writeConfig(patch: { maxEnvs?: number; videoOffsetMs?: number; retention?: Partial<Retention> }): MachineConfig {
+export function writeConfig(patch: { maxEnvs?: number; videoOffsetMs?: number; retention?: Partial<Retention>; mask?: boolean }): MachineConfig {
   const doc = existsSync(file()) ? parseDocument(readFileSync(file(), 'utf8')) : new Document({});
   if (!doc.contents) doc.contents = doc.createNode({});
   for (const [k, v] of Object.entries(patch)) {

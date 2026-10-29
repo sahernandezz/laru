@@ -388,7 +388,7 @@ test('the mailbox as the host reads it: folded, searched, opened without ever dr
   const VAULT = 'vault-Secret-42xy';
   const s = await sinkTap({ mocks: { smtp: { mode: 'sink', sink: 'smtp' } }, routes: [smtpRoute(port)], keep: out, secret: VAULT });
   t.after(() => s.close());
-  writeFileSync(join(out, 'mask.json'), JSON.stringify({ key: 'k', values: [VAULT] }));
+  writeFileSync(join(out, 'mask.json'), JSON.stringify({ key: 'k', values: [VAULT], mask: true }));
   const html = `<html><body><p>Hola <a href="http://web/pedido/42/confirmar?token=tok-9f8e7d6c5b">Confirmar</a></p><img src="cid:logo"><img src="http://c.test/o.gif" width="1" height="1"><script>alert(1)</script><p>clave ${VAULT}</p></body></html>`;
   const mime = `From: Tienda <pedidos@tienda.test>\nTo: ana+pedido@tienda.test\nSubject: Tu pedido nº 42\nMessage-ID: <9@t>\nDate: Mon, 26 Oct 2026 10:00:00 +0000\nMIME-Version: 1.0\nContent-Type: multipart/mixed; boundary="M"\n\n--M\nContent-Type: multipart/related; boundary="R"\n\n--R\nContent-Type: text/html; charset=utf-8\n\n${html}\n--R\nContent-Type: image/png\nContent-ID: <logo>\nContent-Transfer-Encoding: base64\n\niVBORw0KGgo=\n--R--\n--M\nContent-Type: image/svg+xml; name="x.svg"\nContent-Disposition: attachment; filename="x.svg"\n\n<svg onload="alert(1)"/>\n--M--\n`;
   const c = await Client.open(port);

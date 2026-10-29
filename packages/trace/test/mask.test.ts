@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { createMasker, MASK_KEYS, readMaskFile, writeMaskFile } from '../src/mask.ts';
+import { createMasker, MASK_KEYS, maskerOf, readMaskFile, writeMaskFile } from '../src/mask.ts';
 
 const SECRET = 'Sup3r-s3cret "vault" value';
 const m = createMasker([SECRET, 'short']);
@@ -359,13 +359,13 @@ test('mask.json', async (t) => {
     assert.notEqual(readMaskFile(file).key, a.key);
   });
   await t.test('written 0600 with multi-line values intact; the key is created once and kept', () => {
-    writeMaskFile(file, [PEM, 'one']);
+    writeMaskFile(file, [PEM, 'one'], true);
     assert.equal(statSync(file).mode & 0o777, 0o600);
     const first = readMaskFile(file);
     assert.deepEqual(first.values, [PEM, 'one']);
-    assert.deepEqual(Object.keys(JSON.parse(readFileSync(file, 'utf8'))).sort(), ['key', 'values']);
+    assert.deepEqual(Object.keys(JSON.parse(readFileSync(file, 'utf8'))).sort(), ['key', 'mask', 'values']);
     writeMaskFile(file, ['two-values']);
-    assert.deepEqual(readMaskFile(file), { key: first.key, values: ['two-values'] });
+    assert.deepEqual(readMaskFile(file), { key: first.key, values: ['two-values'], mask: false }, 'masking is off unless asked');
   });
 });
 
@@ -410,4 +410,14 @@ test('a short code a sink learned (4 or 5 characters) is masked as a whole word;
   const vault = createMasker(['4829']);
   assert.equal(vault.text('Tu código es 4829'), 'Tu código es 4829', 'the vault\'s own short values keep the old rule');
   void mark;
+});
+
+test('masking off (the default): what passed stays as it passed, everywhere', () => {
+  const plain = maskerOf({ key: 'k', values: [SECRET], mask: false });
+  assert.equal(plain.on, false);
+  assert.equal(plain.text(`login ${SECRET}`), `login ${SECRET}`);
+  assert.equal(plain.body(`{"password":"${SECRET}"}`, 'application/json'), `{"password":"${SECRET}"}`);
+  assert.deepEqual(plain.headers({ authorization: 'Bearer abc', 'set-cookie': ['a=1', 'b=2'], none: undefined }), { authorization: 'Bearer abc', 'set-cookie': 'a=1, b=2' });
+  assert.equal(plain.cut('abcdef', 'end'), 'abcdef');
+  assert.equal(maskerOf({ key: 'k', values: [SECRET], mask: true }).text(SECRET).startsWith('…'), true);
 });

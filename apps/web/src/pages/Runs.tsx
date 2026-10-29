@@ -4,7 +4,7 @@
  * still going is followed through its event stream: phases, tests and steps appear as they happen.
  */
 import {
-  ArrowDownLeft, ArrowUpRight, Ban, Check, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, CircleX, Crosshair, Radio, Download, FileCode, FileText, Film, Footprints, GitCompare, Image, Info,
+  ArrowDownLeft, ArrowUpRight, Ban, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ChevronsLeft, ChevronsRight, CircleX, Crosshair, Radio, Download, FileCode, FileText, Film, Footprints, GitCompare, Image, Info,
   Maximize2, Minimize2, Pause, Play, RotateCw, ScrollText, Search, Terminal, X, Zap,
 } from 'lucide-react';
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode, type RefObject } from 'react';
@@ -16,6 +16,7 @@ import { ExchangeContract } from '../components/Contract.tsx';
 import { EdgeLabel, MapCanvas, NodeBox } from '../components/MapCanvas.tsx';
 import { ActionButton, PathChip, Code, CodeBlock, copy, Dialog, Dot, HttpStatus, Kind, Level, Origin, Segmented, Skeleton, Status, Tabs, toast, type DotState } from '../components/ui.tsx';
 import { askFirst } from '../lib/ask.ts';
+import { devicesOf, onlyDevice } from '../lib/devices.ts';
 import { ago, KIND, plural, RUN_DOT, RUN_PHASE, RUN_STATUS, secs, size } from '../lib/es.ts';
 import { href, liveHref, partsOf, queryOf, splitStop, stopIn, testIn, withStop } from '../lib/route.ts';
 import { filterRuns, filtersOf, flowsOf, NO_FILTERS, queryString, type RunFilters } from '../lib/runsFilter.ts';
@@ -60,9 +61,22 @@ function useStudioLayout(): [StudioLayout, (f: (l: StudioLayout) => StudioLayout
   return [l, set];
 }
 /** The bar between two panels: dragged, or moved with the arrow keys, it hands the distance moved to `onMove`. */
-function Splitter({ axis, label, area, onMove }: { axis: 'x' | 'y'; label: string; area: string; onMove: (d: number) => void }) {
+/**
+ * A panel's edge: dragged (or arrowed) it resizes the panel, and the tab on it puts the panel away or brings it back.
+ * A panel put away leaves its edge with the tab only.
+ */
+function Splitter({ axis, label, area, onMove, panel }: { axis: 'x' | 'y'; label: string; area: string; onMove: (d: number) => void; panel: { name: string; hidden: boolean; onFlip: () => void; /** where the panel lies from its edge */ side: 'left' | 'right' | 'down' } }) {
+  const Icon = panel.side === 'down' ? (panel.hidden ? ChevronUp : ChevronDown) : (panel.side === 'left') !== panel.hidden ? ChevronLeft : ChevronRight;
   return (
-    <div role="separator" tabIndex={0} aria-label={label} aria-orientation={axis === 'x' ? 'vertical' : 'horizontal'} className={`st-split st-split-${axis}`} style={{ gridArea: area }}
+    <div className={`st-edge st-edge-${axis}`} style={{ gridArea: area }}>
+      {!panel.hidden && <SplitBar axis={axis} label={label} onMove={onMove} />}
+      <button type="button" className="st-flip" aria-expanded={!panel.hidden} onClick={panel.onFlip} aria-label={panel.hidden ? `Mostrar «${panel.name}»` : `Ocultar «${panel.name}»`} title={panel.hidden ? `Mostrar «${panel.name}»` : `Ocultar «${panel.name}»`}><Icon /></button>
+    </div>
+  );
+}
+function SplitBar({ axis, label, onMove }: { axis: 'x' | 'y'; label: string; onMove: (d: number) => void }) {
+  return (
+    <div role="separator" tabIndex={0} aria-label={label} aria-orientation={axis === 'x' ? 'vertical' : 'horizontal'} className={`st-split st-split-${axis}`}
       onPointerDown={(e) => {
         e.preventDefault();
         let last = axis === 'x' ? e.clientX : e.clientY;
@@ -375,6 +389,10 @@ function FlowTraces({ run, slug, flow, g, view, onView, test: named, address, k,
   const [asked] = useState(() => stopIn(location.hash));
   const pick = picked ?? testIn(tests, named);
   const test = tests[pick] ?? tests[0];
+  // «Seguir un dispositivo»: only what it sent and what that caused, for the studio's follow-along
+  const [device, setDevice] = useState('');
+  const devices = useMemo(() => (test ? devicesOf(test, chainOf(test).cause) : undefined), [test]);
+  const shown = useMemo(() => (test && device && devices ? onlyDevice(test, devices, device) : test), [test, device, devices]);
   if (res.error) return <div className="notice" role="alert"><CircleX />{res.error}</div>;
   if (!res.data) return <><Skeleton lines={2} /><div style={{ height: 16 }} /><Skeleton lines={10} /></>;
   if (!test) return (
@@ -387,6 +405,7 @@ function FlowTraces({ run, slug, flow, g, view, onView, test: named, address, k,
   const isStory = (i: number) => tests[i].story ?? (i === 0 && Boolean(res.data!.trace));
   const choose = (i: number) => {
     setPick(i);
+    setDevice('');
     // the address names the test that shows (none: the story), so a reload opens it; without the stop, which was the other's
     if (address) history.replaceState(history.state, '', address(view ?? savedView(), isStory(i) ? undefined : tests[i].test));
   };
@@ -404,12 +423,21 @@ function FlowTraces({ run, slug, flow, g, view, onView, test: named, address, k,
         })}
       </div>
   );
+  // one device has nothing to pick
+  const follow = devices && devices.list.length > 1 && (
+    <label className="faint st-device">Dispositivo{' '}
+      <select value={device} onChange={(e) => setDevice(e.target.value)} title="Solo lo que envió ese dispositivo y lo que provocó en el sistema">
+        <option value="">Todos</option>
+        {devices.list.map((d) => <option key={d.name} value={d.name}>{d.name} ({d.count})</option>)}
+      </select>
+    </label>
+  );
   return (
     <>
       {/* a flow with one test has nothing to pick */}
       {tests.length > 1 && !only && strip}
-      <Player key={at} run={run} slug={slug} trace={test} story={isStory(at)} flow={flow} g={g} view={view} onView={onView} k={k}
-        arch={arch} lit={arch?.lits[at]} address={address} stop={picked === undefined ? asked : undefined} strip={tests.length > 1 ? strip : undefined} studioFirst={studio} only={only} />
+      <Player key={`${at}/${device}`} run={run} slug={slug} trace={shown!} story={isStory(at)} flow={flow} g={g} view={view} onView={onView} k={k}
+        arch={arch} lit={arch?.lits[at]} address={address} stop={picked === undefined && !device ? asked : undefined} strip={tests.length > 1 ? strip : undefined} devices={follow || undefined} studioFirst={studio} only={only} />
     </>
   );
 }
@@ -418,8 +446,8 @@ function FlowTraces({ run, slug, flow, g, view, onView, test: named, address, k,
 function useClock(video: HTMLVideoElement | null, duration: number, layout: SeqLayout) {
   const [now, setNow] = useState(0);
   const [playing, setPlaying] = useState(false);
-  // always starts slow (0,5×): a run is read, not watched
-  const [speed, setSpeed] = useState(0.5);
+  // always starts slow (0,25×): a run is read, not watched
+  const [speed, setSpeed] = useState(0.25);
   const at = useRef(0), opts = useRef({ speed });
   opts.current = { speed };
   const show = (t: number) => { at.current = t; setNow(t); };
@@ -464,7 +492,7 @@ type Mode = 'clock' | 'step';
 /** What the player-level keys never take: typing, and widgets with their own arrows. */
 const OWN_KEYS = 'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="tablist"], [role="slider"], [role="radiogroup"]';
 
-function Player({ run, slug, trace, story, flow, g, view: asked, onView, k, arch, lit, address, stop: askedStop, strip, studioFirst, only }: Evidence & { trace: Trace; story: boolean; k?: KnowledgeData; arch?: Arch | null; lit?: Lit; stop?: string; /** the tests of the flow, to pick another from the studio */ strip?: ReactNode; studioFirst?: boolean }) {
+function Player({ run, slug, trace, story, flow, g, view: asked, onView, k, arch, lit, address, stop: askedStop, strip, devices, studioFirst, only }: Evidence & { trace: Trace; story: boolean; k?: KnowledgeData; arch?: Arch | null; lit?: Lit; stop?: string; /** the tests of the flow, to pick another from the studio */ strip?: ReactNode; /** the studio's pick of one device to follow */ devices?: ReactNode; studioFirst?: boolean }) {
   const layout = useMemo(() => layoutSeq(trace), [trace]);
   const ch = useMemo(() => chainOf(trace), [trace]);
   const ctx = useMemo(() => sayCtx({ trace, rows: layout.rows, chain: ch, map: g?.map, pieces: k?.pieces }), [trace, layout, ch, g, k]);
@@ -805,7 +833,7 @@ function Player({ run, slug, trace, story, flow, g, view: asked, onView, k, arch
     prevAct: () => { const s = actAlong(-1); if (s) go(s); }, nextAct: () => { const s = actAlong(1); if (s) go(s); },
     showAll, setShowAll, leave,
   } : undefined;
-  const transport = <Transport key="transport" layout={layout} trace={trace} c={c} onFail={failAt === null ? undefined : toFail} walking={walking} following={following} onFollow={() => { if (following) setFollowing(false); else { c.pause(); setFollowing(true); } }}
+  const transport = <Transport key="transport" layout={layout} trace={trace} c={c} onFail={failAt === null ? undefined : toFail} walking={walking} following={following} onFollow={() => { if (following) setFollowing(false); else { c.pause(); setFollowing(true); } }} follow={devices}
     onSeek={mode === 'step' ? (t) => goAt(t, Math.sign(t - c.now)) : c.seek} onWalk={() => (mode === 'step' ? leave() : enter())} onPlay={mode === 'step' ? () => leave(true) : c.toggle} />;
   const cause = selected ? ch.cause.get(selected.id) : undefined;
   // the request the selected hop is part of, forwards included: from the first sender to the piece that served it
@@ -876,29 +904,31 @@ function Player({ run, slug, trace, story, flow, g, view: asked, onView, k, arch
 
   if (studio) return (
     <div ref={studioRef} className={`studio st-resizable${mode === 'step' ? ' stepping' : ''}`} tabIndex={-1} onKeyDown={studioKeys} role="region" aria-label={`Estudio de «${trace.test}»`}
-      style={{ '--st-video': lay.hide.video ? '0px' : `${lay.video}px`, '--st-vs': lay.hide.video ? '0px' : '6px', '--st-side': lay.hide.side ? '0px' : `${lay.side}px`, '--st-ss': lay.hide.side ? '0px' : '6px',
-        '--st-tracks': lay.hide.tracks ? '0px' : `${lay.tracks}px`, '--st-ts': lay.hide.tracks ? '0px' : '6px' } as React.CSSProperties}>
+      style={{ '--st-video': lay.hide.video ? '0px' : `${lay.video}px`, '--st-side': lay.hide.side ? '0px' : `${lay.side}px`, '--st-tracks': lay.hide.tracks ? '0px' : `${lay.tracks}px` } as React.CSSProperties}>
       <header className="st-bar">
         <b className="st-title" title={trace.test}>{trace.test}</b>
         <span className="faint num">run {run.id} · {run.env}</span>
-        {strip}
-        <span className="grow" />
-        <span className="st-keys faint" aria-hidden="true"><kbd>Espacio</kbd> reproduce · <kbd>←</kbd><kbd>→</kbd> mensaje · <kbd>⇧</kbd> acción · <kbd>P</kbd> paso a paso · <kbd>Esc</kbd> sale</span>
-        <span className="st-panels" role="group" aria-label="Paneles a la vista">
-          {([['video', 'Vídeo'], ['side', 'Inspector'], ['tracks', 'Pistas']] as const).map(([p, name]) => (
-            <button key={p} type="button" className="btn sm" aria-pressed={!lay.hide[p]} onClick={() => flip(p)} title={lay.hide[p] ? `Mostrar «${name}»` : `Ocultar «${name}»`}>{name}</button>
-          ))}
-        </span>
+        {strip ?? <span className="grow" />}
+        <details className="st-help">
+          <summary className="btn sm">Atajos</summary>
+          <dl className="st-help-pop">
+            <dt><kbd>Espacio</kbd></dt><dd>reproduce o pausa</dd>
+            <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>mensaje anterior o siguiente</dd>
+            <dt><kbd>⇧</kbd> <kbd>←</kbd> <kbd>→</kbd></dt><dd>acción anterior o siguiente</dd>
+            <dt><kbd>P</kbd></dt><dd>paso a paso</dd>
+            <dt><kbd>Esc</kbd></dt><dd>sale del estudio</dd>
+          </dl>
+        </details>
         <button type="button" className="btn sm" onClick={toggleStudio} title="Volver a donde lo abriste (Esc)"><Minimize2 />Salir del estudio</button>
       </header>
       <div className="st-video" hidden={lay.hide.video}>{screen}</div>
-      {!lay.hide.video && <Splitter axis="x" area="vs" label="Ancho del vídeo" onMove={(d) => resize('video', d)} />}
+      <Splitter axis="x" area="vs" label="Ancho del vídeo" onMove={(d) => resize('video', d)} panel={{ name: 'Vídeo', hidden: Boolean(lay.hide.video), onFlip: () => flip('video'), side: 'left' }} />
       <div className="st-stage">{seqView}</div>
-      {!lay.hide.side && <Splitter axis="x" area="ss" label="Ancho del inspector" onMove={(d) => resize('side', -d)} />}
+      <Splitter axis="x" area="ss" label="Ancho del inspector" onMove={(d) => resize('side', -d)} panel={{ name: 'Inspector', hidden: Boolean(lay.hide.side), onFlip: () => flip('side'), side: 'right' }} />
       <aside className="st-side" aria-label="Inspector" hidden={lay.hide.side}>{evidence}</aside>
       <div className="st-transport">{transport}</div>
-      {!lay.hide.tracks && <Splitter axis="y" area="ts" label="Alto de las pistas" onMove={(d) => resize('tracks', -d)} />}
-      {!lay.hide.tracks && <Tracks layout={layout} trace={trace} noise={ch.noise} now={c.now} T={Math.max(1, c.duration)} sel={selected?.id} onSeek={mode === 'step' ? (t) => goAt(t, Math.sign(t - c.now)) : c.seek} onPick={(i) => { c.pause(); go({ kind: 'row', i }); }} />}
+      <Splitter axis="y" area="ts" label="Alto de las pistas" onMove={(d) => resize('tracks', -d)} panel={{ name: 'Pistas', hidden: Boolean(lay.hide.tracks), onFlip: () => flip('tracks'), side: 'down' }} />
+      <Tracks hidden={lay.hide.tracks} layout={layout} trace={trace} noise={ch.noise} now={c.now} T={Math.max(1, c.duration)} sel={selected?.id} onSeek={mode === 'step' ? (t) => goAt(t, Math.sign(t - c.now)) : c.seek} onPick={(i) => { c.pause(); go({ kind: 'row', i }); }} />
     </div>
   );
 
@@ -1069,7 +1099,7 @@ interface Walking {
   showAll: boolean; setShowAll: (b: boolean) => void; leave: () => void;
 }
 
-function Transport({ layout, trace, c, onFail, walking, following, onFollow, onSeek, onWalk, onPlay }: { layout: SeqLayout; trace: Trace; c: ReturnType<typeof useClock>; onFail?: () => void; walking?: Walking; following: boolean; onFollow: () => void; onSeek: (t: number) => void; onWalk: () => void; onPlay: () => void }) {
+function Transport({ layout, trace, c, onFail, walking, following, onFollow, follow, onSeek, onWalk, onPlay }: { layout: SeqLayout; trace: Trace; c: ReturnType<typeof useClock>; onFail?: () => void; walking?: Walking; following: boolean; onFollow: () => void; /** what Seguimiento follows: one device, or all */ follow?: ReactNode; onSeek: (t: number) => void; onWalk: () => void; onPlay: () => void }) {
   const T = Math.max(1, c.duration);
   const scrub = useRef<HTMLDivElement>(null);
   const fromX = (e: PointerEvent) => { const r = scrub.current!.getBoundingClientRect(); onSeek(((e.clientX - r.left) / r.width) * T); };
@@ -1101,6 +1131,7 @@ function Transport({ layout, trace, c, onFail, walking, following, onFollow, onS
       <div className="walk-row">
         <span className="time">{atMs(c.now)} / {clock(T)}</span>
         {scrubber}
+        {follow}
         <button type="button" className="btn sm" aria-pressed={walking.showAll} onClick={() => walking.setShowAll(!walking.showAll)}>Mostrar lo plegado</button>
         <button type="button" className="btn sm" onClick={onPlay}><Play />Reproducir desde aquí</button>
         <button type="button" className="btn sm" onClick={walking.leave} aria-keyshortcuts="Escape"><X />Salir <kbd>Esc</kbd></button>
@@ -1113,8 +1144,9 @@ function Transport({ layout, trace, c, onFail, walking, following, onFollow, onS
       <button className="icon-btn" onClick={() => onFail?.()} aria-disabled={!onFail || undefined} aria-label={layout.bad >= 0 || !onFail ? 'Ir al salto que falló' : 'Ir al momento en que falló'} title={!onFail ? 'Nada falló en esta prueba' : layout.bad >= 0 ? 'Ir al salto que falló' : 'Ir al momento en que falló'}><Crosshair /></button>
       <span className="time">{clock(c.now)} / {clock(T)}</span>
       {scrubber}
-      <div className="speed" role="group" aria-label="Velocidad">{[0.5, 1, 2].map((s) => <button key={s} aria-pressed={c.speed === s} onClick={() => c.setSpeed(s)}>{String(s).replace('.', ',')}×</button>)}</div>
+      <div className="speed" role="group" aria-label="Velocidad">{[0.25, 0.5, 1, 2].map((s) => <button key={s} aria-pressed={c.speed === s} onClick={() => c.setSpeed(s)}>{String(s).replace('.', ',')}×</button>)}</div>
       <button className="btn sm" aria-pressed={following} onClick={onFollow} title="Recorre la secuencia un mensaje tras otro, quedándose un rato en cada uno para seguirla (la velocidad lo acorta o lo alarga)">{following ? <Pause /> : <Radio />}Seguimiento</button>
+      {follow}
       <button className="btn sm" aria-pressed={false} onClick={onWalk} aria-keyshortcuts="P" title="Un mensaje cada vez, con el reloj parado (P)"><Footprints />Paso a paso</button>
       <span className="kinds" aria-label="Tipos de intercambio en el diagrama">{[...new Set(trace.exchanges.map((e) => e.kind))].map((k) => <span key={k} className={`k-${k}`}><i aria-hidden="true" />{k}</span>)}</span>
     </div>
@@ -1126,7 +1158,7 @@ function Transport({ layout, trace, c, onFail, walking, following, onFollow, onS
  * each message it handled, from when it arrived to when it answered. The playhead crosses them all; a click on a track
  * moves the clock there, a click on a bar opens that message.
  */
-export function Tracks({ layout, trace, noise, now, T, sel, onSeek, onPick }: { layout: SeqLayout; trace: Trace; noise: Map<string, unknown>; now: number; T: number; sel?: string; onSeek: (t: number) => void; onPick: (i: number) => void }) {
+export function Tracks({ layout, trace, noise, now, T, sel, onSeek, onPick, hidden }: { layout: SeqLayout; trace: Trace; noise: Map<string, unknown>; now: number; T: number; sel?: string; onSeek: (t: number) => void; onPick: (i: number) => void; /** put away in the studio (a narrow screen shows it anyway) */ hidden?: boolean }) {
   const box = useRef<HTMLDivElement>(null);
   const rowOf = useMemo(() => new Map(layout.rows.filter((r) => !r.reply).map((r) => [r.ex.id, r.i])), [layout]);
   // a track per piece that handled something, in the order of the sequence's lanes
@@ -1138,7 +1170,7 @@ export function Tracks({ layout, trace, noise, now, T, sel, onSeek, onPick }: { 
   const pct = (t: number) => `${(Math.max(0, Math.min(T, t)) / T) * 100}%`;
   const fromX = (e: PointerEvent) => { const r = box.current!.getBoundingClientRect(); onSeek(((e.clientX - r.left) / r.width) * T); };
   return (
-    <div className="tracks" role="group" aria-label="Línea de tiempo por pieza">
+    <div className="tracks" role="group" aria-label="Línea de tiempo por pieza" hidden={hidden}>
       <div className="tk-names" aria-hidden="true"><span>Pasos</span>{tracks.map((k) => <span key={k.id} title={k.name}>{k.name}</span>)}</div>
       <div className="tk-lanes" ref={box} onPointerDown={(e) => { if ((e.target as HTMLElement).closest('.tk-bar')) return; e.currentTarget.setPointerCapture(e.pointerId); fromX(e); }}
         onPointerMove={(e) => e.currentTarget.hasPointerCapture(e.pointerId) && fromX(e)}>
@@ -1337,11 +1369,11 @@ function FilesTab({ id, detail }: { id: string; detail?: RunDetail }) {
         {files.data.map((f) => {
           const Icon = FILE_ICON.find(([re]) => re.test(f.path))?.[1] ?? FileText;
           const isTrace = /(^|\/)trace(-\d+)?\.zip$/.test(f.path);
-          return <li key={f.path}><Icon /><a className="rowlink mono" href={fileUrl(id, f.path)} target="_blank" rel="noreferrer">{f.path}<span className="sr-only"> (se abre en otra pestaña)</span></a>{isTrace && <><span className="chip warn">sin enmascarar</span><a className="btn sm" href={`/trace-viewer/index.html?trace=${encodeURIComponent(new URL(fileUrl(id, f.path), location.origin).href)}`} target="_blank" rel="noreferrer"><Play />Abrir traza</a></>}<span className="faint num">{size(f.bytes)}</span><a className="copy" href={fileUrl(id, f.path)} download aria-label={`Descargar ${f.path}`}><Download /></a>{detail && <PathChip path={`${detail.dir}/${f.path}`} reveal={{ what: 'run-file', id: `${id}/${f.path}` }} hide />}</li>;
+          return <li key={f.path}><Icon /><a className="rowlink mono" href={fileUrl(id, f.path)} target="_blank" rel="noreferrer">{f.path}<span className="sr-only"> (se abre en otra pestaña)</span></a>{isTrace && <><a className="btn sm" href={`/trace-viewer/index.html?trace=${encodeURIComponent(new URL(fileUrl(id, f.path), location.origin).href)}`} target="_blank" rel="noreferrer"><Play />Abrir traza</a></>}<span className="faint num">{size(f.bytes)}</span><a className="copy" href={fileUrl(id, f.path)} download aria-label={`Descargar ${f.path}`}><Download /></a>{detail && <PathChip path={`${detail.dir}/${f.path}`} reveal={{ what: 'run-file', id: `${id}/${f.path}` }} hide />}</li>;
         })}
         {!files.data.length && <li className="faint">Este run no guardó evidencia.</li>}
       </ul>
-      <p className="faint files-note">Todo lo de aquí está enmascarado al capturarse, salvo el vídeo, las capturas y la traza de Playwright (guardan la página y la red tal cual). La salida en bruto del runner (<span className="mono">out/</span>) se queda en <span className="mono">.laru/runs/{id}</span> y no se sirve.</p>
+      <p className="faint files-note">Lo que se grabó del run. La salida en bruto del runner (<span className="mono">out/</span>) se queda en <span className="mono">.laru/runs/{id}</span> y no se sirve.</p>
       {detail?.retention && <p className="faint files-note">{retentionText(detail)}</p>}
     </>
   );
@@ -1386,7 +1418,7 @@ function Inspector({ ex, names, said, contract, card, cause, msgLink, way, reply
         <div className="meta">
           {cause?.certainty === 'possible' && <span className="ct-maybe" title="La causa de este mensaje es posible, no segura">?</span>}
           {ex && <Origin of={ex.origin} />}
-          {cmd && <button className="btn sm" onClick={() => copy(cmd, 'Copiado como cURL, con los valores enmascarados')}><Terminal />cURL</button>}
+          {cmd && <button className="btn sm" onClick={() => copy(cmd, 'Copiado como cURL')}><Terminal />cURL</button>}
         </div>
       </header>
       {ex && (

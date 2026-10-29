@@ -6,6 +6,18 @@ Todos los cambios de Laru que importan a quien lo usa quedan aquí. El formato s
 
 ## [Sin publicar]
 
+## [0.1.0-beta.8] - 2026-10-29
+
+### Añadido
+
+- **Seguir un dispositivo en el estudio:** «Dispositivo», junto a «Seguimiento», deja ver solo lo que envió un dispositivo y lo que eso provocó en el sistema (gateway, servicios, bases, colas). Laru distingue los dispositivos por su User-Agent («Safari en iPhone», «Chrome en Windows»), por su dirección cuando no es ningún servicio («Equipo 172.30.1.12»), por la pantalla de la prueba, o como «Prueba» para las llamadas que hace la propia prueba. Funciona también en «Paso a paso». Los eventos SSE guardan el User-Agent de su conexión, aunque esta se abriera antes de la traza.
+- **0,25×** entre las velocidades, y es con la que empieza todo run: se lee, no se mira.
+
+### Cambiado
+
+- **Sin enmascarar por defecto:** Laru corre en tu máquina y enseña lo que pasó, tal cual: cuerpos, cabeceras, filas, logs, correo, colas y lo que ve la IA. `mask: true` en `~/.laru/config.yaml` lo vuelve a activar en el siguiente `laru up` de cada entorno. Los runs ya grabados siguen enmascarados.
+- **El estudio, menos cargado:** la cabecera deja el título, las pruebas del flujo (con todo el ancho) y «Salir»; los atajos de teclado van en «Atajos». Vídeo, Inspector y Pistas se ocultan y se muestran con una pestaña en el borde de cada panel; en una pantalla estrecha se ven todos.
+
 ## [0.1.0-beta.7] - 2026-10-28
 
 ### Añadido

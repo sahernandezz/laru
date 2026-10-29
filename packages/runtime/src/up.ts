@@ -524,7 +524,7 @@ export async function up(ws: Workspace, opts: UpOptions): Promise<UpResult> {
       writeFileSync(routesFile, JSON.stringify(tapCfg, null, 2));
       const rules: TapRules = { seed: 1, faults: spec.faults, mocks: spec.mocks, peers: {} };
       writeFileSync(join(tapDir, 'rules.json'), JSON.stringify(rules, null, 2));
-      writeMaskFile(join(tapDir, 'mask.json'), inj.secrets);
+      writeMaskFile(join(tapDir, 'mask.json'), inj.secrets, readConfig().mask);
       emit.masker = envMasker(ws, opts.env, opts.run, { allowMissing: true }); // a first up, an up after down or after a new secret: its own values from here on
       await guardForeign(ws, project, {
         networks: Object.values(rendered.doc.networks ?? {}).map((n: any) => n.name),

@@ -56,6 +56,8 @@ test("an env's values on disk, with a fake docker", { timeout: 120_000 }, async 
   // Never put back: this file has a process of its own, and work in flight when the test times out keeps the fake docker.
   Object.assign(process.env, { PATH: `${bin}:${process.env.PATH}`, LARU_HOME: join(tmp, 'home'), LARU_VAULT_KEYSTORE: 'file', DOCKER_FAKE_SECRET: SECRET });
   mkdirSync(process.env.LARU_HOME!, { recursive: true });
+  // these cases are about masking: it is on here (off by default)
+  writeFileSync(join(process.env.LARU_HOME!, 'config.yaml'), 'mask: true\n');
   const ws = initWorkspace(join(tmp, 'ws'), { app: 'shop', title: 'Shop' });
   await addRepo(ws, repo(tmp));
   mkdirSync(join(ws.root, 'envs'));

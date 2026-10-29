@@ -10,6 +10,8 @@ import { createHash, createHmac, randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 
 export interface Masker {
+  /** false: masking is off on this machine (`mask: true` in ~/.laru/config.yaml turns it on), and every method gives back what it got */
+  on: boolean;
   /** free text: known values (raw, base64, base64url, also inside percent, JSON and HTML escapes, however nested) and secret patterns */
   text(s: string): string;
   /**
@@ -40,8 +42,8 @@ export interface Masker {
 /** Names whose value is a secret, in headers, JSON keys, form fields and query parameters. */
 export const MASK_KEYS = /pass(?:word)?|secret|token|api[-_]?key|authori[sz]ation|cookie|credential|private|session|signature/i;
 
-/** `tap/mask.json`: the env's mark key (32 random bytes, base64url, created once and kept) and the known values. */
-export interface MaskFile { key: string; values: string[] }
+/** `tap/mask.json`: the env's mark key (32 random bytes, base64url, created once and kept), the known values and whether to mask at all. */
+export interface MaskFile { key: string; values: string[]; mask: boolean }
 
 /** `tap/learned.json`: the codes and tokens the sink saw in messages, written by the tap (0600) and added to the vault's values by whoever masks. */
 export function readLearned(path: string): string[] {
@@ -52,19 +54,20 @@ const newKey = () => randomBytes(32).toString('base64url');
 
 /** A missing file reads as a fresh random key and no values. */
 export function readMaskFile(path: string): MaskFile {
-  if (!existsSync(path)) return { key: newKey(), values: [] };
+  if (!existsSync(path)) return { key: newKey(), values: [], mask: false };
   const f = JSON.parse(readFileSync(path, 'utf8')) as Partial<MaskFile>;
   if (typeof f.key !== 'string' || !f.key || !Array.isArray(f.values)) throw new Error(`${path}: expected {"key", "values"}`);
-  return { key: f.key, values: f.values.map(String) };
+  // only a file written with masking on masks: Laru runs locally, and what it shows is what passed
+  return { key: f.key, values: f.values.map(String), mask: f.mask === true };
 }
 
 /** Writes the values and keeps the file's key; 0600 from creation, renamed into place so a reader never sees half a file. */
-export function writeMaskFile(path: string, values: string[]): void {
+export function writeMaskFile(path: string, values: string[], mask = false): void {
   let key: string;
   try { key = readMaskFile(path).key; } catch { key = newKey(); }
   const tmp = `${path}.tmp`;
   rmSync(tmp, { force: true });
-  writeFileSync(tmp, JSON.stringify({ key, values }), { mode: 0o600, flag: 'wx' });
+  writeFileSync(tmp, JSON.stringify({ key, values, mask }), { mode: 0o600, flag: 'wx' });
   renameSync(tmp, path);
 }
 
@@ -177,6 +180,15 @@ function valueEnd(s: string, i: number): number {
   SCALAR.exec(s);
   return SCALAR.lastIndex;
 }
+
+/** Masking off: everything as it passed. */
+export const PLAIN: Masker = {
+  on: false, text: (s) => s, peek: (s) => s, known: (s) => s, query: (q) => q, body: (s) => s, cut: (s) => s, margin: 0,
+  headers: (h) => Object.fromEntries(Object.entries(h).flatMap(([k, v]) => (v === undefined ? [] : [[k, Array.isArray(v) ? v.join(', ') : v]]))),
+};
+
+/** The masker of a `mask.json`: its values with its key, or PLAIN when it says not to mask. */
+export const maskerOf = (f: MaskFile, extra: string[] = [], o: { short?: string[] } = {}): Masker => (f.mask ? createMasker([...f.values, ...extra], f.key, o) : PLAIN);
 
 export function createMasker(known: string[], key?: string, o: { short?: string[] } = {}): Masker {
   const mark = (v: string) => '…' + (key ? createHmac('sha256', key) : createHash('sha256')).update(v).digest('base64url').slice(0, 4);
@@ -379,5 +391,6 @@ export function createMasker(known: string[], key?: string, o: { short?: string[
       return `…${all.slice(q < 0 ? all.length - c : q)}`;
     },
     margin,
+    on: true,
   };
 }

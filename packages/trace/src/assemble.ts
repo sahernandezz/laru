@@ -258,7 +258,7 @@ export function assemble(input: AssembleInput): { traces: Trace[]; observed: Obs
       ipOf.set(r.id, r.from);
       ex.push({
         id: r.id, kind: r.kind, from, to: r.svc, t0: rel(r.t0), t1: r.t1 === undefined ? undefined : rel(r.t1), label, status: r.status, ok, origin: 'observed', ...(dyn?.table ? { table: dyn.table } : {}),
-        endpoint: ep, method: r.method, path: r.path, query: r.query, reqHeaders: r.reqHeaders, resHeaders: r.resHeaders, req: r.req, res: r.res,
+        endpoint: ep, method: r.method, path: r.path, query: r.query, reqHeaders: r.reqHeaders ?? (r.kind === 'sse' && ua ? { 'user-agent': ua } : undefined), resHeaders: r.resHeaders, req: r.req, res: r.res,
         fault: r.fault, mock: r.mock, ...(r.msg ? { msg: r.msg } : {}), drift: r.drift, error: r.error, ...(r.tap !== undefined ? { tap: r.tap } : {}), ...(r.kind === 'sse' ? { req: undefined, res: r.event?.data ? { bytes: r.event.data.length, text: r.event.data } : undefined } : {}),
       });
       if (ep && !from.startsWith('?') && !isBrowser(from) && from !== 'runner') see({ s: `svc:${from}`, p: 'calls', o: ep });

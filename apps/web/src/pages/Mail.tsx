@@ -144,7 +144,7 @@ function Box({ env, idArg, head }: { env: string; idArg?: string; head: (right?:
       </div>
       {clearing && (
         <Dialog title="Vaciar el buzón" onClose={() => setClearing(false)}>
-          <p>Se borran los {d.counts.all} mensajes de {env}. Lo que importa de ellos ya está copiado, enmascarado, en los runs.</p>
+          <p>Se borran los {d.counts.all} mensajes de {env}. Lo que importa de ellos ya está copiado en los runs.</p>
           <div className="actions"><button type="button" className="btn" onClick={() => setClearing(false)}>Cancelar</button><button type="button" className="btn danger" onClick={() => void clear()}>Vaciar buzón</button></div>
         </Dialog>
       )}
@@ -202,9 +202,9 @@ function View({ env, id, reload }: { env: string; id: string; reload: () => void
         <h3>Origen</h3>
         <dl className="mbx-hdr"><dt>Servicio</dt><dd>{x.service ?? '—'}</dd><dt>Hora</dt><dd>{new Date(x.t).toLocaleTimeString('es')}</dd>{x.kind === 'mail' && <><dt>Estado</dt><dd>{SMS[x.status] ?? x.status}</dd></>}</dl>
         {x.lints.length > 0 && <ul className="mbx-lints">{x.lints.map((l) => <li key={l}>{LINT[l] ?? l}</li>)}</ul>}
-        {x.codes.length > 0 && <><h3>Códigos <span className="faint">sin enmascarar</span></h3><ul className="mbx-codes">{x.codes.map((c) => <li key={c}><code className="mono">{c}</code><button type="button" className="btn" onClick={() => copy(c)}>Copiar</button></li>)}</ul></>}
+        {x.codes.length > 0 && <><h3>Códigos</h3><ul className="mbx-codes">{x.codes.map((c) => <li key={c}><code className="mono">{c}</code><button type="button" className="btn" onClick={() => copy(c)}>Copiar</button></li>)}</ul></>}
         {x.links.length > 0 && (
-          <><h3>Enlaces <span className="faint">sin enmascarar</span></h3>
+          <><h3>Enlaces</h3>
             <ul className="mbx-links">{x.links.map((l, i) => (
               <li key={i}><span className={`tag ${l.class}`}>{CLASS[l.class] ?? l.class}</span> <span className="mono mbx-url">{l.url}</span>
                 {l.text && /^https?:\/\//i.test(l.text) && l.text !== l.url && <span className="mbx-warn">el texto dice una cosa y el enlace va a otra</span>}

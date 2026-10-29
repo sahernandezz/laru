@@ -96,7 +96,7 @@ function best(seen?: SeenEndpoint): Sample | undefined {
   return xs.find((x) => ok(x) && x.req?.text) ?? xs.find((x) => x.req?.text) ?? xs.find(ok) ?? xs[0];
 }
 
-const Source = ({ s }: { s: Sample }) => <p className="op-src"><Origin of="observed" label={false} />Ejemplo real, enmascarado: <a className="rowlink" href={href('runs', s.run, s.flow)}>run {s.run}</a> · {s.flow}</p>;
+const Source = ({ s }: { s: Sample }) => <p className="op-src"><Origin of="observed" label={false} />Ejemplo real: <a className="rowlink" href={href('runs', s.run, s.flow)}>run {s.run}</a> · {s.flow}</p>;
 
 function Request({ method, path, sample, mock }: { method: string; path: string; sample?: Sample; mock?: MockOperation }) {
   if (sample) {

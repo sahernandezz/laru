@@ -22,7 +22,7 @@ export function createServer(root: Workspace['root']): McpServer {
   const guide = existsSync(join(w0.root, 'CLAUDE.md')) || existsSync(join(w0.root, 'AGENTS.md'))
     ? 'Laru: this workspace\'s guide (the loop, how the documentation is written, how flows are tested) is in CLAUDE.md and AGENTS.md at its root; follow it. Start with `context` on what you will change, and `impact` after it.'
     : agentGuide(w0);
-  const server = new McpServer({ name: 'laru', version: '0.1.0-beta.7' }, { instructions: guide });
+  const server = new McpServer({ name: 'laru', version: '0.1.0-beta.8' }, { instructions: guide });
   // Every tool is kept by name, so the ones for stores this application does not have can be left out of the list.
   const tools = new Map<string, ReturnType<McpServer['registerTool']>>();
   const register = server.registerTool.bind(server);
@@ -141,7 +141,7 @@ export function createServer(root: Workspace['root']): McpServer {
   }, async ({ env }) => { const w = ws(), name = pickEnv(w, env); const r = await down(w, name); return text(`${name}: removed ${r.containers} containers, ${r.networks} networks, ${r.volumes} volumes${r.left.length ? `; still there: ${r.left.join(', ')}` : ''}`); });
 
   server.registerTool('env_logs', {
-    description: 'Last lines of one service of an env (or of all, prefixed), with secrets masked.',
+    description: 'Last lines of one service of an env (or of all, prefixed); secrets masked only with mask: true in ~/.laru/config.yaml.',
     inputSchema: { env: envArg, service: z.string().optional(), tail: z.number().int().min(1).max(500).default(80) }, annotations: { readOnlyHint: true },
   }, async ({ env, service, tail }) => {
     const w = ws(), name = pickEnv(w, env), m = masker(w, name), out: string[] = [];
@@ -150,7 +150,7 @@ export function createServer(root: Workspace['root']): McpServer {
   });
 
   server.registerTool('service_exec', {
-    description: 'Run sh -c inside a running service container. Output capped and masked; it can change the service.',
+    description: 'Run sh -c inside a running service container. Output capped (masked only with mask: true); it can change the service.',
     inputSchema: { env: envArg, service: z.string(), command: z.string() }, annotations: { destructiveHint: true },
   }, async ({ env, service, command }) => {
     const w = ws(), name = pickEnv(w, env);
@@ -184,7 +184,7 @@ export function createServer(root: Workspace['root']): McpServer {
   });
 
   server.registerTool('db_query', {
-    description: 'Run SQL as a read-only role (it cannot write). Output capped and masked.',
+    description: 'Run SQL as a read-only role (it cannot write). Output capped (masked only with mask: true).',
     inputSchema: { env: envArg, service, sql: z.string(), limit: z.number().int().min(1).max(500).default(100) }, annotations: { readOnlyHint: true },
   }, async ({ env, service: svc, sql, limit }) => {
     const w = ws(), name = pickEnv(w, env), s = await storeOf(w, name, svc);
@@ -280,9 +280,9 @@ export function createServer(root: Workspace['root']): McpServer {
   }, async ({ run }) => {
     const w = ws(), r = readRun(w, run);
     if (!r) return text(`no run ${run}`);
-    // Absolute paths: the trace can be read whole; the video is the one thing in it that is not masked.
+    // Absolute paths: the trace can be read whole.
     const dir = join(runsDir(w), r.id);
-    const files = (x: { trace?: string; video?: string }) => [x.trace ? `trace ${join(dir, x.trace)}` : '', x.video && existsSync(join(dir, x.video)) ? `video ${join(dir, x.video)} (sin enmascarar)` : ''].filter(Boolean).join(', ');
+    const files = (x: { trace?: string; video?: string }) => [x.trace ? `trace ${join(dir, x.trace)}` : '', x.video && existsSync(join(dir, x.video)) ? `video ${join(dir, x.video)}` : ''].filter(Boolean).join(', ');
     return text(`run ${r.id}: ${r.phase}, ${r.status}${r.error ? ` (${r.error})` : ''}\ndir ${dir}\n${Object.entries(r.results).map(([f, x]) => `${f}: ${x.status}${x.failedStep ? ` at step ${x.failedStep}` : ''}${files(x) ? `; ${files(x)}` : ''}`).join('\n')}`);
   });
 

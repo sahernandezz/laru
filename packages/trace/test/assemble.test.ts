@@ -327,3 +327,16 @@ test('Postgres behind the tap: a statement is its connection opener\'s, and carr
   assert.deepEqual(sql.result, { cols: ['id', 'name'], rows: [['7f', 'a.txt']], more: 0, tag: 'SELECT 1' });
   assert.equal(ex.some((e) => e.id === 'pg1'), false, 'a result is never a hop of its own');
 });
+
+test('an SSE event keeps its stream\'s User-Agent, even when the stream opened before the test', () => {
+  const UA = 'Mozilla HeadlessChrome/140';
+  const base = input();
+  const [a] = assemble({ ...base, traffic: [
+    rec('st', ip.runner, 'frontend', -5000, 3000, { path: '/api/events', reqHeaders: { 'user-agent': UA } }),
+    { v: 1, id: 'st.1', kind: 'sse', t0: T + 500, from: ip.runner, svc: 'frontend', port: 80, event: { name: 'file.ready', data: '{}' } },
+  ] }).traces;
+  const ev = a.exchanges.find((e) => e.id === 'st.1')!;
+  assert.equal(a.exchanges.some((e) => e.id === 'st'), false, 'the stream began outside the window');
+  assert.equal(ev.from, 'browser');
+  assert.equal(ev.reqHeaders?.['user-agent'], UA);
+});

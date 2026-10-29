@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync
 import { join } from 'node:path';
 import { parse } from 'yaml';
 import { stateDir, WorkspaceError, type Graph, type Workspace } from '@laru/core';
-import { createMasker, PROVIDER_HOSTS, readLearned, readMaskFile, type Masker } from '@laru/trace';
+import { maskerOf, PROVIDER_HOSTS, readLearned, readMaskFile, type Masker } from '@laru/trace';
 import type { EnvSpec } from './types.ts';
 
 export const ENV_KEYS = new Set(['from', 'join', 'share', 'extends', 'refs', 'persistent', 'services', 'hybrid', 'cache', 'resources', 'health', 'seed', 'mocks', 'faults', 'intercept', 'overlay', 'hosts', 'egress']);
@@ -253,10 +253,9 @@ export function envMasker(ws: Workspace, env: string, run?: string, o: { allowMi
   const file = join(envDir(ws, env), ...(run ? ['runs', run] : []), 'tap', 'mask.json');
   // A flow's environment has its own values: with its mask gone Laru cannot tell a secret from any other text there, so it shows nothing.
   if (isInstance(env) && !o.allowMissing && !existsSync(file)) throw new Error(`${env} has no mask of its own (it was never brought up, or was taken down): bring it up before looking inside`);
-  const { key, values } = readMaskFile(file);
   // what a mail or SMS sink learned (codes, tokens of its messages) is masked wherever Laru shows evidence
   const learned = readLearned(join(file, '..', 'learned.json'));
-  return createMasker([...values, ...learned], key, { short: learned });
+  return maskerOf(readMaskFile(file), learned, { short: learned });
 }
 
 /** JSON read from a store, masked as a JSON body is (secret-looking keys and known values, at any depth); the masked text when masking broke the JSON. */

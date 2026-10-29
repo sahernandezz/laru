@@ -14,7 +14,7 @@ import { createSecureContext, createServer as createTlsServer, type SecureContex
 import { basename, join } from 'node:path';
 import { pipeline, Transform, type Duplex, type Readable } from 'node:stream';
 import { StringDecoder } from 'node:string_decoder';
-import { createMasker, MASK_KEYS, readLearned, readMaskFile, type Masker } from '../../trace/src/mask.ts';
+import { MASK_KEYS, maskerOf, readLearned, readMaskFile, type Masker } from '../../trace/src/mask.ts';
 import { pgWatcher, type PgResult } from './pg.ts';
 import type { FaultRule, MockSpec, TapConfig, TapRoute, TapRules, TrafficRecord } from '../src/types.ts';
 import { loadMock, type Mock } from './mocks.ts';
@@ -453,7 +453,7 @@ export async function startTap(o: { config: TapConfig; rules: TapRules; masker: 
       if (!hit) { log(`pg on ${port} from ${peer(client)}: no route on that network`); return void client.destroy(); }
       const from = peer(client);
       const w = pgWatcher((r: PgResult) => {
-        const hide = r.cols.map((c) => MASK_KEYS.test(c));
+        const hide = r.cols.map((c) => masker.on && MASK_KEYS.test(c));
         const now = Date.now();
         journal.write({ v: 1, id: randomUUID(), kind: 'pg', t0: now, t1: now, from, svc: hit.route.svc, port: hit.port, pg: {
           ...r, stmt: masker.text(r.stmt), rows: r.rows.map((row) => row.map((v, i) => (hide[i] && v !== 'NULL' ? '••••' : masker.text(v)))), ...(r.error ? { error: masker.text(r.error) } : {}),
@@ -584,12 +584,11 @@ export async function runTap(dir: string, host?: string): Promise<Tap> {
   const file = (f: string) => join(dir, f);
   const rules = (): TapRules => ({ seed: 0, faults: {}, mocks: {}, peers: {}, ...(existsSync(file('rules.json')) ? JSON.parse(readFileSync(file('rules.json'), 'utf8')) : {}) });
   const masker = () => {
-    const { key, values } = readMaskFile(file('mask.json'));
     const learned = readLearned(file('learned.json'));
-    return createMasker([...values, ...learned], key, { short: learned });
+    return maskerOf(readMaskFile(file('mask.json')), learned, { short: learned });
   };
   const root = existsSync('/ks/mocks') ? '/ks/mocks' : join(dir, '..', '..', '..', '..', 'mocks');
-  const tap = await startTap({ config: JSON.parse(readFileSync(file('routes.json'), 'utf8')), rules: rules(), masker: masker(), out: dir, host, mocks: { root, openapiDir: file('mocks') }, learned: { file: file('learned.json'), rebuild: masker, vault: () => { const { key, values } = readMaskFile(file('mask.json')); return createMasker(values, key); } } });
+  const tap = await startTap({ config: JSON.parse(readFileSync(file('routes.json'), 'utf8')), rules: rules(), masker: masker(), out: dir, host, mocks: { root, openapiDir: file('mocks') }, learned: { file: file('learned.json'), rebuild: masker, vault: () => maskerOf(readMaskFile(file('mask.json'))) } });
   const watch = (f: string, what: string, apply: () => void) => watchFile(file(f), { interval: 500 }, () => {
     try {
       apply();

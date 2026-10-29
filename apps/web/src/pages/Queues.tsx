@@ -43,7 +43,7 @@ export function Queues({ parts }: { parts: string[] }) {
 
   const head = (
     <div className="head">
-      <div><h1>Colas</h1><p>Los brokers del entorno: los temas de Kafka con lo que lleva cada consumidor de retraso, y las colas de RabbitMQ con sus enlaces. Los mensajes se ven enmascarados; publicar enseña antes el mensaje exacto.</p></div>
+      <div><h1>Colas</h1><p>Los brokers del entorno: los temas de Kafka con lo que lleva cada consumidor de retraso, y las colas de RabbitMQ con sus enlaces. Publicar enseña antes el mensaje exacto.</p></div>
       <div className="actions">
         {list.length > 1 && <nav className="seg" aria-label="Entorno">{list.map((e) => <a key={e.env} href={href('queues', e.env)} aria-current={e.env === env ? 'page' : undefined}>{e.env}</a>)}</nav>}
         {env && broker && (brokers.data?.length ?? 0) > 1 && (

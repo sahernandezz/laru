@@ -676,7 +676,7 @@ test('the tap as a script: hot-reloaded rules and mask.json, 20 MB streamed uplo
   const [SVC, ENTRANCE] = await freePorts(2);
   writeFileSync(join(dir, 'routes.json'), JSON.stringify({ app: 'vaultflow', env: 'local', entrance: ENTRANCE, routes: [route('file-service', SVC, upPort)] }));
   const maskFile = join(dir, 'mask.json');
-  writeMaskFile(maskFile, [SECRET]);
+  writeMaskFile(maskFile, [SECRET], true);
   const key = readMaskFile(maskFile).key;
   const MARK_K = createMasker([SECRET], key).text(SECRET);
   const child = spawn(process.execPath, [TAP, dir, '127.0.0.1'], { stdio: ['ignore', 'inherit', 'inherit'] });
@@ -784,7 +784,7 @@ test('the tap as a script: hot-reloaded rules and mask.json, 20 MB streamed uplo
     const reloads = () => (readFileSync(join(dir, 'tap.log'), 'utf8').match(/mask reloaded/g) ?? []).length;
     const before = reloads();
     const t0 = Date.now();
-    writeMaskFile(maskFile, [SECRET, NEW, pem]);
+    writeMaskFile(maskFile, [SECRET, NEW, pem], true);
     await waitFor('mask reloaded', () => reloads() > before, 2000);
     assert.ok(Date.now() - t0 < 1000, `reloaded after ${Date.now() - t0} ms`);
     assert.equal(readMaskFile(maskFile).key, key, 'the key is kept');

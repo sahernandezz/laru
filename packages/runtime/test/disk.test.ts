@@ -124,7 +124,7 @@ test('config.yaml: defaults when absent; a write keeps the other keys and the co
   const saved = process.env.LARU_HOME;
   process.env.LARU_HOME = mkdtempSync(join(tmpdir(), 'laru-config-'));
   t.after(() => { if (saved === undefined) delete process.env.LARU_HOME; else process.env.LARU_HOME = saved; });
-  assert.deepEqual(readConfig(), { maxEnvs: 0, videoOffsetMs: 0, retention: { videoDays: 7, runDays: 30, maxGB: 5 }, workers: 0, stepHoldMs: 0 });
+  assert.deepEqual(readConfig(), { maxEnvs: 0, videoOffsetMs: 0, retention: { videoDays: 7, runDays: 30, maxGB: 5 }, workers: 0, stepHoldMs: 0, mask: false });
   writeFileSync(join(process.env.LARU_HOME, 'config.yaml'), 'stepHoldMs: -5\n');
   assert.equal(readConfig().stepHoldMs, 0, 'a negative hold is no hold');
   writeFileSync(join(process.env.LARU_HOME, 'config.yaml'), 'stepHoldMs: 1500\n');
@@ -134,7 +134,7 @@ test('config.yaml: defaults when absent; a write keeps the other keys and the co
   writeConfig({ retention: { videoDays: 3 } });
   const text = readFileSync(join(process.env.LARU_HOME, 'config.yaml'), 'utf8');
   assert.match(text, /^# measured by laru calibrate\nvideoOffsetMs: -10\nmaxEnvs: 2\nretention:\n  videoDays: 3\n$/);
-  assert.deepEqual(readConfig(), { maxEnvs: 2, videoOffsetMs: -10, retention: { videoDays: 3, runDays: 30, maxGB: 5 }, workers: 0, stepHoldMs: 0 });
+  assert.deepEqual(readConfig(), { maxEnvs: 2, videoOffsetMs: -10, retention: { videoDays: 3, runDays: 30, maxGB: 5 }, workers: 0, stepHoldMs: 0, mask: false });
 });
 
 test('retention counts the raw media the runner left, in out/results and out/results-<n>, and nothing a link of the runner points at', async (t) => {
