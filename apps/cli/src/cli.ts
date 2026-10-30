@@ -56,7 +56,7 @@ const HELP = `laru — a workspace around your application's repositories
   laru test --failed [--worktree]       play again the flows whose last result failed unexpectedly (known deviations, // app:, are green); with --affected: both, built from the working copy
   laru findings [--json] | findings accept <key> --reason "…" [--until YYYY-MM-DD]
   laru hook pre-edit|post-edit|pre-bash|stop   Claude Code hooks (JSON on stdin)
-  laru calibrate [--runs 3]             measure the video clock against the trace clock (host ffmpeg)
+  laru calibrate [--runs 3]             measure the video clock against the trace clock (ffmpeg)
   laru behavior show|diff|approve <flow> [--run id | --runs a,b | --last n]   a flow's approved behavior (behavior.yaml), a run's drift from it, or approve a run's
   laru fidelity [env]                   how much the env looks like production: each participant against what the repos say production runs
   laru scenario [list] | apply <scn:x> [--env e] [--yes] | provision <scn:x> [--env e] [--yes]   named states of the system: applied in seconds from snapshots, or by playing their setup again (a persistent env says what it would delete and needs --yes)
@@ -81,7 +81,7 @@ const HELP = `laru — a workspace around your application's repositories
   laru prune [runs] [snapshots] [images] [shadow] [--dry-run]   retention now: what goes is listed first with --dry-run
   laru doctor [--fix]                  what this machine needs (Docker, WSL2, the vault key); --fix sets up Docker Engine in Linux and WSL2 so it answers (each sudo command shown first)
   laru mcp                             MCP server over stdio, for Claude Code
-  laru serve [--port 4100] [--quiet] [--token] | serve --stop   one service for every workspace, on 127.0.0.1 only; --token asks for a sign-in
+  laru serve [--port 4100] [--quiet] | serve --stop   one service for every workspace, on 127.0.0.1 only; open it at the address it prints (its token signs this browser in)
   laru open                            start the service if it is not running and print this workspace's address
 `;
 
@@ -294,14 +294,13 @@ export async function run(argv: string[], io: Out = stdio, cwd = process.cwd()):
         const address = (info: { port: number; token?: string | null }) => `http://127.0.0.1:${info.port}${root ? `/w/${encodeURIComponent(idOf(root) ?? '')}/` : '/'}${info.token ? `?token=${info.token}` : ''}`;
         const live = await d.liveDaemon();
         if (live) {
-          if (o.token && !live.token) io.err('The running service asks for no token. To ask for one: laru serve --stop, then laru open --token.');
           if (cmd === 'open') io.log(address(live)); else if (!o.quiet) io.log(`Laru is already running on 127.0.0.1:${live.port}. Open:\n  ${address(live)}`);
           return 0;
         }
         if (cmd === 'open') {
           // Detached, quiet: the token never reaches its log. Nothing launches a browser (that would put it on argv).
           const log = openSync(join(laruHome(), 'daemon.log'), 'a');
-          spawn(process.execPath, [join(import.meta.dirname, '..', 'bin', 'laru.js'), 'serve', '--quiet', ...(o.token ? ['--token'] : []), ...(o.port ? ['--port', String(o.port)] : [])], { detached: true, stdio: ['ignore', log, log], cwd }).unref();
+          spawn(process.execPath, [join(import.meta.dirname, '..', 'bin', 'laru.js'), 'serve', '--quiet', ...(o.port ? ['--port', String(o.port)] : [])], { detached: true, stdio: ['ignore', log, log], cwd }).unref();
           let info = null;
           for (let i = 0; i < 75 && !info; i++) { await new Promise((r) => setTimeout(r, 200)); info = await d.liveDaemon(); }
           if (!info) { io.err(`The Laru service did not start; see ${join(laruHome(), 'daemon.log')}`); return 1; }
@@ -312,7 +311,7 @@ export async function run(argv: string[], io: Out = stdio, cwd = process.cwd()):
         const first = Number(o.port ?? 4100), tries = o.port ? 1 : 10;
         let server;
         for (let port = first; !server; port++) {
-          try { server = await d.startDaemon(port, undefined, { token: Boolean(o.token) }); }
+          try { server = await d.startDaemon(port, undefined, d.serveOptions()); }
           catch (e) {
             if ((e as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw e;
             if (await d.olderLaru(port)) { io.err(`An older Laru is listening on 127.0.0.1:${port} (one workspace per process). Stop it (Ctrl-C in its terminal, or kill $(lsof -tiTCP:${port} -sTCP:LISTEN)) and run laru serve again.`); return 1; }

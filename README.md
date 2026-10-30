@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Versión" src="https://img.shields.io/badge/versi%C3%B3n-0.1.0--beta.12-22D3EE">
+  <img alt="Versión" src="https://img.shields.io/badge/versi%C3%B3n-0.1.0--beta.13-22D3EE">
   <img alt="Licencia" src="https://img.shields.io/badge/licencia-FSL--1.1--ALv2-0E3B45">
   <img alt="Node" src="https://img.shields.io/badge/node-%E2%89%A5%2024-3c873a">
   <img alt="Local" src="https://img.shields.io/badge/todo%20corre-en%20tu%20m%C3%A1quina-444">
@@ -169,9 +169,11 @@ seis oscuras y dos claras, con el contraste medido en todas. Se aplica al moment
 - **Node.js 24** o superior y **pnpm 10**.
 - **Docker** con Docker Compose.
 - **Git.**
-- **Opcionales:**
-  - Google Chrome, para usar el aplicativo dentro de Laru en las sesiones en vivo;
-  - `ffmpeg`, para unir en un solo vídeo las pantallas de una prueba con varios usuarios.
+- **Opcional:** Google Chrome, para usar el aplicativo dentro de Laru en las sesiones en vivo.
+
+`ffmpeg` no hace falta instalarlo: `pnpm install` descarga uno para tu sistema
+([ffmpeg-static](https://www.npmjs.com/package/ffmpeg-static)). Laru lo usa para sincronizar el vídeo de cada prueba con su traza,
+grabar las sesiones en vivo y unir en un solo vídeo las pantallas de una prueba con varios usuarios.
 
 ### Instalación
 
@@ -241,7 +243,11 @@ laru session start --browser                        # usar el aplicativo en vivo
 
 - **Nada se instala dentro de tus repositorios.** El workspace guarda la documentación y la configuración aparte.
 - **El servicio solo escucha en tu máquina.** Responde únicamente a `127.0.0.1` y `localhost`. Rechaza peticiones de otras páginas y que lo incrusten en otra web.
-- **En una máquina compartida:** `laru serve --token` pide iniciar sesión.
+- **Y solo a tu navegador.** La dirección que da `laru open` lleva un token que deja a ese navegador una cookie; sin ella, nada responde.
+  Así un contenedor de tus entornos, que llega al `127.0.0.1` de tu máquina por `host.docker.internal`, no puede leer tus secretos ni lanzar nada.
+  La cookie sigue valiendo aunque el servicio se reinicie.
+- **Un workspace es código que se ejecuta.** `laru up` y `laru test` corren los flujos del workspace y el compose de sus proyectos tal cual
+  (volúmenes, privilegios…). Abre así solo los de gente en la que confías, como harías al clonar un repositorio y ejecutar sus pruebas.
 - **Secretos:** van cifrados en disco y enmascarados en las trazas, los logs y los cuerpos que se muestran.
 - **Correos y SMS:** los que envía tu aplicativo en un entorno se quedan en ese entorno.
 

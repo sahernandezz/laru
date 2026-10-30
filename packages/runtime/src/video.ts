@@ -2,14 +2,14 @@
  * One video for a flow that was played on several screens (Ana's browser beside Luis's, or the front of one app beside
  * the front of another): every screen's own video side by side on the clock of the main one, each starting when its
  * person opened it. A page nobody had opened yet records a magenta placeholder; it is drawn black here. Made on the
- * first request with the host's ffmpeg and kept beside the others (`video-all.mp4`).
+ * first request with ffmpeg and kept beside the others (`video-all.mp4`).
  */
 import { spawn } from 'node:child_process';
 import { existsSync, readFileSync, realpathSync, renameSync, rmSync, statSync } from 'node:fs';
 import { join, sep } from 'node:path';
 import type { Trace } from '@laru/trace';
 import type { Workspace } from '@laru/core';
-import { flowDir, readRun, runDir } from './runs.ts';
+import { FFMPEG, flowDir, readRun, runDir } from './runs.ts';
 
 const TILE = { w: 960, h: 540 };
 /** what the runner wrote in trace.json and run.json is a name or a path inside the run, never a way out of it */
@@ -53,11 +53,11 @@ async function make(ws: Workspace, id: string, slug: string): Promise<string> {
   rmSync(tmp, { force: true });
   try {
     await new Promise<void>((done, fail) => {
-      const p = spawn('ffmpeg', ['-loglevel', 'error', '-y', ...inputs.flatMap((f) => ['-i', f]), '-filter_complex', graph([0, ...screens.map((s) => s.startMs)]), '-map', '[out]',
+      const p = spawn(FFMPEG, ['-loglevel', 'error', '-y', ...inputs.flatMap((f) => ['-i', f]), '-filter_complex', graph([0, ...screens.map((s) => s.startMs)]), '-map', '[out]',
         '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '26', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', tmp], { stdio: ['ignore', 'ignore', 'pipe'] });
       let err = '';
       p.stderr.on('data', (c) => (err += c));
-      p.on('error', () => fail(new Error('ffmpeg is not installed on this machine')));
+      p.on('error', () => fail(new Error('no ffmpeg: reinstall Laru (pnpm install) or install ffmpeg')));
       p.on('close', (code) => (code === 0 ? done() : fail(new Error(`ffmpeg failed: ${err.trim().split('\n').pop()}`))));
     });
     renameSync(tmp, out);

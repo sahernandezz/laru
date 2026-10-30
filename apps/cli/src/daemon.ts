@@ -41,7 +41,7 @@ export function traceViewerDir(): string | null {
   } catch { viewerDir = null; }
   return viewerDir;
 }
-export const VERSION = '0.1.0-beta.12';
+export const VERSION = '0.1.0-beta.13';
 
 
 export interface Daemon { url: string; port: number; token: string | null; close: () => Promise<void> }
@@ -680,9 +680,15 @@ export function makeApi(root: Workspace['root']): { api: Record<string, Handler>
   return { api, streams };
 }
 
-export async function startDaemon(port = 4100, webDist = WEB_DIST, o: { token?: boolean } = {}): Promise<Daemon> {
+/**
+ * `token`: the API and the pages need the session cookie, handed out for the token. `laru serve` always asks for it: a
+ * container reaches 127.0.0.1 through host.docker.internal (Docker Desktop, OrbStack) with any Host header it likes and
+ * no Sec-Fetch-Site, so only a secret keeps the app under test, an image of the compose or a spec out. `session`: the
+ * cookie's value, kept across starts (sessionSecret) so a restart does not sign the browser out.
+ */
+export async function startDaemon(port = 4100, webDist = WEB_DIST, o: { token?: boolean; session?: string } = {}): Promise<Daemon> {
   const token = o.token ? randomBytes(24).toString('base64url') : null;
-  const session = randomBytes(24).toString('base64url');
+  const session = o.session ?? randomBytes(24).toString('base64url');
   // One handler table per workspace root, made on its first request: each keeps its own ops, memos and streams.
   const apis = new Map<string, ReturnType<typeof makeApi>>();
   const apiOf = (root: string) => apis.get(root) ?? apis.set(root, makeApi(root)).get(root)!;
@@ -707,11 +713,13 @@ export async function startDaemon(port = 4100, webDist = WEB_DIST, o: { token?: 
       // Whether a Laru answers here, and which (its pid: daemon.json's file is checked against it): no session needed.
       if (url.pathname === '/api/ping') return json(res, 200, { laru: VERSION, pid: process.pid });
 
-      // An address with a token from an earlier start: without one asked, it is just dropped.
+      // The token is exchanged for the cookie. One from an earlier start is dropped for whoever has the cookie already
+      // (an old address, a bookmark) and refused to anyone else; with no token asked, it is just dropped.
       if (url.searchParams.has('token')) {
-        if (token && !same(url.searchParams.get('token')!, token)) { res.writeHead(403).end('Wrong token'); return; }
+        const good = token !== null && same(url.searchParams.get('token')!, token);
+        if (token && !good && !authed) { res.writeHead(403).end('Wrong token'); return; }
         url.searchParams.delete('token');
-        res.writeHead(303, { ...(token ? { 'set-cookie': `laru_${actual}=${session}; HttpOnly; SameSite=Strict; Path=/` } : {}), location: url.pathname + url.search + url.hash });
+        res.writeHead(303, { ...(good ? { 'set-cookie': `laru_${actual}=${session}; HttpOnly; SameSite=Strict; Path=/` } : {}), location: url.pathname + url.search + url.hash });
         res.end();
         return;
       }
@@ -747,7 +755,7 @@ export async function startDaemon(port = 4100, webDist = WEB_DIST, o: { token?: 
         res.end(readFileSync(file));
         return;
       }
-      if (!authed) { res.writeHead(401, { 'content-type': 'text/plain; charset=utf-8' }).end('Open the address printed by `laru serve` (it carries a one-time token).'); return; }
+      if (!authed) { res.writeHead(401, { 'content-type': 'text/plain; charset=utf-8' }).end('Laru: abre la dirección que da `laru open` (lleva el token que da acceso a este navegador).'); return; }
       // Static: the built interface, with index.html for every other path.
       const file = normalize(join(webDist, url.pathname));
       // inside the built folder itself, not a sibling whose name starts the same (dist-old/…); `sep`: Windows paths use \
@@ -839,6 +847,20 @@ export function writeDaemonFile(d: Daemon): DaemonInfo {
   renameSync(tmp, daemonFile());
   return info;
 }
+/** The session cookie's value, kept in ~/.laru/session (0600) so a browser stays signed in across restarts; made once. */
+export function sessionSecret(): string {
+  const file = join(laruHome(), 'session');
+  try { const s = readFileSync(file, 'utf8').trim(); if (/^[\w-]{32,}$/.test(s)) return s; } catch { /* none yet */ }
+  const s = randomBytes(24).toString('base64url');
+  mkdirSync(laruHome(), { recursive: true });
+  const tmp = `${file}.${process.pid}`;
+  writeFileSync(tmp, s, { mode: 0o600 });
+  chmodSync(tmp, 0o600);
+  renameSync(tmp, file);
+  return s;
+}
+/** How `laru serve` starts the service: with the token, always, and the session kept across starts. */
+export const serveOptions = () => ({ token: true, session: sessionSecret() });
 export function removeDaemonFile(): void {
   if (readDaemonFile()?.pid === process.pid) rmSync(daemonFile(), { force: true });
 }

@@ -8,7 +8,7 @@ import { appHome, idOf, initWorkspace, laruHome, knowledgeWrite, loadRegistry, l
 import { envLock, hold } from '@laru/runtime';
 import { makeFixture } from '../../../packages/core/test/fixture.ts';
 import { run } from '../src/cli.ts';
-import { daemonFile, liveDaemon, olderLaru, PROBE_CAP, probeFolder, readDaemonFile, removeDaemonFile, startDaemon, writeDaemonFile } from '../src/daemon.ts';
+import { daemonFile, liveDaemon, olderLaru, PROBE_CAP, probeFolder, readDaemonFile, removeDaemonFile, serveOptions, sessionSecret, startDaemon, writeDaemonFile } from '../src/daemon.ts';
 
 /** fetch() cannot set Host, so the rebinding check is exercised with node:http. */
 const get = (url: string, headers: Record<string, string> = {}) => new Promise<{ status: number; headers: Record<string, string | string[] | undefined>; body: string }>((ok, fail) => {
@@ -106,6 +106,32 @@ test('the local service started with --token: token once, cookie after, localhos
   }
 });
 
+test('as laru serve starts it: a container that reaches 127.0.0.1 gets nothing without the cookie, which outlives a restart', async () => {
+  const fx = makeFixture();
+  await run(['init', join(fx.tmp, 'ws'), '--app', 'comercio'], { log: () => {}, err: () => {} });
+  const secret = sessionSecret();
+  assert.equal(sessionSecret(), secret, 'made once, then read');
+  assert.equal(statSync(join(laruHome(), 'session')).mode & 0o777, 0o600);
+  let d = await startDaemon(0, undefined, serveOptions());
+  try {
+    const base = new URL(d.url).origin;
+    // what a container sends through host.docker.internal: the Host it likes, no Sec-Fetch-Site, no cookie
+    const container = { host: `127.0.0.1:${d.port}` };
+    for (const path of ['/api/workspaces', '/api/w/comercio/workspace', '/api/w/comercio/vars/values', '/w/comercio/']) assert.equal((await get(`${base}${path}`, container)).status, 401, path);
+    assert.equal((await get(`${base}/api/ping`, container)).status, 200, 'only whether a Laru answers');
+    const cookie = String((await get(d.url)).headers['set-cookie']).split(';')[0].split('=')[1];
+    const stale = d.url;
+    await d.close();
+    // a restart: a new token, the same session
+    d = await startDaemon(0, undefined, serveOptions());
+    const again = new URL(d.url).origin, jar = { cookie: `laru_${d.port}=${cookie}` };
+    assert.equal((await get(`${again}/api/w/comercio/workspace`, jar)).status, 200, 'still signed in');
+    const old = await get(stale.replace(/:\d+\//, `:${d.port}/`), jar);
+    assert.deepEqual([old.status, old.headers['set-cookie']], [303, undefined], 'an old address is dropped for whoever has the cookie');
+    assert.equal((await get(stale.replace(/:\d+\//, `:${d.port}/`))).status, 403, 'and refused to anyone else');
+  } finally { await d.close(); }
+});
+
 test('the local service by default: no sign-in asked, and the walls that keep a web page of this machine out stay', async () => {
   const fx = makeFixture();
   const quiet = { log: () => {}, err: () => {} };
@@ -159,7 +185,7 @@ test('one service, several workspaces: each under its id, the machine beside the
   try {
     const base = new URL(d.url).origin;
     const ping = await get(`${base}/api/ping`);
-    assert.deepEqual([ping.status, JSON.parse(ping.body)], [200, { laru: '0.1.0-beta.12', pid: process.pid }], 'ping needs no session and says only the version and whose it is');
+    assert.deepEqual([ping.status, JSON.parse(ping.body)], [200, { laru: '0.1.0-beta.13', pid: process.pid }], 'ping needs no session and says only the version and whose it is');
     const cookie = String((await get(d.url.replace('/?', '/w/finanzas/?'))).headers['set-cookie']).split(';')[0];
     const call = async (method: string, path: string, body?: unknown) => new Promise<{ status: number; json: any }>((ok, fail) => {
       const req = request(`${base}${path}`, { method, headers: { cookie, ...(body ? { 'content-type': 'application/json' } : {}) } }, (res) => { let t = ''; res.on('data', (c) => (t += c)); res.on('end', () => ok({ status: res.statusCode!, json: t ? JSON.parse(t) : null })); });

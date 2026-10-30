@@ -33,3 +33,26 @@ test('a screen is a name inside the flow: what trace.json says cannot reach outs
   writeFileSync(join(run, 'flows', 'f', 'trace.json'), JSON.stringify({ screens: [{ name: 'luis', video: 'video-luis.webm', startMs: 1 }] }));
   await assert.rejects(combineScreens(ws, '1', 'f'), /one screen/, 'a link out of the flow is dropped');
 });
+
+test('the ffmpeg Laru installs makes what it asks of it: the joint video, and a session video from piped frames', async () => {
+  const { execFileSync, spawnSync } = await import('node:child_process');
+  const { existsSync, mkdtempSync, mkdirSync, statSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { combineScreens } = await import('../src/video.ts');
+  const { FFMPEG } = await import('../src/runs.ts');
+  assert.ok(existsSync(FFMPEG), 'ffmpeg-static, not one the machine must have');
+  const root = mkdtempSync(join(tmpdir(), 'ks-ffmpeg-'));
+  const dir = join(root, '.laru', 'runs', '1', 'flows', 'f');
+  mkdirSync(dir, { recursive: true });
+  const clip = (file: string, color: string) => execFileSync(FFMPEG, ['-loglevel', 'error', '-f', 'lavfi', '-i', `color=c=${color}:s=320x240:d=1`, '-c:v', 'libvpx', join(dir, file)]);
+  clip('video.webm', 'blue'); clip('video-luis.webm', 'magenta');
+  writeFileSync(join(dir, 'trace.json'), JSON.stringify({ screens: [{ name: 'luis', video: 'video-luis.webm', startMs: 300 }] }));
+  writeFileSync(join(root, '.laru', 'runs', '1', 'run.json'), JSON.stringify({ id: '1', results: { f: { status: 'passed', video: 'flows/f/video.webm', trace: 'flows/f/trace.json' } } }));
+  assert.equal(await combineScreens({ root, app: 'x' } as never, '1', 'f'), 'flows/f/video-all.mp4');
+  assert.ok(statSync(join(dir, 'video-all.mp4')).size > 0);
+  // the session's way: JPEG frames on stdin, VP8 out
+  const jpeg = execFileSync(FFMPEG, ['-loglevel', 'error', '-f', 'lavfi', '-i', 'color=c=green:s=320x240:d=1', '-frames:v', '1', '-f', 'mjpeg', '-']);
+  const live = spawnSync(FFMPEG, ['-loglevel', 'error', '-y', '-f', 'image2pipe', '-framerate', '10', '-c:v', 'mjpeg', '-i', 'pipe:0', '-c:v', 'libvpx', '-deadline', 'realtime', '-pix_fmt', 'yuv420p', join(root, 'session.webm')], { input: Buffer.concat([jpeg, jpeg, jpeg]) });
+  assert.equal(live.status, 0, String(live.stderr));
+});

@@ -16,7 +16,7 @@ import { checkFlowSpec, knowledgeWrite, loadGraph, loadKnowledge, slugify, specP
 import { assemble, draftFromSession, scenarioFromSession, sessionEvents, type RunInfo, type SessionBrowserLog, type Trace } from '@laru/trace';
 import { envMasker, isInstance, loadEnvSpec } from './env.ts';
 import { instanceNarrowed, widenInstance } from './flowenv.ts';
-import { baseUrl, capture, captureMemo, keepEvidence, nextId, readRun, readTrace, recordObserved, runDir, withFields, type CaptureMemo } from './runs.ts';
+import { baseUrl, capture, captureMemo, FFMPEG, keepEvidence, nextId, readRun, readTrace, recordObserved, runDir, withFields, type CaptureMemo } from './runs.ts';
 import { applyScenario, scenarioStorage } from './scenarios.ts';
 import { status } from './up.ts';
 
@@ -345,13 +345,13 @@ export function screenOf(ws: Workspace, id: string): { port: number; token: stri
 }
 
 /**
- * Chrome's screencast: each frame to whoever watches the screen, and the video with the host's ffmpeg (Laru already
- * needs it to calibrate), not Playwright's own, which it would download. The newest frame is repeated at 10 per second
+ * Chrome's screencast: each frame to whoever watches the screen, and the video with ffmpeg (the one Laru
+ * installs), not Playwright's own, which it would download. The newest frame is repeated at 10 per second
  * so the video's frame n is `t0 + n × 100 ms`: a person's pace, at a ninth of the CPU of 25 per second (0.8 s for 10 s
  * of video against 7.2 s, measured on a still frame; a session of 51 minutes held four cores at 25).
  */
 async function screencast(page: import('playwright-core').Page, file: string) {
-  const ff = spawn('ffmpeg', ['-loglevel', 'error', '-y', '-f', 'image2pipe', '-framerate', String(FPS), '-c:v', 'mjpeg', '-i', 'pipe:0',
+  const ff = spawn(FFMPEG, ['-loglevel', 'error', '-y', '-f', 'image2pipe', '-framerate', String(FPS), '-c:v', 'mjpeg', '-i', 'pipe:0',
     '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2', '-c:v', 'libvpx', '-b:v', '600k', '-deadline', 'realtime', '-cpu-used', '16', '-threads', '2', '-pix_fmt', 'yuv420p', file], { stdio: ['pipe', 'ignore', 'inherit'] });
   const exited = new Promise<number | null>((res) => { ff.on('exit', res); ff.on('error', () => res(null)); });
   ff.stdin.on('error', () => undefined);

@@ -10,3 +10,8 @@ overrides:
   "lodash-es@<4.18.0": "^4.18.1"
   "katex@<0.18.2": "^0.18.2"
   "body-parser@<2.4.0": "^2.4.0"
+
+# Packages whose install script may run: ffmpeg-static downloads its ffmpeg binary for this machine (optional: a
+# failed download, or a system with no build, leaves it out and Laru uses the machine's ffmpeg).
+onlyBuiltDependencies:
+  - ffmpeg-static

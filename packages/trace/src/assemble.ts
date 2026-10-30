@@ -48,7 +48,7 @@ export interface AssembleInput {
   hybrid?: string[];
   map?: MapLike;
   videoOffsetMs?: number;
-  /** `<test>|<screen>` → the offset of that screen's video, from the marker found in it (the test's other browsers); one without (no ffmpeg on the host) starts by videoOffsetMs, as the main video does */
+  /** `<test>|<screen>` → the offset of that screen's video, from the marker found in it (the test's other browsers); one without (no ffmpeg) starts by videoOffsetMs, as the main video does */
   screenOffsets?: Record<string, number>;
   /** test → its measured offset (from the marker found in its own video); wins over videoOffsetMs */
   offsets?: Record<string, number>;

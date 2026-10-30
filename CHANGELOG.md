@@ -6,6 +6,20 @@ Todos los cambios de Laru que importan a quien lo usa quedan aquí. El formato s
 
 ## [Sin publicar]
 
+## [0.1.0-beta.13] - 2026-10-30
+
+### Seguridad
+
+- **El servicio pide siempre el token:** cualquier contenedor de tus entornos (el aplicativo bajo prueba, una imagen del compose, un flujo) llegaba al `127.0.0.1` de tu máquina por `host.docker.internal` y podía usar la API entera sin identificarse: leer los secretos, cambiar variables, lanzar runs o consultar las bases de datos. Ahora `laru serve` y `laru open` piden siempre el token (ya no hace falta `--token`): ábrelo con la dirección que da `laru open`. La cookie se guarda en `~/.laru/session` y sigue valiendo tras reiniciar el servicio, y una dirección vieja con otro token ya no da error a quien la tiene.
+
+### Cambiado
+
+- **ffmpeg viene con Laru:** `pnpm install` descarga un ffmpeg para tu sistema ([ffmpeg-static](https://www.npmjs.com/package/ffmpeg-static)), así que ya no hay que instalarlo. Sin él, el vídeo de una prueba se alineaba con su traza por un desfase fijo en vez de por su marca, las sesiones en vivo no tenían vídeo y no se podían unir las pantallas de una prueba con varios usuarios. Es opcional: si tu sistema no tiene build de ffmpeg-static o la descarga falla (sin red, por ejemplo), la instalación sigue y Laru usa el `ffmpeg` que tengas instalado.
+
+### Corregido
+
+- **El rótulo del paso, una sola vez en el estudio:** al reproducir el vídeo de un flujo se veía dos veces, el que el vídeo trae grabado (abajo a la izquierda) y otro que el estudio pintaba encima. Ahora el estudio solo pinta el suyo cuando no hay vídeo o el run es una sesión en vivo, cuyo vídeo no lo trae. El `video.webm` suelto conserva su rótulo.
+
 ## [0.1.0-beta.12] - 2026-10-29
 
 ### Cambiado
@@ -214,7 +228,8 @@ Primera beta pública.
   - `CLAUDE.md` y `AGENTS.md` generados.
   - Hooks para Claude Code.
 
-[Sin publicar]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.12...HEAD
+[Sin publicar]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.13...HEAD
+[0.1.0-beta.13]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.12...v0.1.0-beta.13
 [0.1.0-beta.12]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.11...v0.1.0-beta.12
 [0.1.0-beta.11]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.10...v0.1.0-beta.11
 [0.1.0-beta.10]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.9...v0.1.0-beta.10

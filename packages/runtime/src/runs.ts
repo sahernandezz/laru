@@ -7,6 +7,7 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { appendFileSync, closeSync, existsSync, fstatSync, mkdirSync, openSync, readdirSync, readSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { basename, dirname, join, relative } from 'node:path';
 import { loadGraph, loadKnowledge, parseLimit, shareEvidence, stateDir, type Row, type Workspace } from '@laru/core';
 import { parse } from 'yaml';
@@ -554,7 +555,7 @@ export async function runFlows(ws: Workspace, o: RunOptions): Promise<RunInfo> {
       if (exit !== 0 && !ev.some((e) => e.e === 'test-end')) throw new Error(`the runner exited with ${exit} before any test ran; see .laru/runs/${id}/out/runner.log`);
       let map = null;
       try { map = loadGraph(ws).map; } catch { /* no map: participants keep their names */ }
-      // Each recorded story's own offset, from the marker it drew at a known instant (host ffmpeg).
+      // Each recorded story's own offset, from the marker it drew at a known instant (ffmpeg).
       const offsets: Record<string, number> = {};
       for (const e of ev) {
         if (e.e !== 'marker') continue;
@@ -910,13 +911,22 @@ export async function calibrate(ws: Workspace, runs = 3, onLine?: (l: string) =>
   return { offsets, mean, spread: Math.max(...offsets) - Math.min(...offsets) };
 }
 
-/** ms from the start of a video to its first magenta frame (U and V both high), with the host's ffmpeg. */
+/**
+ * The ffmpeg that comes with Laru (ffmpeg-static, downloaded on install), or the machine's. It is optional: where it has
+ * no build, or its download failed, the install goes on without it, so it may not be there at all.
+ */
+function bundledFfmpeg(): string | undefined {
+  try { const p = createRequire(import.meta.url)('ffmpeg-static') as string | null; return p && existsSync(p) ? p : undefined; } catch { return undefined; }
+}
+export const FFMPEG = bundledFfmpeg() ?? 'ffmpeg';
+
+/** ms from the start of a video to its first magenta frame (U and V both high), with ffmpeg. */
 function firstMagenta(video: string): Promise<number> {
   return new Promise((ok, fail) => {
-    const p = spawn('ffmpeg', ['-hide_banner', '-i', video, '-vf', 'crop=64:64:608:328,showinfo', '-f', 'null', '-'], { stdio: ['ignore', 'ignore', 'pipe'] });
+    const p = spawn(FFMPEG, ['-hide_banner', '-i', video, '-vf', 'crop=64:64:608:328,showinfo', '-f', 'null', '-'], { stdio: ['ignore', 'ignore', 'pipe'] });
     let err = '';
     p.stderr.on('data', (c: Buffer) => { err += c; });
-    p.on('error', () => fail(new Error('ffmpeg is not installed on this machine')));
+    p.on('error', () => fail(new Error('no ffmpeg: reinstall Laru (pnpm install) or install ffmpeg')));
     p.on('close', () => {
       for (const l of err.split('\n')) {
         const m = /pts_time:([\d.]+).*?mean:\[(\d+) (\d+) (\d+)\]/.exec(l);

@@ -544,6 +544,8 @@ function Player({ run, slug, trace, story, flow, g, view: asked, onView, k, arch
   const wrap = useRef<HTMLDivElement>(null);
   const step = stepAt(trace.steps, c.now);
   const src = trace.video ? fileUrl(run.id, `flows/${slug}/${trace.video}`) : null;
+  // a flow's video carries its step caption already (flow.ts draws it on the page it records); a session's does not
+  const burned = Boolean(src) && run.kind !== 'session';
   // a test without video keeps the side-by-side stage, whatever was chosen for videos
   const large = big && Boolean(src);
 
@@ -829,7 +831,7 @@ function Player({ run, slug, trace, story, flow, g, view: asked, onView, k, arch
               onDurationChange={(e) => Number.isFinite(e.currentTarget.duration) && setVideoMs(e.currentTarget.duration * 1000)} />
               : <div className="novideo"><Film /><span>Sin vídeo: el reloj es un temporizador de {secs(layout.duration)}.</span></div>}
             {blank && <div className="novideo">Abriendo el navegador…</div>}
-            {step && <div className="caption">{step.n}. {step.title}</div>}
+            {step && !burned && <div className="caption">{step.n}. {step.title}</div>}
           </div>
           <OtherScreens run={run.id} slug={slug} trace={trace} now={c.now} playing={c.playing} speed={c.speed} onOpen={openFloat} />
           {floats.map((name, i) => {
