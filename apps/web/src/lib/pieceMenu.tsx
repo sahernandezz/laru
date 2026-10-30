@@ -3,7 +3,7 @@
  * classes with a sheet of their own, and the application's menu. The screen (pages/Docs.tsx) loads only when opened.
  */
 import {
-  Archive, BookOpen, BookText, Bookmark, Box, Braces, CalendarRange, Cloud, Container, Database, DatabaseBackup, FileText, GitBranch, GitFork, Globe, KeyRound,
+  Archive, BookOpen, Handshake, BookText, Bookmark, Box, Braces, CalendarRange, Cloud, Container, Database, DatabaseBackup, FileText, GitBranch, GitFork, Globe, KeyRound,
   Layers, LifeBuoy, ListChecks, Monitor, Network, Package, Puzzle, Quote, Radio, Route, Ruler, Scale, Server, StickyNote, Table, Tag, Workflow, type LucideIcon,
 } from 'lucide-react';
 import { forwardRef } from 'react';
@@ -16,7 +16,7 @@ import { typeColor } from './typeColor.ts';
 
 export const TYPE_ICON: Record<string, LucideIcon> = {
   application: Box, module: Layers, process: Workflow, repository: GitBranch, service: Server, datastore: Database, external: Globe,
-  plan: CalendarRange, decision: Scale, contract: Braces, 'data-model': Table, convention: Ruler, guide: BookOpen, 'test-plan': ListChecks, flow: Route, scenario: DatabaseBackup, artifact: Archive, runbook: LifeBuoy, architecture: Network, versioning: Tag, stack: Package, infrastructure: Cloud, secrets: KeyRound, glossary: BookText, term: Quote, note: StickyNote,
+  agreement: Handshake, plan: CalendarRange, decision: Scale, contract: Braces, 'data-model': Table, convention: Ruler, guide: BookOpen, 'test-plan': ListChecks, flow: Route, scenario: DatabaseBackup, artifact: Archive, runbook: LifeBuoy, architecture: Network, versioning: Tag, stack: Package, infrastructure: Cloud, secrets: KeyRound, glossary: BookText, term: Quote, note: StickyNote,
 };
 const SECTION_ICON: Record<string, LucideIcon> = {
   summary: FileText, arch: Network, built: Layers, modules: Layers, processes: Workflow, fronts: Monitor, flows: Route, envs: Container, gov: Scale, owed: ListChecks, doc: BookText, rel: GitFork,
@@ -64,7 +64,7 @@ const NOT_HERE = ['module', 'process', 'repository', 'service', 'datastore', 'ex
 export function kindsOf(k: KnowledgeData, byId: Map<string, DocPiece>, owner: DocPiece, keep?: string) {
   if (owner.type !== 'application' && owner.type !== 'module') return [];
   const under = (x: DocPiece): boolean => { for (let c = byId.get(x.parent ?? ''); c; c = byId.get(c.parent ?? '')) if (c.id === owner.id) return true; return false; };
-  return Object.values(k.shapes).filter((s) => (s.livesIn as string[]).includes(owner.type) && !NOT_HERE.includes(s.type)).map((s) => ({ type: s.type as string, stage: s.stage as string, n: k.pieces.filter((x) => x.type === s.type && under(x)).length })).filter((x) => x.n > 0 || keep === x.type || (owner.type === 'application' && x.type === 'secrets') || (owner.type === 'module' && Boolean(owner.anchors?.length) && x.type in CODE_OF));
+  return Object.values(k.shapes).filter((s) => (s.livesIn as string[]).includes(owner.type) && !NOT_HERE.includes(s.type)).map((s) => ({ type: s.type as string, stage: s.stage as string, n: k.pieces.filter((x) => x.type === s.type && under(x)).length })).filter((x) => x.n > 0 || keep === x.type || (owner.type === 'application' && (x.type === 'secrets' || x.type === 'agreement')) || (owner.type === 'module' && Boolean(owner.anchors?.length) && x.type in CODE_OF));
 }
 
 

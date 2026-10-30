@@ -7,7 +7,7 @@ import { driftOf, sessionSummary, summarize } from '@laru/trace';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { affected, brokersOf, findingsOf, lastResults, pickBroker, pickEnv, runEnv, vaultServices, whereText } from './env-cli.ts';
-import { agentGuide, withEvidence, renderImpact, scaffoldSpec, specPath, loadKnowledge, ask, checkWorkspace, context, docsTree, knowledgeShape, knowledgeWrite, PIECE_TYPES, verifyPiece, loadGraph, loadWorkspace, path, refreshMap, repoStatus, syncRepos, tree, writeAgentFiles, type Workspace } from '@laru/core';
+import { agentGuide, agreementText, loadAgreement, withEvidence, renderImpact, scaffoldSpec, specPath, loadKnowledge, ask, checkWorkspace, context, docsTree, knowledgeShape, knowledgeWrite, PIECE_TYPES, verifyPiece, loadGraph, loadWorkspace, path, refreshMap, repoStatus, syncRepos, tree, writeAgentFiles, type Workspace } from '@laru/core';
 
 const text = (t: string) => ({ content: [{ type: 'text' as const, text: t }] });
 /** A scenario that would delete data of a persistent env answers with what it would do and how to say yes; nothing ran. */
@@ -19,10 +19,12 @@ export function createServer(root: Workspace['root']): McpServer {
   // The guide any client gets on connecting. Claude Code reads CLAUDE.md and Codex or Cursor AGENTS.md, which hold it
   // whole: when the workspace has them, the server only points there instead of sending it a second time.
   const w0 = ws();
-  const guide = existsSync(join(w0.root, 'CLAUDE.md')) || existsSync(join(w0.root, 'AGENTS.md'))
+  // and the working agreement, whole: a client that reads neither file still learns how this workspace is worked
+  const agr = loadAgreement(w0);
+  const guide = (existsSync(join(w0.root, 'CLAUDE.md')) || existsSync(join(w0.root, 'AGENTS.md'))
     ? 'Laru: this workspace\'s guide (the loop, how the documentation is written, how flows are tested) is in CLAUDE.md and AGENTS.md at its root; follow it. Start with `context` on what you will change, and `impact` after it.'
-    : agentGuide(w0);
-  const server = new McpServer({ name: 'laru', version: '0.1.0-beta.10' }, { instructions: guide });
+    : agentGuide(w0)) + (agr ? `\n\n${agreementText(agr)}` : '');
+  const server = new McpServer({ name: 'laru', version: '0.1.0-beta.11' }, { instructions: guide });
   // Every tool is kept by name, so the ones for stores this application does not have can be left out of the list.
   const tools = new Map<string, ReturnType<McpServer['registerTool']>>();
   const register = server.registerTool.bind(server);
@@ -41,7 +43,7 @@ export function createServer(root: Workspace['root']): McpServer {
   }, async ({ depth }) => { const w = ws(); const g = graphOrNull(w); return text(`${docsTree(w, g)}\n\n${g ? tree(g, depth) : 'No map yet: run map_refresh.'}`); });
 
   server.registerTool('knowledge_shape', {
-    description: 'Fields, limits, place and an example of a piece type. Read before knowledge_write.',
+    description: 'Fields, limits, place and an example of a piece type, and for a section with a diagram how each class it takes is drawn (dialect, shapes, rules, template). Read before knowledge_write.',
     inputSchema: { type: z.enum(PIECE_TYPES as [string, ...string[]]), example: z.boolean().default(true).describe('false when you already read the example') },
   }, async ({ type, example }) => {
     // Compact, without what repeats: the hint is already in the docs language (hintEs is for the web), a field is optional
@@ -52,7 +54,7 @@ export function createServer(root: Workspace['root']): McpServer {
   });
 
   server.registerTool('knowledge_write', {
-    description: 'Write or update a documentation piece by fields; validated (errors name the field), nothing written on error. Never inventory endpoints, tables or env vars: they are extracted.',
+    description: 'Write or update a documentation piece by fields; validated (errors name the field), nothing written on error: also a diagram of a class its section does not take or that breaks its standard\'s error rules, and a note under the workspace\'s policy. Never inventory endpoints, tables or env vars: they are extracted.',
     inputSchema: {
       type: z.enum(PIECE_TYPES as [string, ...string[]]), id: z.string().optional().describe('e.g. mod:uploads; default from the title'),
       in: z.string().optional().describe('container, e.g. mod:<area>; omit when updating'),
@@ -61,7 +63,7 @@ export function createServer(root: Workspace['root']): McpServer {
       meta: z.record(z.string(), z.union([z.string(), z.array(z.string())])).optional(), relations: z.record(z.string(), z.array(z.string())).optional(),
       fields: z.record(z.string(), z.any()),
     },
-  }, async (input) => { const w = ws(); const r = knowledgeWrite(w, input as never, graphOrNull(w)); return text(JSON.stringify(r)); });
+  }, async (input) => { const w = ws(); const r = knowledgeWrite(w, input as never, graphOrNull(w), { strict: true }); return text(JSON.stringify(r)); });
 
   server.registerTool('knowledge_verify', {
     description: 'Record that a STALE piece, reviewed (and updated) against the code, matches it now.',

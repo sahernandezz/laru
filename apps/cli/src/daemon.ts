@@ -41,7 +41,7 @@ export function traceViewerDir(): string | null {
   } catch { viewerDir = null; }
   return viewerDir;
 }
-export const VERSION = '0.1.0-beta.10';
+export const VERSION = '0.1.0-beta.11';
 
 
 export interface Daemon { url: string; port: number; token: string | null; close: () => Promise<void> }

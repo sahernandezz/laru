@@ -3,7 +3,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { userInfo } from 'node:os';
 import { join } from 'node:path';
-import { acceptFinding, shareEvidence, changesFromWorktrees, computeFindings, findWorkspace, impact, loadGraph, loadKnowledge, loadWorkspace, postEdit, preEdit, renderImpact, scaffoldSpec, specPath, workspaceChanges, WorkspaceError, type Impact, type Workspace } from '@laru/core';
+import { acceptFinding, checkWorkspace, preBash, stopCheck, shareEvidence, changesFromWorktrees, computeFindings, findWorkspace, impact, loadGraph, loadKnowledge, loadWorkspace, postEdit, preEdit, renderImpact, scaffoldSpec, specPath, workspaceChanges, WorkspaceError, type Impact, type Workspace } from '@laru/core';
 import { endpointMatcher, sessionSummary, summarize } from '@laru/trace';
 import { flowEnvDown, flowEnvStatus, flowEnvUp, instanceOf,
   connection, docker, dockerAvailable, dockerHint, inWsl, down, envMasker, mongo, rabbit, redis, query as dbQuery, reset as dbReset, schema as dbSchema, snapshot as dbSnapshot, storeOf, stores as dbStores, storePassword, envDir, envFile, EnvError, exportKey, hybridEnv, importEnvFile, importKey, interpolations, listEnvs, logs, missingVars, readState, revealVar,
@@ -661,7 +661,9 @@ export async function runtimeCommand(cmd: string, args: string[], o: Opts, ws: (
       const root = findWorkspace(input.cwd ?? process.cwd());
       if (!root) return 0;
       const w = loadWorkspace(root);
-      const out = args[0] === 'pre-edit' ? preEdit(w, input) : args[0] === 'post-edit' ? postEdit(w, input) : null;
+      const errors = async () => { let g = null; try { g = loadGraph(w); } catch { /* no map yet */ } return (await checkWorkspace(w, g)).issues.filter((i) => i.level === 'error'); };
+      const out = args[0] === 'pre-edit' ? preEdit(w, input) : args[0] === 'post-edit' ? postEdit(w, input) : args[0] === 'pre-bash' ? preBash(w, input)
+        : args[0] === 'stop' ? (input.stop_hook_active ? null : stopCheck(w, input, await errors())) : null;
       if (out) io.log(JSON.stringify(out));
       return 0;
     }

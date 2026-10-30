@@ -8,11 +8,11 @@ type P = Record<string, string | number> | undefined;
 
 const PIECE: Record<string, string> = {
   application: 'Aplicativo', module: 'Módulo', process: 'Proceso', repository: 'Repositorio', service: 'Servicio', datastore: 'Almacén', external: 'Sistema externo',
-  plan: 'Plan', decision: 'Decisión', contract: 'Contrato', 'data-model': 'Modelo de datos', convention: 'Convención', guide: 'Guía', 'test-plan': 'Plan de pruebas',
+  agreement: 'Forma de trabajo', plan: 'Plan', decision: 'Decisión', contract: 'Contrato', 'data-model': 'Modelo de datos', convention: 'Convención', guide: 'Guía', 'test-plan': 'Plan de pruebas',
   flow: 'Flujo', scenario: 'Escenario', artifact: 'Artefacto', runbook: 'Runbook', architecture: 'Arquitectura', versioning: 'Versionamiento', stack: 'Stack', infrastructure: 'Infraestructura', secrets: 'Secretos', glossary: 'Glosario', term: 'Término', note: 'Nota',
 };
 const PIECES: Record<string, string> = {
-  plan: 'Planes', decision: 'Decisiones', contract: 'Contratos', 'data-model': 'Modelos de datos', convention: 'Convenciones', guide: 'Guías', 'test-plan': 'Planes de pruebas',
+  agreement: 'Formas de trabajo', plan: 'Planes', decision: 'Decisiones', contract: 'Contratos', 'data-model': 'Modelos de datos', convention: 'Convenciones', guide: 'Guías', 'test-plan': 'Planes de pruebas',
   flow: 'Flujos', scenario: 'Escenarios', artifact: 'Artefactos', runbook: 'Runbooks', architecture: 'Arquitecturas', versioning: 'Versionamientos', stack: 'Stacks', infrastructure: 'Infraestructuras', secrets: 'Secretos', glossary: 'Glosarios', term: 'Términos', note: 'Notas',
 };
 export const pieceLabel = (t: string) => PIECE[t] ?? t;

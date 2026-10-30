@@ -14,7 +14,7 @@ import type { Graph } from './graph.ts';
 import { conventionsFor } from './knowledge/coverage.ts';
 import { callKey, callsOf, changedKeys, isConfig, receivingFiles } from './reach.ts';
 import type { Row } from './knowledge/piece.ts';
-import { anchorResolver, type Knowledge, type Loaded } from './knowledge/store.ts';
+import { anchorCovers, anchorResolver, type Knowledge, type Loaded } from './knowledge/store.ts';
 import { estimateTokens } from './query.ts';
 import { stateDir, type Workspace } from './workspace.ts';
 
@@ -163,7 +163,9 @@ export function impact(ws: Workspace, g: Graph, k: Knowledge, changes: Change[],
   const owners = k.pieces.filter((p) => p.type === 'module' || p.type === 'service');
   for (const c of changes.filter((x) => x.content !== undefined)) {
     const rulers = new Set<Loaded>();
-    for (const o of owners) if ((o.anchors ?? []).some((a) => (resolve(a) ?? []).includes(c.path) && a.startsWith(`${c.repo}:`))) for (const cv of conventionsFor(k, o)) rulers.add(cv);
+    for (const o of owners) if ((o.anchors ?? []).some((a) => anchorCovers(resolve, a, c.repo, c.path))) for (const cv of conventionsFor(k, o)) rulers.add(cv);
+    // and a convention anchored to the file itself, as the edit hook reads it
+    for (const cv of k.pieces) if (cv.type === 'convention' && (cv.anchors ?? []).some((a) => anchorCovers(resolve, a, c.repo, c.path))) rulers.add(cv);
     for (const cv of rulers) for (const rule of (cv.fields.check as string[] | undefined) ?? []) {
       const m = /^(forbid|require):\s*(.+)$/.exec(rule);
       if (!m) continue;

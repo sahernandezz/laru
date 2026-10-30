@@ -42,7 +42,8 @@ test('the old agent files are rewritten in place: one block, the server and the 
   assert.ok(md.includes('<!-- laru:start -->') && md.includes('My own notes') && !md.includes(OLD));
   assert.deepEqual(Object.keys(JSON.parse(readFileSync(join(root, '.mcp.json'), 'utf8')).mcpServers).sort(), ['laru', 'other']);
   const hooks = JSON.parse(readFileSync(join(root, '.claude', 'settings.json'), 'utf8')).hooks;
-  assert.deepEqual(hooks.PreToolUse.flatMap((h: { hooks: Array<{ command: string }> }) => h.hooks.map((x) => x.command)), ['laru hook pre-edit']);
+  assert.deepEqual(hooks.PreToolUse.flatMap((h: { hooks: Array<{ command: string }> }) => h.hooks.map((x) => x.command)), ['laru hook pre-edit', 'laru hook pre-bash'], 'renamed in place, not added twice; the shell hook beside it');
+  assert.deepEqual(hooks.Stop.flatMap((h: { hooks: Array<{ command: string }> }) => h.hooks.map((x) => x.command)), ['laru hook stop']);
   const dev = readFileSync(join(root, '.claude', 'agents', 'developer.md'), 'utf8');
   assert.ok(dev.includes('mcp__laru__context') && !dev.includes(OLD));
 });

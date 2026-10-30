@@ -89,7 +89,9 @@ export function validatePiece(p: Piece, ctx: ValidateContext): Issue[] {
       mermaidBlocks(v).forEach((b, n) => {
         const kind = kindOfCode(b.code, f.kinds as never);
         if (!kind) { warn(`${at}.diagram[${n}]`, 'diagram-unknown', 'this diagram has no class Laru knows: flowchart, sequence, C4, ER, state, class…'); return; }
-        for (const d of lintDiagramOfKind(b.code, kind)) warn(`${at}.diagram[${n}]`, `diagram-${d.rule}`, d.fix ? `${d.text} ${d.fix}` : d.text, { kind });
+        // a class this section does not take, and the rules its own standard calls errors: warnings for check, refused by knowledge_write (`severity`)
+        if (f.kinds?.length && !f.kinds.includes(kind)) warn(`${at}.diagram[${n}]`, 'diagram-kind', `this section takes a ${f.kinds.join(' or ')} diagram; this one reads as ${kind}: knowledge_shape says how each is drawn`, { kind, severity: 'error' });
+        for (const d of lintDiagramOfKind(b.code, kind)) warn(`${at}.diagram[${n}]`, `diagram-${d.rule}`, d.fix ? `${d.text} ${d.fix}` : d.text, { kind, severity: d.severity });
       });
       for (const m of v.matchAll(/\[\[([^\]]+)\]\]/g)) if (!ctx.exists(m[1])) warn(at, 'broken-link', `[[${m[1]}]] does not exist`, { id: m[1] });
       if (isContainer(p.type) && (v.match(/^\s*[-*|]?\s*(GET|POST|PUT|PATCH|DELETE)\s+\/\S*/gm) ?? []).length >= 3)
@@ -118,6 +120,11 @@ export function validatePiece(p: Piece, ctx: ValidateContext): Issue[] {
     const m = c.match(/^(forbid|require):\s*(.+)$/);
     if (!m) err(`fields.check[${i}]`, 'bad-check', '`forbid: <regex>` or `require: <regex>`');
     else try { new RegExp(m[2]); } catch { err(`fields.check[${i}]`, 'bad-check', 'the regular expression does not compile'); }
+  });
+  // a working agreement's commands: what the shell hook refuses or asks about has to compile
+  if (p.type === 'agreement') for (const f of ['never', 'confirm']) (p.fields[f] as string[] | undefined)?.forEach((c, i) => {
+    const m = String(c).match(/^cmd:\s*(.+)$/);
+    if (m) try { new RegExp(m[1]); } catch { err(`fields.${f}[${i}]`, 'bad-cmd', '`cmd: <regex>`: the regular expression does not compile'); }
   });
   return out;
 }

@@ -18,6 +18,7 @@ const page = <K extends string>(load: () => Promise<Record<K, ComponentType<any>
 const Data = page(() => import('./pages/Data.tsx'), 'Data');
 const Envs = page(() => import('./pages/Envs.tsx'), 'Envs');
 const Files = page(() => import('./pages/Files.tsx'), 'Files');
+const Theme = page(() => import('./pages/Theme.tsx'), 'Theme');
 const Live = page(() => import('./pages/Live.tsx'), 'Live');
 const Scenarios = page(() => import('./pages/Scenarios.tsx'), 'Scenarios');
 const MapView = page(() => import('./pages/MapView.tsx'), 'MapView');
@@ -97,6 +98,7 @@ export function App() {
   else if (screen === 'vars') body = <Vars env={arg} app={ws.data?.app ?? '<app>'} repos={ws.data?.repos.map((r) => r.name) ?? []} />;
   else if (screen === 'settings') body = <Settings />;
   else if (screen === 'files') body = <Files />;
+  else if (screen === 'theme') body = <Theme />;
   else if (map.loading && !map.data) body = <div className="page"><Skeleton lines={6} /></div>;
   else if (!g) body = <NoMap />;
   else if (screen === 'map') body = <MapView g={g} selected={arg} tabArg={route[2] === 't' ? route[3] : undefined} />;

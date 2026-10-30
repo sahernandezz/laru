@@ -25,7 +25,7 @@ const chip = (type: string) => { const I = iconOf({ type }); return <a key={type
 const GROUPS: Array<[string, string[]]> = [
   ['La aplicación', ['application', 'module', 'repository', 'service', 'datastore', 'external']],
   ['Procesos y pruebas', ['process', 'flow', 'scenario', 'test-plan']],
-  ['Diseño', ['plan', 'decision', 'contract', 'data-model', 'convention', 'guide']],
+  ['Diseño', ['agreement', 'plan', 'decision', 'contract', 'data-model', 'convention', 'guide']],
   ['Construcción y operación', ['architecture', 'artifact', 'versioning', 'stack', 'infrastructure', 'secrets', 'glossary']],
 ];
 function ModelMap({ types, count }: { types: Shape[]; count: (t: string) => number }) {

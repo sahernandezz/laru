@@ -61,4 +61,5 @@ export { E2E_GUIDE, E2E_RULES } from './knowledge/e2e.ts';
 export { changesFromWorktrees, impact, renderImpact, workspaceChanges, type Change, type Impact } from './impact.ts';
 export { queueContracts, type TopicContract } from './queues.ts';
 export { acceptFinding, computeFindings, findingsFile, loadAccepted, type Acceptance, type Finding, type FindingType } from './findings.ts';
-export { preEdit, postEdit, type HookInput } from './hooks.ts';
+export { preEdit, postEdit, preBash, stopCheck, type HookInput } from './hooks.ts';
+export { agreementRules, agreementText, loadAgreement } from './agreement.ts';

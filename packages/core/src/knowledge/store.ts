@@ -7,11 +7,14 @@ import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { loadExtraction } from '../extract.ts';
-import type { Workspace } from '../workspace.ts';
+import { stateDir, type Workspace } from '../workspace.ts';
 import { parsePiece, type Piece } from './piece.ts';
 import { CONTAINER_BY_FOLDER, FACET_BY_FOLDER, isContainer, OWN_FOLDER, STANDARD, type ContainerType, type PieceType } from './standard.ts';
 
 export const DOCS_DIR = 'docs';
+/** The working agreement is each person's: in the workspace's state folder, which git ignores, not in docs/. */
+export const AGREEMENT_FILE = 'agreement.md';
+export const agreementPath = (ws: Pick<Workspace, 'root'>) => relative(ws.root, join(stateDir(ws), AGREEMENT_FILE));
 
 export interface Loaded extends Piece {
   /** file, relative to the workspace root */
@@ -75,6 +78,9 @@ export function loadKnowledge(ws: Workspace): Knowledge {
   if (existsSync(appFile)) {
     const app = read(appFile, root, null, 'application');
     if (app) walk(root, app);
+    // the person's own working agreement, beside the documentation but never in git
+    const own = join(ws.root, agreementPath(ws));
+    if (app && existsSync(own)) read(own, join(own, '..'), app.id, 'agreement');
   } else if (existsSync(root) && readdirSync(root).some((n) => !n.startsWith('.'))) {
     issues.push({ level: 'error', path: DOCS_DIR, at: 'path', key: 'missing-file', message: 'docs/ needs an application.md at its root' });
   }
@@ -112,6 +118,17 @@ export function globRe(glob: string): RegExp {
     else re += c.replace(/[.+^${}()|[\]\\]/, '\\$&');
   }
   return new RegExp(`^${re}$`);
+}
+
+/**
+ * Whether an anchor covers one file of a repo: one it matches at the reference branch, or one its path or glob names
+ * that is not there yet (a file the working copy just added), so a new file is ruled like the old ones next to it.
+ */
+export function anchorCovers(resolve: (anchor: string) => string[] | undefined, anchor: string, repo: string, path: string): boolean {
+  const m = anchor.match(/^([a-z0-9][a-z0-9-]*):([^#\s]+)/);
+  if (!m || m[1] !== repo) return false;
+  const glob = m[2].replace(/\/$/, '/**');
+  return (resolve(anchor) ?? []).includes(path) || globRe(glob).test(path) || glob === path;
 }
 
 /** Files an anchor matches at the reference branch; undefined when the repo is not in the workspace. */

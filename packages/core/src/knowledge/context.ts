@@ -5,7 +5,7 @@ import { coverage, endpointOwner } from './coverage.ts';
 import { liveOf } from './live.ts';
 import { owedLine, sheetNote } from './sheet.ts';
 import type { Row } from './piece.ts';
-import { anchorResolver, ancestors, childrenOf, freshness, type Knowledge, type Loaded } from './store.ts';
+import { anchorCovers, anchorResolver, ancestors, childrenOf, freshness, type Knowledge, type Loaded } from './store.ts';
 import { isContainer, STANDARD } from './standard.ts';
 
 const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1).trimEnd() + '…' : s);
@@ -78,5 +78,5 @@ export function pieceSections(ws: Workspace, k: Knowledge, g: Graph | null, p: L
 /** Pieces whose code anchors cover a file, innermost first. */
 export function piecesForFile(ws: Workspace, k: Knowledge, repo: string, path: string): Loaded[] {
   const resolve = anchorResolver(ws);
-  return k.pieces.filter((p) => (p.anchors ?? []).some((a) => a.startsWith(repo + ':') && (resolve(a) ?? []).includes(path))).sort((a, b) => ancestors(k, b.id).length - ancestors(k, a.id).length);
+  return k.pieces.filter((p) => (p.anchors ?? []).some((a) => anchorCovers(resolve, a, repo, path))).sort((a, b) => ancestors(k, b.id).length - ancestors(k, a.id).length);
 }

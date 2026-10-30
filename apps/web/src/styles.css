@@ -6,50 +6,55 @@
 @font-face { font-family: "Geist Mono"; font-weight: 500; font-display: swap; src: url("./fonts/GeistMono-Medium.woff2") format("woff2"); }
 
 /* Laru. Tokens first: every colour, size and radius below comes from here. */
-/* One theme, dark, by decision of the user. */
-:root {
+/* The themes are the variants of Lusitania, the user's VS Code theme (github.com/sahernandezz/lusitania-theme), with
+   its Material Oceanic palette for code; chosen in Ajustes › Tema (lib/theme.ts), Abyssal by default. Where a value of
+   the theme is below AA here, it is lifted just enough. This block is Abyssal and the base of every dark variant: any
+   element with a data-theme gets it, so a preview of a variant wears its own colours whatever the page wears. */
+:root, [data-theme] {
   color-scheme: dark;
-  /* surfaces: layered greys, never pure black. canvas = the page, surface = panels and the sidebar, sunk = wells
+  /* surfaces: deep blue layers, never pure black. canvas = the page, surface = panels and the sidebar, sunk = wells
      (inputs, code), raised = menus and dialogs. Hover and selected fills are translucent so they work on any layer. */
-  --bg-100: #16181d;
-  --bg-200: #1e2025;
-  --sunk: #111316;
-  --raised: #26292e;
-  --lit: rgb(255 255 255 / .05);
-  --fill-1: rgb(235 237 239 / .05);
-  --fill-2: rgb(235 237 239 / .09);
+  --bg-100: #0d1620;
+  --bg-200: #121d2a;
+  --sunk: #09111a;
+  --raised: #172534;
+  --lit: rgb(238 255 255 / .05);
+  --fill-1: rgb(195 206 227 / .05);
+  --fill-2: rgb(195 206 227 / .09);
   /* lines */
-  --line-1: rgb(235 237 239 / .09);
-  --line-2: rgb(235 237 239 / .15);
-  --line-3: rgb(235 237 239 / .24);
+  --line-1: rgb(195 206 227 / .09);
+  --line-2: rgb(195 206 227 / .15);
+  --line-3: rgb(195 206 227 / .24);
   /* ink: four levels, each AA on every surface (apps/web/test/look.test.ts measures it) */
-  --ink-1: #ebedef;
-  --ink-2: #c1c4cb;
-  --ink-3: #a5a9b0;
-  --ink-4: #80838b;
-  /* the one accent: selection, focus, links; --accent-solid is the primary button (white text 5.7:1) */
-  --accent: #4c82ff;
-  --accent-ink: #8bb0ff;
-  --accent-solid: #3461c9;
-  --accent-soft: rgb(76 130 255 / .14);
+  --ink-1: #eeffff;
+  --ink-2: #c3cee3;
+  --ink-3: #98aabb;
+  --ink-4: #6d8494;
+  /* the one accent, the theme's teal: selection, focus, links; --accent-solid is the primary button (white text AA) */
+  --accent: #009688;
+  --accent-ink: #80cbc4;
+  --accent-solid: #00796b;
+  --accent-soft: rgb(0 150 136 / .14);
   /* status — never alone: always with a word or a shape */
-  --ok: #2bb66b;      --ok-ink: #5fd393;     --ok-soft: rgb(43 182 107 / .14);
-  --run: #f5a524;     --run-ink: #ffc65c;    --run-soft: rgb(245 165 36 / .14);
-  --err: #ec5b60;     --err-ink: #ff8a8e;    --err-soft: rgb(236 91 96 / .14);
-  --queue: #5b8dff;
-  --idle: #7a7d86;
-  /* The colour language of code and traffic: five cool hues, none of them a status hue, so a string never reads as
-     success or a keyword as an error. Each one means one thing per slot (a token, a kind, a method) on every screen. */
-  --sky: #7cc4ff;  --violet: #c3a0ff;  --orchid: #f0a6dc;  --cyan: #6fdbe8;  --lilac: #a9b4ff;
-  --sky-soft: rgb(124 196 255 / .12);
+  --ok: #c3e88d;      --ok-ink: #c3e88d;     --ok-soft: rgb(195 232 141 / .10);
+  --run: #ffcb6b;     --run-ink: #ffcb6b;    --run-soft: rgb(255 203 107 / .10);
+  --err: #ff5370;     --err-ink: #f47a82;    --err-soft: rgb(255 83 112 / .14);
+  --queue: #82aaff;
+  --idle: #546e7a;
+  /* The colour language of code and traffic: Material Oceanic, as in the editor. Each hue means one thing per slot
+     (a token, a kind, a method) on every screen; strings share the green of «passes», so a status always carries its
+     word or its shape. */
+  --sky: #82aaff;  --violet: #c792ea;  --orchid: #c3e88d;  --cyan: #89ddff;  --lilac: #f78c6c;
+  --sky-soft: rgb(130 170 255 / .12);
   --syn-key: var(--sky);         /* names: JSON keys, headers, query names, loggers, flags */
   --syn-str: var(--orchid);      /* strings */
   --syn-num: var(--lilac);       /* numbers */
   --syn-kw: var(--violet);       /* keywords, true/false/null, the command */
   --syn-param: var(--cyan);      /* $1, ? */
-  --syn-comment: #9a9ea8;        /* comments, log times, [threads] */
-  --syn-punct: #a4a8b1;
-  --mask-bg: #2e3139;            /* a masked value is a box of its own, never a colour of code */
+  --syn-comment: #8a9fae;        /* comments, log times, [threads]: the theme's #546e7a, lifted to AA */
+  --syn-punct: var(--cyan);
+  --mask-bg: #1f3a55;            /* a masked value is a box of its own, never a colour of code */
+  --paper: #16181d;              /* the ground the diagrams paint themselves (@laru/diagrams PAPER), in every theme */
   --k-http: var(--sky);  --k-sse: var(--cyan);  --k-ws: var(--lilac);  --k-sql: var(--violet);  --k-kafka: var(--orchid);  --k-tcp: var(--ink-2);
   --m-get: var(--sky);  --m-post: var(--violet);  --m-put: var(--cyan);  --m-patch: var(--lilac);  --m-delete: var(--orchid);
   /* shape */
@@ -65,6 +70,34 @@
   --top: 48px;
   --side: 236px;
 }
+
+/* the dark variants: only the surfaces change */
+[data-theme="trench"] { --bg-100: #0a0a0a; --bg-200: #111111; --sunk: #060606; --raised: #1a1a1a; --mask-bg: #1f3a3a; }
+[data-theme="midnight"] { --bg-100: #15171c; --bg-200: #1c1f25; --sunk: #111317; --raised: #22262d; --mask-bg: #264040; }
+[data-theme="abyssal-deep"] { --bg-100: #0a0d14; --bg-200: #0f131c; --sunk: #070a10; --raised: #141926; --mask-bg: #1a2f45; }
+[data-theme="steel"] { --bg-100: #1c1f26; --bg-200: #252932; --sunk: #171a20; --raised: #2c313c; --mask-bg: #324858; --ink-3: #a3b4c4; --ink-4: #7a91a1; --syn-comment: #98adbb; --err-ink: #ff939a; }
+[data-theme="oceanic"] { --bg-100: #263238; --bg-200: #2e3c43; --sunk: #20292e; --raised: #34454d; --mask-bg: #3b514d; --ink-3: #b0c0cc; --ink-4: #869ca8; --syn-comment: #b2c3cd; --err-ink: #ffa4ab; --lilac: #ffb49a; --sky: #a9c4ff; --violet: #dcb6f2; }
+/* the light variants: Lusitania's light palette for ink, accent, status and code */
+:is([data-theme="surface"], [data-theme="abyssal-light"]) {
+  color-scheme: light;
+  --lit: rgb(255 255 255 / .7);
+  --fill-1: rgb(26 39 51 / .05);  --fill-2: rgb(26 39 51 / .08);
+  --line-1: rgb(26 39 51 / .10);  --line-2: rgb(26 39 51 / .17);  --line-3: rgb(26 39 51 / .28);
+  --ink-1: #1a2733;  --ink-2: #2c3e50;  --ink-3: #455a66;  --ink-4: #6f8590;
+  --accent: #00897b;  --accent-ink: #00695c;  --accent-solid: #00796b;  --accent-soft: rgb(0 137 123 / .12);
+  --ok: #558b2f;      --ok-ink: #3d6b1e;     --ok-soft: rgb(85 139 47 / .12);
+  --run: #c9851a;     --run-ink: #8a5300;    --run-soft: rgb(201 133 26 / .14);
+  --err: #c62828;     --err-ink: #b71c1c;    --err-soft: rgb(198 40 40 / .10);
+  --queue: #1976d2;  --idle: #90a4ae;
+  --sky: #0f5aa8;  --violet: #7b1fa2;  --orchid: #2f6317;  --cyan: #015a8a;  --lilac: #a8300a;
+  --sky-soft: rgb(25 118 210 / .10);
+  --syn-comment: #4d6470;
+  --shadow-float: 0 12px 32px -8px rgb(26 39 51 / .25), 0 0 0 1px var(--line-2), inset 0 1px 0 var(--lit);
+}
+[data-theme="surface"] { --bg-100: #f5f5f5; --bg-200: #fafafa; --sunk: #eceff1; --raised: #ffffff; --mask-bg: #b2dfdb; }
+[data-theme="abyssal-light"] { --bg-100: #eef2f5; --bg-200: #f4f7f9; --sunk: #e3eaef; --raised: #ffffff; --mask-bg: #a8d8d8; }
+/* the colour of a kind of piece is drawn for dark grounds: on a light one its icon is darkened to read */
+:is([data-theme="surface"], [data-theme="abyssal-light"]) svg.lucide:not([stroke="currentColor"]) { filter: brightness(.62) saturate(1.3); }
 
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; overflow: hidden; }
@@ -1587,7 +1620,7 @@ input::placeholder, textarea::placeholder { color: var(--ink-3); opacity: 1; } /
 .owed ul { margin: 8px 0; padding-left: 18px; color: var(--ink-2); }
 .chip.owed-chip { color: var(--run-ink); background: var(--run-soft); }
 .diagram { margin: 8px 0 12px; }
-.diagram-stage { border: 1px solid var(--line-1); border-radius: var(--r-lg); background: #16181d; padding: 8px; overflow-x: auto; max-width: 100%; }
+.diagram-stage { border: 1px solid var(--line-1); border-radius: var(--r-lg); background: var(--paper); padding: 8px; overflow-x: auto; max-width: 100%; }
 .diagram-stage svg { display: block; margin: 0 auto; max-width: 100%; height: auto; }
 .diagram details { margin-top: 6px; font-size: var(--t-12); color: var(--ink-3); }
 .diagram summary { cursor: pointer; }
@@ -1650,7 +1683,7 @@ ul.cases { font-size: var(--t-13); color: var(--ink-2); }
 .viewer-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 16px; border-bottom: 1px solid var(--line-1); }
 .viewer-tools .grow { flex: 1; }
 .viewer-tools .btn.icon { width: 30px; padding: 0; justify-content: center; }
-.viewer-frame { position: relative; overflow: hidden; background: #16181d; cursor: grab; touch-action: none; border-radius: 0 0 var(--r-lg) var(--r-lg); }
+.viewer-frame { position: relative; overflow: hidden; background: var(--paper); cursor: grab; touch-action: none; border-radius: 0 0 var(--r-lg) var(--r-lg); }
 .viewer-frame:active { cursor: grabbing; }
 .viewer-frame:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .viewer-stage { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
@@ -2252,3 +2285,14 @@ body.dragging, body.dragging * { user-select: none; cursor: inherit; }
 .exc-footer { display: flex; align-items: center; gap: 10px; padding: 0 8px; font-size: 12px; color: var(--ink-3); }
 .exc-footer select { background: var(--bg-200); color: var(--ink-1); border: 1px solid var(--line-2); border-radius: 6px; padding: 3px 6px; font: inherit; }
 .exc-footer button { display: inline-flex; align-items: center; gap: 4px; border: 0; background: none; cursor: pointer; font: inherit; }
+
+/* Ajustes › Tema: each card wears its variant (data-theme on the card) */
+.themes { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+.theme-card { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--line-2); border-radius: var(--r-md); background: var(--bg-100); color: var(--ink-1); text-align: left; font: inherit; cursor: pointer; }
+.theme-card[aria-checked="true"] { box-shadow: 0 0 0 2px var(--accent); border-color: var(--accent); }
+.theme-card .shot { display: grid; grid-template-columns: 34% 1fr; height: 84px; border: 1px solid var(--line-1); border-radius: var(--r-sm); overflow: hidden; }
+.theme-card .shot > i { background: var(--bg-200); border-right: 1px solid var(--line-1); }
+.theme-card .shot > i::before { content: ""; display: block; margin: 10px 8px; height: 8px; border-radius: 3px; background: var(--fill-2); box-shadow: inset 2px 0 var(--accent); }
+.theme-card pre { margin: 0; padding: 8px 10px; font: 11px/1.5 var(--mono); color: var(--syn-punct); white-space: pre; overflow: hidden; }
+.theme-card .name { display: flex; justify-content: space-between; font-weight: 500; font-size: var(--t-13); }
+.theme-card .name span { color: var(--ink-3); font-weight: 400; }

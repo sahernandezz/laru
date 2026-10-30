@@ -1,14 +1,19 @@
 /**
  * The look (decision D5): layered greys, text at WCAG AA on every surface it can sit on, statuses that never read as
- * the accent. The tokens are read from styles.css itself, so a change to a colour is measured the day it is made.
+ * the accent. The tokens of every theme are read from styles.css itself, so a change to a colour is measured the day it is made.
  */
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
 const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
-const root = css.slice(css.indexOf(':root {'), css.indexOf('\n}', css.indexOf(':root {')));
-const raw = new Map([...root.matchAll(/(--[\w-]+):\s*([^;]+);/g)].map((m) => [m[1], m[2].trim()]));
+// every theme: the base block (Abyssal), then the blocks that name the variant, in the order of the file
+const decls = (body: string) => [...body.matchAll(/(--[\w-]+):\s*([^;]+);/g)].map((m) => [m[1], m[2].trim()] as [string, string]);
+const blocks = [...css.matchAll(/^(:root, \[data-theme\]|\[data-theme="[\w-]+"\]|:is\([^)]*\)) \{([^}]*)\}/gm)];
+const THEMES = [...new Set([...css.matchAll(/data-theme="([\w-]+)"/g)].map((m) => m[1]))];
+const themeOf = (id: string) => new Map(blocks.filter((b) => b[1].startsWith(':root') || b[1].includes(`"${id}"`)).flatMap((b) => decls(b[2])));
+let raw = themeOf('abyssal');
+const each = (fn: (id: string) => void) => { for (const id of ['abyssal', ...THEMES]) { raw = themeOf(id); fn(id); } };
 
 type RGBA = [number, number, number, number];
 function parse(v: string, seen = 0): RGBA {
@@ -29,36 +34,40 @@ const hue = ([r, g, b]: RGBA) => { const [R, G, B] = [r / 255, g / 255, b / 255]
 const SURFACES = ['--bg-100', '--bg-200', '--sunk', '--raised'];
 const TEXT = ['--ink-1', '--ink-2', '--ink-3', '--accent-ink', '--ok-ink', '--run-ink', '--err-ink', '--sky', '--violet', '--orchid', '--cyan', '--lilac', '--syn-comment', '--syn-punct'];
 
-test('the surfaces are layered greys, none pure black, each lighter than the one it sits in', () => {
-  const l = SURFACES.map((n) => lum(token(n)));
-  for (const n of SURFACES) assert.notEqual(raw.get(n)!.toLowerCase(), '#000000', `${n} is pure black`);
-  assert.ok(lum(token('--sunk')) < lum(token('--bg-100')) && lum(token('--bg-100')) < lum(token('--bg-200')) && lum(token('--bg-200')) < lum(token('--raised')), `sunk < canvas < surface < raised: ${l}`);
+test('every Lusitania variant is there', () => {
+  assert.deepEqual(THEMES.sort(), ['abyssal-deep', 'abyssal-light', 'midnight', 'oceanic', 'steel', 'surface', 'trench']);
 });
 
-test('every text token is AA (4.5:1) on every surface, and on the translucent fills of the page and the panels', () => {
+test('the surfaces are layers, none pure black, each lighter than the one it sits in', () => each((id) => {
+  const l = SURFACES.map((n) => lum(token(n)));
+  for (const n of SURFACES) assert.notEqual(raw.get(n)!.toLowerCase(), '#000000', `${n} is pure black`);
+  assert.ok(lum(token('--sunk')) < lum(token('--bg-100')) && lum(token('--bg-100')) < lum(token('--bg-200')) && lum(token('--bg-200')) < lum(token('--raised')), `${id}: sunk < canvas < surface < raised: ${l}`);
+}));
+
+test('every text token is AA (4.5:1) on every surface, and on the translucent fills of the page and the panels', () => each((id) => {
   const fills = ['--fill-1', '--fill-2', '--accent-soft', '--ok-soft', '--run-soft', '--err-soft', '--sky-soft'];
   const bad: string[] = [];
   for (const t of TEXT) for (const s of SURFACES) {
     const surface = token(s);
     // fills (hover, selected, status chips) sit on the page and on panels, not on menus or wells
     const grounds: Array<[string, RGBA]> = [[s, surface], ...(s === '--bg-100' || s === '--bg-200' ? fills.map((f) => [`${f} on ${s}`, over(token(f), surface)] as [string, RGBA]) : [])];
-    for (const [name, g] of grounds) { const c = contrast(token(t), g); if (c < 4.5) bad.push(`${t} on ${name}: ${c.toFixed(2)}`); }
+    for (const [name, g] of grounds) { const c = contrast(token(t), g); if (c < 4.5) bad.push(`${id}: ${t} on ${name}: ${c.toFixed(2)}`); }
   }
   assert.deepEqual(bad, []);
-});
+}));
 
-test('the primary button: white text on the solid blue is AA, and the accent is a blue no status shares', () => {
-  assert.ok(contrast([255, 255, 255, 1], token('--accent-solid')) >= 4.5);
+test('the primary button: white text on the solid accent is AA, and the accent is a hue no status shares', () => each((id) => {
+  assert.ok(contrast([255, 255, 255, 1], token('--accent-solid')) >= 4.5, id);
   const blue = hue(token('--accent'));
-  for (const s of ['--ok', '--run', '--err']) assert.ok(Math.abs(hue(token(s)) - blue) > 60, `${s} reads as the accent`);
-});
+  for (const s of ['--ok', '--run', '--err']) assert.ok(Math.abs(hue(token(s)) - blue) > 60, `${id}: ${s} reads as the accent`);
+}));
 
-test('lines are visible on the surfaces (the strongest at 3:1 for non-text), the weakest only a hair', () => {
-  for (const s of SURFACES) assert.ok(contrast(over(token('--line-3'), token(s)), token(s)) >= 1.5, `--line-3 on ${s}`);
-});
+test('lines are visible on the surfaces (the strongest at 3:1 for non-text), the weakest only a hair', () => each((id) => {
+  for (const s of SURFACES) assert.ok(contrast(over(token('--line-3'), token(s)), token(s)) >= 1.5, `${id}: --line-3 on ${s}`);
+}));
 
 test('--ink-4 is for what is not read (disabled, placeholder icons): 3:1 on the surfaces, and no rule paints text with it', () => {
-  for (const s of SURFACES) assert.ok(contrast(token('--ink-4'), token(s)) >= 3, `--ink-4 on ${s}`);
+  each((id) => { for (const s of SURFACES) assert.ok(contrast(token('--ink-4'), token(s)) >= 3, `${id}: --ink-4 on ${s}`); });
   assert.doesNotMatch(css.replace(/^\s*--ink-4:.*$/m, ''), /color:\s*var\(--ink-4\)/, 'a rule paints text with --ink-4');
 });
 

@@ -1,7 +1,7 @@
 /** Top bar, side menu and the ⌘K menu, which reaches every screen as well as every node of the map. */
 import {
   ArrowLeft, ArrowLeftRight, Box, Check, ChevronDown, ChevronsUpDown, Container, Database, DatabaseBackup, FolderOpen, GitBranch, HardDrive, Home as HomeIcon, KeyRound, LayoutDashboard, Library, Mail,
-  Network, PanelLeft, PanelLeftClose, PlayCircle, Plug, Plus, Radio, ScrollText, Search, Settings2, Shapes, Workflow, type LucideIcon,
+  Network, PanelLeft, PanelLeftClose, PlayCircle, Plug, Plus, Radio, ScrollText, Search, Settings2, Palette, Shapes, Workflow, type LucideIcon,
 } from 'lucide-react';
 import { lazy, type ReactNode, Suspense, useEffect, useId, useRef, useState } from 'react';
 import { api, useApi, WS, type RunInfo, type WorkspaceRow } from '../api.ts';
@@ -31,6 +31,7 @@ export const NAV: Array<[string, NavItem[]]> = [
   ['Ajustes', [
     { route: 'files', icon: FolderOpen, label: 'Archivos locales' },
     { route: 'settings', icon: Settings2, label: 'Información del sistema' },
+    { route: 'theme', icon: Palette, label: 'Tema' },
   ]],
 ];
 /** Screens reached from another one (a flow, an environment) rather than from the menu: who lights up for them. */

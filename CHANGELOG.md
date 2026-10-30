@@ -6,6 +6,24 @@ Todos los cambios de Laru que importan a quien lo usa quedan aquí. El formato s
 
 ## [Sin publicar]
 
+## [0.1.0-beta.11] - 2026-10-29
+
+### Añadido
+
+- **Tu «Forma de trabajo» en cada workspace:** una pieza nueva (Piezas › Formas de trabajo) con para qué usas el workspace, tus ramas, las ramas en las que no se edita código, lo que nunca se hace y lo que pide confirmación. Es de cada persona y no entra en git: se guarda en la carpeta de estado del workspace (`.laru/agreement.md`), porque varias personas comparten el workspace y cada una trabaja a su manera. Solo hay una por persona. El agente la lee siempre: `CLAUDE.local.md` (también fuera de git) la importa y el servidor MCP la incluye en sus instrucciones; `CLAUDE.md` y `AGENTS.md`, que sí se comparten, solo dicen dónde está, con las mismas palabras para todos. `laru check` avisa si encuentra una en `docs/`.
+- **Hooks que hacen cumplir:** el agente no puede escribir a mano una pieza de `docs/` (se le manda a `knowledge_write`), ni editar código en una rama que la forma de trabajo protege. Un comando de shell que esta lista como `cmd: <regex>` en «Nunca» se rechaza, y uno de «Pedir confirmación» se detiene a preguntarte. Al terminar, si `laru check` tiene errores o el agente editó código que describen piezas que no revisó, se le pide que lo haga antes de cerrar (una vez por turno). `laru sync` registra los hooks nuevos.
+- **El estándar de diagramas, para el agente:** `knowledge_shape` le da, para cada sección con diagrama, las clases que acepta con su dialecto, sus formas, sus reglas y una plantilla. `knowledge_write` y `laru docs write` rechazan un diagrama de una clase que la sección no acepta, uno que rompe las reglas de error de su estándar y una pieza por debajo de la nota mínima de `policies.documento`. Desde la web se sigue pudiendo guardar, con avisos.
+
+### Cambiado
+
+- **Temas de Lusitania, en Ajustes › Tema:** las 8 variantes del tema de VS Code (Trench, Midnight, Abyssal, Abyssal Deep, Steel, Oceanic y las claras Surface y Abyssal Light), cada una con su tarjeta de muestra; se aplica al momento y se guarda en el navegador. Abyssal es la de siempre: fondos azul abismal, acento teal y la paleta Material Oceanic en el código, las peticiones y los registros (claves en azul, textos en verde, números en naranja, palabras clave en violeta). Los estados toman el verde, amarillo y rojo del mismo tema, siempre con su palabra o su forma. Donde un color del tema no se lee bien sobre un fondo, se ajusta lo justo; la prueba de contraste mide las 8. Los diagramas conservan su lámina oscura en todas.
+
+### Corregido
+
+- **El diagrama de un módulo vuelve a su resumen:** «Cómo está construido», con su diagrama y su decisión de diseño, solo salía en «Documento» desde que «Construcción» dejó el menú del módulo.
+- **Convenciones en archivos nuevos:** un archivo que el agente acaba de crear recibe las convenciones de su carpeta antes de editarlo y se bloquea si las rompe, sin esperar a que llegue a la rama de referencia. `impact` también tiene en cuenta las convenciones ancladas al propio archivo.
+- **Rendimiento:** el índice del código se lee una vez por proceso y no en cada consulta; un `laru check` de VaultFlow pasa de 355 ms a 126.
+
 ## [0.1.0-beta.10] - 2026-10-29
 
 ### Cambiado
@@ -189,7 +207,8 @@ Primera beta pública.
   - `CLAUDE.md` y `AGENTS.md` generados.
   - Hooks para Claude Code.
 
-[Sin publicar]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.10...HEAD
+[Sin publicar]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.11...HEAD
+[0.1.0-beta.11]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.10...v0.1.0-beta.11
 [0.1.0-beta.10]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.9...v0.1.0-beta.10
 [0.1.0-beta.9]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.8...v0.1.0-beta.9
 [0.1.0-beta.8]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.7...v0.1.0-beta.8

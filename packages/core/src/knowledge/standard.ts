@@ -5,7 +5,7 @@
  */
 
 export const CONTAINERS = ['application', 'module', 'process', 'repository', 'service', 'datastore', 'external'] as const;
-export const FACETS = ['plan', 'decision', 'contract', 'data-model', 'convention', 'guide', 'test-plan', 'flow', 'scenario', 'runbook', 'architecture', 'artifact', 'versioning', 'stack', 'infrastructure', 'secrets', 'glossary', 'term', 'note'] as const;
+export const FACETS = ['agreement', 'plan', 'decision', 'contract', 'data-model', 'convention', 'guide', 'test-plan', 'flow', 'scenario', 'runbook', 'architecture', 'artifact', 'versioning', 'stack', 'infrastructure', 'secrets', 'glossary', 'term', 'note'] as const;
 /** Before the current standard: still read, never offered; `laru docs migrate` turns a term into a glossary row, a note into a known trap and a runbook into a guide of the application. */
 export const LEGACY_TYPES = ['term', 'note', 'runbook'] as const;
 export type ContainerType = (typeof CONTAINERS)[number];
@@ -118,7 +118,7 @@ export const STANDARD: Record<PieceType, PieceStandard> = {
     fields: [
       { ...purpose('What this part does for its users. A feature should be testable from this paragraph alone.'), label: L('What it does', 'Qué hace'), alias: ['Propósito', 'Purpose'], hintEs: 'Qué hace esta parte para sus usuarios. Una funcionalidad debe poder probarse solo con este párrafo.' },
       table('usecases', 'Use cases', 'Casos de uso', 'Each thing a person does with it, and the flow that proves it (many cases may point at one flow).', 'Cada cosa que una persona hace con él y el flujo que lo prueba (varios casos pueden apuntar al mismo flujo).', [col('case', 'Case', 'Caso', { required: true }), col('actor', 'Actor', 'Actor'), col('flow', 'Flow', 'Flujo', { ref: ['flow:'] })], { required: true, max: 25 }),
-      md('built', 'How it is built', 'Cómo está construido', 'The parts and how they work together, with a diagram (a fenced mermaid block: flowchart, sequence or C4 component). What the code says is extracted; this is the intent.', 'Las piezas y cómo trabajan juntas, con un diagrama (un bloque mermaid: flowchart, sequence o C4 componente). Lo que dice el código se extrae; esto es la intención.', { required: true, diagram: 'required', kinds: ['c4-container', 'c4-component'], minWords: 40 }),
+      md('built', 'How it is built', 'Cómo está construido', 'The parts and how they work together, with a diagram (a fenced mermaid block in `C4Container` or `C4Component`: knowledge_shape gives each one\'s shapes and rules). What the code says is extracted; this is the intent.', 'Las piezas y cómo trabajan juntas, con un diagrama (un bloque mermaid en `C4Container` o `C4Component`: knowledge_shape da las formas y reglas de cada uno). Lo que dice el código se extrae; esto es la intención.', { required: true, diagram: 'required', kinds: ['c4-container', 'c4-component'], minWords: 40 }),
       table('interfaces', 'Interfaces', 'Interfaces', 'What it exposes or consumes, as intent: the extracted endpoints are contrasted with this table.', 'Qué expone o consume, como intención: los endpoints extraídos se contrastan con esta tabla.', [col('kind', 'Type', 'Tipo', { required: true, enum: ['http', 'event', 'queue', 'table', 'file', 'screen'] }), col('name', 'Name', 'Nombre', { required: true }), col('direction', 'Direction', 'Dirección', { enum: ['exposes', 'consumes'] }), col('contract', 'Contract', 'Contrato', { ref: ['ctr:'] })], { max: 40 }),
       items('submodules', 'Submodules', 'Submódulos', 'In an area: each child module, by id.', 'En un área: cada módulo hijo, por id.', { max: 30 }),
       md('design', 'Design decision', 'Decisión de diseño', 'The one decision that shapes it and where it is written down.', 'La decisión que la moldea y dónde está escrita.', { max: 800 }),
@@ -414,6 +414,19 @@ export const STANDARD: Record<PieceType, PieceStandard> = {
       items('never', 'What must never happen', 'Lo que nunca debe pasar', 'Rules about secrets: never in a repo, in a log, in a screenshot.', 'Reglas sobre secretos: nunca en un repo, en un log, en una captura.', { max: 8 }),
     ],
     example: { title: 'Shop secrets', status: 'active', summary: 'The secrets the shop needs, where each one lives and who rotates it, never its value.', fields: { needs: [{ secret: 'STRIPE_API_KEY', purpose: 'Charge cards', lives: 'The vault, level service', rotates: 'Platform team', every: '90 days' }] } },
+  },
+  agreement: {
+    type: 'agreement', prefix: 'agr', label: L('Working agreement', 'Forma de trabajo'), question: L('How do you work in this workspace? Yours: it stays on this machine, out of git.', '¿Cómo trabajas tú en este workspace? Es tuya: se queda en esta máquina, fuera de git.'),
+    folder: 'agreements', statuses: LIFECYCLE, livesIn: ['application'], stage: 'plan', anchors: 'no',
+    fields: [
+      md('purpose', 'Purpose', 'Propósito', 'What this workspace is for (proofs of concept, tickets of a sprint, a migration…) and what that allows or forbids.', 'Para qué es este workspace (pruebas de concepto, tickets de un sprint, una migración…) y qué permite o prohíbe eso.', { required: true, max: 800 }),
+      md('branches', 'Branches', 'Ramas', 'Where work starts from, how branches are named and where they are merged.', 'De dónde se parte, cómo se llaman las ramas y a dónde se integran.', { max: 800 }),
+      items('protected', 'Branches not edited', 'Ramas que no se editan', 'Branches of the projects where the agent does not edit code (a name or a glob: main, release/*); the edit hook refuses an edit on them.', 'Ramas de los proyectos en las que el agente no edita código (un nombre o un glob: main, release/*); el hook de edición rechaza la edición en ellas.', { max: 10 }),
+      items('never', 'Never', 'Nunca', 'What is never done here. An item `cmd: <regex>` is a shell command the hook refuses.', 'Lo que aquí nunca se hace. Una entrada `cmd: <regex>` es un comando de shell que el hook rechaza.', { required: true, max: 15 }),
+      items('confirm', 'Ask first', 'Pedir confirmación', 'What is done only after the person says yes. An item `cmd: <regex>` is a shell command the hook stops to ask about.', 'Lo que solo se hace después de que la persona diga que sí. Una entrada `cmd: <regex>` es un comando de shell para el que el hook se detiene a preguntar.', { max: 15 }),
+      md('notes', 'Notes', 'Notas', 'Anything else the agent must know to work here.', 'Cualquier otra cosa que el agente deba saber para trabajar aquí.', { max: 1500 }),
+    ],
+    example: { title: 'Sprint tickets', status: 'active', summary: 'Tickets of the current sprint: a branch per ticket from develop, nothing published without the person.', fields: { purpose: 'Develop and test the tickets of the current sprint against the local environment.', branches: 'From `develop`, one branch per ticket: `feature/<ticket>`; merged by pull request.', protected: ['main', 'develop'], never: ['cmd: git push --force', 'Change the production configuration'], confirm: ['cmd: git push', 'Reset the local database'] } },
   },
   glossary: {
     type: 'glossary', prefix: 'gls', label: L('Glossary', 'Glosario'), question: L('What do the words mean here?', '¿Qué significan aquí las palabras?'),

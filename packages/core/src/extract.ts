@@ -3,7 +3,7 @@
  * copy is never touched and a file whose blob did not change is never read twice. A folder project is read the same
  * way, at the tree its shadow index hashed (folder.ts).
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DETECTORS_VERSION, detectFile, isRelevant, type Finding } from '@laru/detect';
 import { gitOf, refOf } from './folder.ts';
@@ -22,9 +22,17 @@ export interface ExtractStats { repo: string; commit: string; files: number; rea
 const MAX_BYTES = 512 * 1024;
 const cacheFile = (ws: Workspace, repo: string) => join(stateDir(ws), 'extract', `${repo}.json`);
 
+/** Parsed once per process and file, again only when the file changes: freshness, anchors and hooks ask for it per piece. Read-only. */
+const parsed = new Map<string, { at: string; ex: RepoExtraction }>();
 export function loadExtraction(ws: Workspace, repo: string): RepoExtraction | null {
   const f = cacheFile(ws, repo);
-  return existsSync(f) ? (JSON.parse(readFileSync(f, 'utf8')) as RepoExtraction) : null;
+  if (!existsSync(f)) return null;
+  const s = statSync(f), at = `${s.mtimeMs}:${s.size}`;
+  const hit = parsed.get(f);
+  if (hit?.at === at) return hit.ex;
+  const ex = JSON.parse(readFileSync(f, 'utf8')) as RepoExtraction;
+  parsed.set(f, { at, ex });
+  return ex;
 }
 
 export async function extractRepo(ws: Workspace, repo: RepoConfig): Promise<{ extraction: RepoExtraction; stats: ExtractStats }> {

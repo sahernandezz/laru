@@ -10,7 +10,7 @@ import { EXAMPLE_ES } from '../src/knowledge/standard-es.ts';
 import { makeFixture } from './fixture.ts';
 
 test('every piece of the standard: its example validates and its Markdown reads back byte for byte', () => {
-  assert.equal(PIECE_TYPES.length, 23);
+  assert.equal(PIECE_TYPES.length, 24);
   const examples = PIECE_TYPES.map((t): Piece => {
     const e = STANDARD[t].example;
     return { id: `${STANDARD[t].prefix}:example`, type: t, kind: e.kind, title: e.title, status: e.status, summary: e.summary, anchors: e.anchors, meta: e.meta as Piece['meta'], relations: e.relations as Piece['relations'], fields: e.fields as Record<string, FieldValue> };

@@ -10,6 +10,7 @@ import { execFileSync } from 'node:child_process';
 import { CONFIG_FILE, loadWorkspace, WorkspaceError, type Workspace } from './workspace.ts';
 import { E2E_GUIDE, E2E_RULES } from './knowledge/e2e.ts';
 import { writeFlowGuide } from './knowledge/write.ts';
+import { loadAgreement } from './agreement.ts';
 
 const START = '<!-- laru:start -->';
 const END = '<!-- laru:end -->';
@@ -69,6 +70,7 @@ export function agentGuide(ws: Pick<Workspace, 'app' | 'title'>, o: { cli?: bool
     `- Every piece has a type (application, module, process, service, decision, contract, data-model, convention, guide, flow, scenario, runbook…) and a fixed shape: read ${via('knowledge_shape', 'docs shape <type>')} before writing one; it lists each section, what goes there and a worked example that scores 100.`,
     `- Write with ${via('knowledge_write', 'docs write <file.json>')}: it validates, and errors never reach disk. Write what the code cannot say (purpose, decisions, contracts, rules, flows), never inventories of endpoints or tables: those are extracted.`,
     `- A piece marked STALE talks about code that changed: review it in the same task, update it, then ${via('knowledge_verify', 'docs verify <id>')}. ${via('findings', 'findings')} lists where code, documentation and runs disagree.`,
+    '- A piece of docs/ written by hand is refused: knowledge_write writes it. The hooks also hold the working agreement\'s branches not edited and its `cmd:` items (see «How you work here»).',
     '- A flow is a business journey proven end to end: its flow.md (Precondiciones, Pasos) and its spec next to it, one story played on screen as a person would and recorded in one video, the validations of its forms among its steps, to the e2e guide (`guide:flujos-e2e`). Its approved behaviour (behavior.yaml) is what later runs are compared with.',
     '',
     '## Environments and evidence',
@@ -79,7 +81,10 @@ export function agentGuide(ws: Pick<Workspace, 'app' | 'title'>, o: { cli?: bool
 }
 
 export function writeAgentFiles(ws: Workspace): void {
-  const block = [START, agentGuide(ws), END].join('\n');
+  // The working agreement is each person's and never in git: the shared files only say where it is, the same words for
+  // everyone; CLAUDE.local.md (ignored by git) imports this person's, and the MCP server's instructions carry it.
+  const own = '## How you work here\nEach person keeps their own working agreement for this workspace, outside git: `agreement.md` in the workspace\'s state folder (`.laru/`, or the one a workspace made before the rename still has). When there is one, read it first: it rules over this guide. Write it with knowledge_write (type agreement) when the person tells you how they work here.';
+  const block = [START, agentGuide(ws), '', own, END].join('\n');
   const md = join(ws.root, 'CLAUDE.md');
   const prev = existsSync(md) ? readFileSync(md, 'utf8') : '';
   const re = BLOCK;
@@ -87,8 +92,17 @@ export function writeAgentFiles(ws: Workspace): void {
   // AGENTS.md: what Codex, Cursor, Gemini and the rest read; the commands too, for an agent with no MCP client (`laru mcp` is the server)
   const agents = join(ws.root, 'AGENTS.md');
   const was = existsSync(agents) ? readFileSync(agents, 'utf8') : '';
-  const cliBlock = [START, agentGuide(ws, { cli: true }), '', 'The tools above are those of Laru\'s MCP server (`laru mcp`, declared in `.mcp.json`); in parentheses, the same from the shell.', END].join('\n');
+  const cliBlock = [START, agentGuide(ws, { cli: true }), '', 'The tools above are those of Laru\'s MCP server (`laru mcp`, declared in `.mcp.json`); in parentheses, the same from the shell.', '', own, END].join('\n');
   writeFileSync(agents, re.test(was) ? was.replace(re, cliBlock) : (was ? `${cliBlock}\n\n${was}` : `${cliBlock}\n`));
+
+  // CLAUDE.local.md: this person's, ignored by git; it imports their working agreement while there is one
+  const agr = loadAgreement(ws);
+  const local = join(ws.root, 'CLAUDE.local.md');
+  const mine = existsSync(local) ? readFileSync(local, 'utf8') : '';
+  const importBlock = agr ? [START, `Your working agreement for this workspace: @${agr.path}`, END].join('\n') : '';
+  const next = re.test(mine) ? mine.replace(re, importBlock).replace(/^\n+/, '') : importBlock ? (mine ? `${importBlock}\n\n${mine}` : `${importBlock}\n`) : mine;
+  if (next !== mine) writeFileSync(local, next);
+  if (agr) mergeLines(join(ws.root, '.gitignore'), ['CLAUDE.local.md']);
 
   const mcpFile = join(ws.root, '.mcp.json');
   const mcp = readJson(mcpFile) as { mcpServers?: Record<string, unknown> };
@@ -103,9 +117,10 @@ export function writeAgentFiles(ws: Workspace): void {
   const team = readJson(shared) as { hooks?: Record<string, Array<{ matcher?: string; hooks: Array<{ type: string; command: string }> }>> };
   team.hooks ??= {};
   for (const list of Object.values(team.hooks)) for (const h of list) for (const x of h.hooks) x.command = x.command.replace(new RegExp(`^${OLD} hook`), 'laru hook');
-  for (const [event, cmd] of [['PreToolUse', 'laru hook pre-edit'], ['PostToolUse', 'laru hook post-edit']] as const) {
+  // each of Laru's hooks once, by its command: an edit's before and after, a shell command's before, and the stop
+  for (const [event, matcher, cmd] of [['PreToolUse', 'Edit|Write|MultiEdit', 'laru hook pre-edit'], ['PostToolUse', 'Edit|Write|MultiEdit', 'laru hook post-edit'], ['PreToolUse', 'Bash', 'laru hook pre-bash'], ['Stop', undefined, 'laru hook stop']] as const) {
     const list = (team.hooks[event] ??= []);
-    if (!list.some((h) => h.hooks.some((x) => x.command.startsWith('laru hook')))) list.push({ matcher: 'Edit|Write|MultiEdit', hooks: [{ type: 'command', command: cmd }] });
+    if (!list.some((h) => h.hooks.some((x) => x.command === cmd))) list.push({ ...(matcher ? { matcher } : {}), hooks: [{ type: 'command', command: cmd }] });
   }
   writeFileSync(shared, JSON.stringify(team, null, 2) + '\n');
 

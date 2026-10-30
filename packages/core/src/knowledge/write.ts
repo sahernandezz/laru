@@ -11,12 +11,14 @@ import type { Workspace } from '../workspace.ts';
 import { documentNote, type DocNote } from './lint.ts';
 import { sheetNote } from './sheet.ts';
 import { renderPiece, type FieldValue, type Piece } from './piece.ts';
-import { anchorResolver, containerOf, DOCS_DIR, fingerprint, freshness, loadKnowledge, type Knowledge, type Loaded } from './store.ts';
+import { agreementPath, anchorResolver, containerOf, DOCS_DIR, fingerprint, freshness, loadKnowledge, type Knowledge, type Loaded } from './store.ts';
 import { isContainer, OWN_FOLDER, STANDARD, type Lang, type PieceType } from './standard.ts';
 import { EXAMPLE_ES } from './standard-es.ts';
 import { validatePiece, type Issue } from './validate.ts';
 import { coverage, evaluateConventions } from './coverage.ts';
 import { E2E_GUIDE, E2E_RULES } from './e2e.ts';
+import { writeAgentFiles } from '../init.ts';
+import { DIAGRAM_STANDARDS } from '@laru/diagrams';
 
 export const docsLang = (ws: Workspace): Lang => (ws.docsLanguage === 'es' ? 'es' : 'en');
 export const slugify = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60) || 'piece';
@@ -35,6 +37,12 @@ function knownIds(k: Knowledge, g: Graph | null, extra: string[] = []) {
   };
 }
 
+/** How a class of diagram is drawn, as the agent needs it before writing one: its dialect, its shapes, its rules and a template. */
+function drawn(kind: string) {
+  const d = (DIAGRAM_STANDARDS as Record<string, (typeof DIAGRAM_STANDARDS)[keyof typeof DIAGRAM_STANDARDS] | undefined>)[kind];
+  return d ? [{ kind, label: d.label, question: d.question, dialect: d.dialect, legend: d.legend.map((l) => `${l.shape}: ${l.means}`), rules: d.rules.map((r) => `${r.severity}: ${r.text}`), maxNodes: d.maxNodes, template: d.template }] : [];
+}
+
 export function knowledgeShape(ws: Workspace, type: PieceType, withExample = true) {
   const std = STANDARD[type];
   if (!std) return null;
@@ -44,7 +52,7 @@ export function knowledgeShape(ws: Workspace, type: PieceType, withExample = tru
   return {
     type, prefix: `${std.prefix}:`, question: std.question[lang], livesIn: std.livesIn, kinds: std.kinds, statuses: std.statuses, anchors: std.anchors, stage: std.stage,
     meta: std.meta, expects: std.expects, folder: isContainer(type) ? `${std.folder}/<slug>/${type}.md` : OWN_FOLDER.includes(type) ? `${std.folder}/<slug>/${type}.md` : `${std.folder}/<slug>.md`,
-    fields: std.fields.map((f) => ({ name: f.name, heading: f.label[lang], type: f.type, required: Boolean(f.required), max: f.max, hint: lang === 'es' && f.hintEs ? f.hintEs : f.hint, hintEs: f.hintEs, diagram: f.diagram, kinds: f.kinds, minWords: f.minWords, ref: f.ref, columns: f.columns?.map((c) => ({ name: c.name, heading: c.label[lang], required: Boolean(c.required), enum: c.enum, ref: c.ref, date: c.date })) })),
+    fields: std.fields.map((f) => ({ name: f.name, heading: f.label[lang], type: f.type, required: Boolean(f.required), max: f.max, hint: lang === 'es' && f.hintEs ? f.hintEs : f.hint, hintEs: f.hintEs, diagram: f.diagram, kinds: f.kinds, diagrams: f.diagram && f.kinds ? f.kinds.flatMap((k) => drawn(k)) : undefined, minWords: f.minWords, ref: f.ref, columns: f.columns?.map((c) => ({ name: c.name, heading: c.label[lang], required: Boolean(c.required), enum: c.enum, ref: c.ref, date: c.date })) })),
     ...(type === 'flow' ? { standard: { guide: E2E_GUIDE.id, rules: E2E_RULES } } : {}),
     ...(withExample ? { example: { input: { ...example, in: type === 'application' ? undefined : `<${std.livesIn[0]} id>` }, markdown: renderPiece(example, lang) } } : {}),
   };
@@ -67,7 +75,11 @@ export interface WriteInput {
 }
 export interface WriteResult { ok: boolean; id: string; path?: string; issues: Issue[]; /** how complete the piece is and what it owes */ note?: DocNote }
 
-export function knowledgeWrite(ws: Workspace, input: WriteInput, g: Graph | null = null, opts: { dryRun?: boolean; batch?: string[] } = {}): WriteResult {
+/**
+ * `strict`, for the agent (knowledge_write, `laru docs write`): what a diagram's own standard calls an error, a diagram of a
+ * class its section does not take, and a note under the workspace's `policies.documento` are refused, not warned about.
+ */
+export function knowledgeWrite(ws: Workspace, input: WriteInput, g: Graph | null = null, opts: { dryRun?: boolean; batch?: string[]; strict?: boolean } = {}): WriteResult {
   const k = loadKnowledge(ws);
   const std = STANDARD[input.type];
   if (!std) return { ok: false, id: input.id ?? '', issues: [{ level: 'error', at: 'type', key: 'unknown-type', message: `types are ${Object.keys(STANDARD).join(', ')}` }] };
@@ -79,6 +91,12 @@ export function knowledgeWrite(ws: Workspace, input: WriteInput, g: Graph | null
   if (parentId && !parent) issues.push({ level: 'error', at: 'in', key: 'unknown-ref', message: k.byId.has(parentId) ? `"${parentId}" is a facet; pieces live in containers` : `"${parentId}" is not a documented container; write it first`, params: { id: parentId } });
   if (existing && existing.type !== input.type) issues.push({ level: 'error', at: 'id', key: 'duplicate-id', message: `"${id}" is already a ${existing.type}` });
   if (existing && input.in && existing.parent !== input.in) issues.push({ level: 'error', at: 'in', key: 'use-move', message: `"${id}" lives in ${existing.parent}; moving it is \`laru move\`, not a write` });
+  // one working agreement in force per workspace: another is deprecated first (or this one is written deprecated)
+  // and each person keeps one file: another id, whatever its status, would be written over the one they have
+  const held = input.type === 'agreement' && k.pieces.find((p) => p.type === 'agreement' && p.path === agreementPath(ws) && p.id !== id);
+  if (held) issues.push({ level: 'error', at: 'id', key: 'agreement-one', message: `you already have a working agreement here, ${held.id}: update that one (with its id); writing another would replace it`, params: { id: held.id } });
+  const rival = !held && input.type === 'agreement' && input.status !== 'deprecated' && k.pieces.find((p) => p.type === 'agreement' && p.status !== 'deprecated' && p.id !== id);
+  if (rival) issues.push({ level: 'error', at: 'type', key: 'agreement-one', message: `this workspace already has a working agreement in force, ${rival.id}: update that one, or mark it deprecated first`, params: { id: rival.id } });
   if (existing?.type === 'decision' && existing.status === 'accepted' && !(input.status === 'superseded' && sameContent(existing, input))) issues.push({ level: 'error', at: 'status', key: 'immutable', message: 'an accepted decision is not edited: write a new one with `supersedes`' });
 
   // A decision is numbered when it is created: in order, never reused (a deleted file leaves its number spent in git, not here).
@@ -96,6 +114,11 @@ export function knowledgeWrite(ws: Workspace, input: WriteInput, g: Graph | null
   };
   const known = knownIds(k, g, [id, ...(opts.batch ?? [])]);
   issues.push(...validatePiece(piece, { ...known, parent: input.type === 'application' ? null : parent ?? (parentId ? undefined : null), resolveAnchor: anchorResolver(ws) }));
+  if (opts.strict) {
+    for (const i of issues) if (i.key.startsWith('diagram-') && i.params?.severity === 'error') i.level = 'error';
+    const min = ws.policies?.documento, note = documentNote(piece).score;
+    if (min !== undefined && note < min) issues.push({ level: 'error', at: 'note', key: 'policy-documento', message: `the document's note would be ${note} and this workspace asks at least ${min}: fill what the warnings say it owes`, params: { note, min } });
+  }
   if (issues.some((i) => i.level === 'error')) return { ok: false, id, issues };
 
   if (piece.anchors?.length) { const fp = fingerprint(ws, piece.anchors); piece.verified = { fingerprint: fp.fingerprint, commits: fp.commits, at: new Date().toISOString().slice(0, 10) }; }
@@ -107,6 +130,8 @@ export function knowledgeWrite(ws: Workspace, input: WriteInput, g: Graph | null
     writeFileSync(tmp, renderPiece(piece, docsLang(ws)));
     renameSync(tmp, abs);
     if (piece.type === 'application' && !existing) writeFlowGuide(ws);
+    // the agent files import the working agreement: written, they point at it at once
+    if (piece.type === 'agreement') writeAgentFiles(ws);
   }
   return { ok: true, id, path, issues, note: documentNote(piece) };
 }
@@ -128,6 +153,7 @@ const sameContent = (a: Piece, b: WriteInput) => JSON.stringify(a.fields) === JS
 function pathFor(ws: Workspace, k: Knowledge, p: Piece, parentId: string | null): string {
   const std = STANDARD[p.type];
   if (p.type === 'application') return join(DOCS_DIR, 'application.md');
+  if (p.type === 'agreement') return agreementPath(ws);
   const base = k.byId.get(parentId!)!.dir;
   const slug = p.id.split(':')[1];
   if (isContainer(p.type)) return join(base, std.folder, slug, `${p.type}.md`);
@@ -157,6 +183,11 @@ const BLOCK = (key: string): 'structure' | 'contrast' =>
 export async function checkWorkspace(ws: Workspace, g: Graph | null): Promise<CheckResult> {
   const k = loadKnowledge(ws);
   const out: CheckResult['issues'] = k.issues.map((i) => ({ ...i, block: BLOCK(i.key) }));
+  // two agreements in force (written by hand, or merged from two branches): which one rules is a guess, so it is an error
+  const agreements = k.pieces.filter((p) => p.type === 'agreement' && p.status !== 'deprecated');
+  // one in docs/ goes to git, and a working agreement is each person's
+  for (const a of k.pieces.filter((p) => p.type === 'agreement' && p.path.startsWith(`${DOCS_DIR}/`))) out.push({ level: 'warning', at: 'path', key: 'agreement-shared', message: `a working agreement in ${DOCS_DIR}/ is shared through git, and each person works their own way: move it to ${agreementPath(ws)}, which git ignores`, path: a.path, id: a.id, block: 'structure' });
+  for (const a of agreements.slice(1)) out.push({ level: 'error', at: 'status', key: 'agreement-one', message: `a second working agreement in force, beside ${agreements[0].id}: keep one, mark the other deprecated`, path: a.path, id: a.id, block: 'structure' });
   const known = knownIds(k, g);
   const resolve = anchorResolver(ws);
   const stale: string[] = [];

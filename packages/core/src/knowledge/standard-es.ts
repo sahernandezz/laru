@@ -264,6 +264,10 @@ export const EXAMPLE_ES: Record<string, Example> = {
     title: 'Secretos de la tienda', summary: 'Los secretos que necesita la tienda, dónde vive cada uno y quién lo rota, nunca su valor.',
     fields: { needs: [{ secret: 'STRIPE_API_KEY', purpose: 'Cobrar tarjetas', lives: 'La bóveda, nivel servicio', rotates: 'Equipo de plataforma', every: '90 días' }] },
   },
+  agreement: {
+    title: 'Tickets del sprint', summary: 'Los tickets del sprint en curso: una rama por ticket desde develop, nada publicado sin la persona.',
+    fields: { purpose: 'Desarrollar y probar los tickets del sprint en curso contra el entorno local.', branches: 'Desde `develop`, una rama por ticket: `feature/<ticket>`; se integran por pull request.', protected: ['main', 'develop'], never: ['cmd: git push --force', 'Cambiar la configuración de producción'], confirm: ['cmd: git push', 'Resetear la base local'] },
+  },
   glossary: {
     title: 'Glosario de la tienda', summary: 'Las palabras de la tienda y qué significa cada una, con los nombres que toman en el código.',
     fields: { terms: [{ term: 'Nota de crédito', definition: 'Una factura con importes negativos que anula otra.', code: 'CreditNote' }] },

@@ -9,6 +9,7 @@ import '@excalidraw/excalidraw/index.css';
 import { AlertTriangle, Check, Sparkles } from 'lucide-react';
 import { propose, SKINS, writeModel, type DiagramKind, type DiagramModel, type SequenceModel } from '@laru/diagrams';
 import { fromScene, toScene } from '../lib/excalidrawScene.ts';
+import { isLight } from '../lib/theme.ts';
 import type { Templates } from '../lib/libraryScene.ts';
 import { sceneToSequence, sequenceToScene } from '../lib/sequenceScene.ts';
 
@@ -75,7 +76,7 @@ export default function ExcalidrawCanvas({ model, kind, kinds, onChangeKind, iss
       <div className="exc-stage">
         <Excalidraw
           excalidrawAPI={(a: unknown) => setApi(a as never)}
-          theme="dark"
+          theme={isLight() ? 'light' : 'dark'}
           langCode="es-ES"
           initialData={{ elements: scene.elements as never, appState: { currentItemFontFamily: 5, openSidebar: { name: 'default', tab: 'library' } } as never, scrollToContent: true }}
           onChange={(elements: readonly unknown[]) => {

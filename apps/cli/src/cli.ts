@@ -55,7 +55,7 @@ const HELP = `laru — a workspace around your application's repositories
   laru test --affected [--no-cache]     run only the flows the change affects (built from the working copy)
   laru test --failed [--worktree]       play again the flows whose last result failed unexpectedly (known deviations, // app:, are green); with --affected: both, built from the working copy
   laru findings [--json] | findings accept <key> --reason "…" [--until YYYY-MM-DD]
-  laru hook pre-edit|post-edit          Claude Code hooks (JSON on stdin)
+  laru hook pre-edit|post-edit|pre-bash|stop   Claude Code hooks (JSON on stdin)
   laru calibrate [--runs 3]             measure the video clock against the trace clock (host ffmpeg)
   laru behavior show|diff|approve <flow> [--run id | --runs a,b | --last n]   a flow's approved behavior (behavior.yaml), a run's drift from it, or approve a run's
   laru fidelity [env]                   how much the env looks like production: each participant against what the repos say production runs
@@ -222,7 +222,8 @@ export async function run(argv: string[], io: Out = stdio, cwd = process.cwd()):
           const batch = list.map((x) => x.id ?? '').filter(Boolean);
           let failed = 0;
           for (const piece of list) {
-            const r = knowledgeWrite(w, piece, g, { batch });
+            // the agent's way to write without MCP: as strict as knowledge_write
+            const r = knowledgeWrite(w, piece, g, { batch, strict: true });
             if (r.ok) io.log(`wrote ${r.id} → ${r.path}${r.issues.length ? `  (${r.issues.length} warnings)` : ''}`);
             else { failed++; io.err(`${r.id || piece.title}: not written`); for (const i of r.issues.filter((x) => x.level === 'error')) io.err(`  ${i.at}: ${i.message}`); }
           }
