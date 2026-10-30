@@ -11,10 +11,14 @@
 </p>
 
 <p align="center">
-  <img alt="Versión" src="https://img.shields.io/badge/versi%C3%B3n-0.1.0--beta.11-22D3EE">
+  <img alt="Versión" src="https://img.shields.io/badge/versi%C3%B3n-0.1.0--beta.12-22D3EE">
   <img alt="Licencia" src="https://img.shields.io/badge/licencia-FSL--1.1--ALv2-0E3B45">
   <img alt="Node" src="https://img.shields.io/badge/node-%E2%89%A5%2024-3c873a">
   <img alt="Local" src="https://img.shields.io/badge/todo%20corre-en%20tu%20m%C3%A1quina-444">
+</p>
+
+<p align="center">
+  <a href="https://github.com/sahernandezz/laru">github.com/sahernandezz/laru</a>
 </p>
 
 <p align="center">
@@ -141,7 +145,21 @@ Abre `claude` (o Codex) en el workspace y ya sabe dónde está todo:
 - **Servidor MCP:** `.mcp.json` lo declara, con herramientas para el mapa, la documentación, los entornos, los runs y las sesiones en vivo.
 - **Guías del workspace:** `CLAUDE.md` y `AGENTS.md` explican cómo se documenta y cómo se prueba.
 - **Contexto:** `laru context <pieza>` da al agente lo justo antes de tocar algo.
-- **Hooks para Claude Code:** avisan de lo que un cambio puede romper.
+- **Tu forma de trabajo:** para qué usas el workspace, tus ramas, las ramas donde no se edita código, lo que nunca
+  se hace y lo que pide confirmación. Es de cada persona y no entra en git; el agente la lee siempre.
+- **Hooks para Claude Code que hacen cumplir:** antes de editar, el agente recibe las convenciones del archivo;
+  después, se bloquea si las rompe. No puede escribir `docs/` a mano, ni editar en una rama protegida, ni lanzar
+  un comando que tu forma de trabajo prohíbe; uno que pide confirmación se detiene a preguntarte. Al terminar,
+  se le pide revisar la documentación del código que tocó.
+- **El estándar, también para el agente:** `knowledge_shape` le da la forma de cada pieza y de sus diagramas,
+  y `knowledge_write` rechaza lo que no la cumple.
+
+### A tu gusto
+
+Ajustes › Tema trae las ocho variantes de [Lusitania](https://sahernandezz.web.app/lab/lusitania-vscode),
+seis oscuras y dos claras, con el contraste medido en todas. Se aplica al momento y se recuerda en tu navegador.
+
+<img src="docs/images/temas.png" alt="Ajustes › Tema: una tarjeta de muestra por cada variante de Lusitania">
 
 ## Cómo correrlo
 
@@ -235,7 +253,12 @@ Laru se publica con la [Functional Source License 1.1, con licencia futura Apach
 - **Reservado:** venderlo u ofrecerlo como producto o servicio que compita con Laru.
 - **Licencia futura:** cada versión pasa a Apache 2.0 a los dos años de publicarse.
 
-¿Quieres usarlo de una forma que la licencia no cubre? Escríbenos.
+¿Quieres usarlo de una forma que la licencia no cubre? Escríbeme por [GitHub](https://github.com/sahernandezz).
+
+## Autor
+
+Laru lo crea y lo mantiene [@sahernandezz](https://github.com/sahernandezz).
+Si te sirve, una ⭐ en [el repositorio](https://github.com/sahernandezz/laru) ayuda a que más gente lo encuentre.
 
 ## Versiones
 

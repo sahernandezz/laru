@@ -187,7 +187,11 @@ export function Shell({ app, active, counts, jumps, menu, children }: { app: str
             {running.length > 3 && <a href={`${href('runs')}?estado=running`} className="more">y {running.length - 3} más</a>}
           </div>
         )}
-        <div className="side-foot"><span>Todo corre en esta máquina</span><span className="mono">laru 0.1.0</span></div>
+        <div className="side-foot">
+          <span>Todo corre en esta máquina</span>
+          <a className="mono" href={`https://github.com/sahernandezz/laru/releases/tag/v${__LARU_VERSION__}`} target="_blank" rel="noreferrer" title="Qué trae esta versión">laru {__LARU_VERSION__}</a>
+          <a href="https://github.com/sahernandezz/laru" target="_blank" rel="noreferrer">github.com/sahernandezz/laru</a>
+        </div>
       </nav>
       <main id="main" tabIndex={-1} ref={mainRef}>{children}</main>
       {cmdk && <CommandMenu jumps={[...SCREENS, ...jumps]} actions={[

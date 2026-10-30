@@ -6,6 +6,13 @@ Todos los cambios de Laru que importan a quien lo usa quedan aquí. El formato s
 
 ## [Sin publicar]
 
+## [0.1.0-beta.12] - 2026-10-29
+
+### Cambiado
+
+- **La versión completa y el autor, en el menú:** el pie del menú dice la versión exacta (como `laru 0.1.0-beta.12`, no `0.1.0`), con un enlace a lo que trae, y el GitHub de Laru.
+- **README al día:** capturas nuevas con el tema Abyssal, la forma de trabajo y los hooks que hacen cumplir, los temas y una sección de autor.
+
 ## [0.1.0-beta.11] - 2026-10-29
 
 ### Añadido
@@ -207,7 +214,8 @@ Primera beta pública.
   - `CLAUDE.md` y `AGENTS.md` generados.
   - Hooks para Claude Code.
 
-[Sin publicar]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.11...HEAD
+[Sin publicar]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.12...HEAD
+[0.1.0-beta.12]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.11...v0.1.0-beta.12
 [0.1.0-beta.11]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.10...v0.1.0-beta.11
 [0.1.0-beta.10]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.9...v0.1.0-beta.10
 [0.1.0-beta.9]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.8...v0.1.0-beta.9

@@ -198,6 +198,9 @@ kbd {
 .scope-top .scope-back { flex: 1; min-width: 0; }
 .side-hide { flex: none; }
 .side-foot { margin-top: auto; padding: 10px 8px 0; border-top: 1px solid var(--line-1); font-size: var(--t-12); color: var(--ink-3); display: grid; gap: 6px; }
+.side-foot a { color: inherit; text-decoration: underline; text-decoration-color: var(--line-3); text-underline-offset: 2px; }
+.side-foot a:hover, .side-foot a:focus-visible { color: var(--ink-1); text-decoration-color: currentColor; }
+.side-foot a.mono { text-decoration: none; }
 
 main { overflow: auto; min-width: 0; background: var(--bg-100); }
 .page { padding: 28px 32px 64px; max-width: 1280px; }
