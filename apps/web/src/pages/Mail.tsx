@@ -3,10 +3,10 @@
  * from with its codes and links. Nothing here leaves the machine. The message's HTML is drawn in a frame with no scripts and
  * no network (its own document, its own policy); a code or a link with a token shows as it arrived, marked as such.
  */
-import { CircleX, Copy, ExternalLink, Mail as MailIcon, MessageSquare, Paperclip, Send, Trash2 } from 'lucide-react';
+import { CircleX, Copy, ExternalLink, Inbox, Mail as MailIcon, MessageSquare, Paperclip, Send, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { api, apiUrl, useApi, type EnvSummary } from '../api.ts';
-import { Dialog, Segmented, Skeleton, toast } from '../components/ui.tsx';
+import { CopyButton, Dialog, Segmented, Skeleton, toast } from '../components/ui.tsx';
 import { ago, plural } from '../lib/es.ts';
 import { href } from '../lib/route.ts';
 import { useEnvList } from '../lib/useEnvs.ts';
@@ -14,7 +14,7 @@ import { useEnvList } from '../lib/useEnvs.ts';
 interface Row { id: string; kind: 'mail' | 'sms'; t: number; from: string; to: string; subject: string; attachments: number; codes: string[]; lints: string[]; status: string; service?: string; direction?: string }
 interface Detected { name: string; kind: 'smtp' | 'sms' | 'http'; provider: string; via?: string; services: string[]; intercepted: boolean }
 interface Plan { from: string; as: string; file: string; mocks: Record<string, { sink?: string }>; unserved: Detected[]; detected: Detected[]; notes: string[] }
-interface MailInfo { env: string; state: string; sinks?: { hasSinks: boolean; egress?: 'open' | 'closed'; sinks: Array<{ name: string; kind: 'smtp' | 'twilio'; ports: Array<{ container: number; host: number }>; containerPorts: number[] }> }; plan: Plan; counts: { all: number; mail: number; sms: number }; messages: Row[] }
+interface MailInfo { env: string; state: string; sinks?: { hasSinks: boolean; mailbox?: string; egress?: 'open' | 'closed'; sinks: Array<{ name: string; kind: 'smtp' | 'twilio' | 'api'; receives?: 'sms' | 'mail'; ports: Array<{ container: number; host: number }>; containerPorts: number[] }> }; plan: Plan; counts: { all: number; mail: number; sms: number }; messages: Row[] }
 interface Link { url: string; text?: string; class: string; open?: string; rewritten?: boolean }
 interface Message extends Row {
   envelope?: { from: string; rcpt: string[] }; headers: Array<[string, string]>; text?: string; links: Link[]; remote: Array<{ url: string; why: string }>;
@@ -39,7 +39,7 @@ export function Mail({ parts }: { parts: string[] }) {
   const env = list.find((e) => e.env === envArg)?.env ?? list.find((e) => e.state === 'ready')?.env ?? list[0]?.env;
   const head = (right?: React.ReactNode) => (
     <div className="head">
-      <div><h1>Correo y mensajes de texto</h1><p>Lo que la aplicación envía en este entorno llega aquí y no sale de tu máquina: el correo por SMTP y los SMS por la API de Twilio.</p></div>
+      <div><h1>Correo y mensajes de texto</h1><p>Lo que la aplicación envía en este entorno llega aquí y no sale de tu máquina, sea cual sea su sistema: lo recibe un buzón de Laru (SMTP, Twilio o la API de cualquier proveedor) o lo publica aquí el mock de mensajería que lo recibe.</p></div>
       <div className="actions">
         {list.length > 1 && <nav className="seg" aria-label="Entorno">{list.map((e: EnvSummary) => <a key={e.env} href={href('mail', e.env)} aria-current={e.env === env ? 'page' : undefined}>{e.env}</a>)}</nav>}
         {right}
@@ -101,15 +101,16 @@ function Box({ env, idArg, head }: { env: string; idArg?: string; head: (right?:
   if (!data.data) return <div className="page wide">{head()}<Skeleton lines={6} /></div>;
   const d = data.data;
   if (state !== 'ready' && state !== 'starting') {
-    return <div className="page wide">{head()}<section className="panel"><div className="empty"><span>{env} no está en marcha. Un entorno parado no tiene buzón: se vacía al parar. Levántalo en <a className="rowlink" href={href('envs', env)}>Estado y servicios</a> para recibir correo y SMS.</span></div></section></div>;
+    return <div className="page wide">{head()}<section className="panel"><div className="empty"><span>{env} no está en marcha. Un entorno parado no tiene buzón: se vacía al parar. Levántalo en <a className="rowlink" href={href('envs', env)}>Estado y servicios</a> para recibir correo y SMS.</span></div></section><Connect env={env} url="http://laru-mailbox/messages" /></div>;
   }
-  if (!hasSinks) return <div className="page wide">{head()}<Detection env={env} info={d} reload={data.reload} /></div>;
+  if (!hasSinks) return <div className="page wide">{head()}<Connect env={env} url={d.sinks?.mailbox ?? 'http://laru-mailbox/messages'} /><Detection env={env} info={d} reload={data.reload} /></div>;
   const smtp = d.sinks!.sinks.find((s) => s.kind === 'smtp');
   const port = smtp?.ports.find((p) => p.container === 587)?.host ?? smtp?.ports[0]?.host;
   return (
     <div className="page flush" onKeyDown={onKey}>
       <div className="mbx-head">{head(right)}
-        <p className="faint mbx-line">{d.sinks!.sinks.map((s) => s.kind === 'smtp' ? `SMTP ${s.name} ${s.containerPorts.join(' ')}` : `SMS ${s.name} (Twilio)`).join(' · ')} · Salida a internet: {d.sinks!.egress === 'closed' ? 'cerrada' : 'abierta'}</p>
+        <p className="faint mbx-line">{d.sinks!.sinks.map((s) => s.kind === 'smtp' ? `SMTP ${s.name} ${s.containerPorts.join(' ')}` : s.kind === 'api' ? `${s.receives === 'mail' ? 'Correo' : 'SMS'} ${s.name} (API)` : `SMS ${s.name} (Twilio)`).join(' · ')} · Salida a internet: {d.sinks!.egress === 'closed' ? 'cerrada' : 'abierta'}</p>
+        
       </div>
       <div className="mbx">
         <aside className="mbx-list" aria-label="Mensajes">
@@ -244,6 +245,28 @@ function Thread({ env, x, mark, reload }: { env: string; x: Message; mark: (s: s
         <button type="submit" className="btn" disabled={busy || !text.trim()}><Send />Enviar a la app</button>
       </form>
     </>
+  );
+}
+
+/**
+ * How a messaging mock of the env shows what it receives here: it publishes each message to the env's mailbox. The
+ * mock is whatever the app needs (each app has its own way of sending); Laru only gives it a place to tell.
+ */
+function Connect({ env, url }: { env: string; url: string }) {
+  const sms = `curl -X POST ${url} -H 'content-type: application/json' \\\n  -d '{"kind":"sms","to":"+573001112233","body":"Tu código es 482913","source":"mi-mock"}'`;
+  return (
+    <section className="panel mbx-connect" aria-labelledby="connect-h">
+      <header><Inbox /><h3 id="connect-h">Conecta el mock de mensajería</h3></header>
+      <div className="mbx-connect-body">
+        <p>Si la aplicación envía correo, SMS, WhatsApp o notificaciones a un mock de {env}, ese mock publica aquí cada mensaje que recibe: un <code className="mono">POST</code> a <code className="mono">{url}</code>, que responde dentro de cualquier entorno. El agente lo conecta así cuando monta el mock.</p>
+        <ul className="faint">
+          <li><code className="mono">kind</code>: <code>sms</code> o <code>mail</code>; <code className="mono">to</code>, <code className="mono">from</code>, <code className="mono">subject</code>, <code className="mono">body</code> o <code className="mono">html</code></li>
+          <li><code className="mono">channel</code>: whatsapp, push… · <code className="mono">source</code>: el nombre del mock</li>
+          <li><code className="mono">eml</code>: el correo original entero, con sus adjuntos</li>
+        </ul>
+        <pre className="mono mk-snippet">{sms}<CopyButton value={sms} label="Copiar" /></pre>
+      </div>
+    </section>
   );
 }
 

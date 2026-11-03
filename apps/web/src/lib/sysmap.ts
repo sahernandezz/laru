@@ -122,7 +122,10 @@ export function layout<E extends MapEdge>(g: Indexed, edges: E[], o: { keep?: bo
     }
   }
   const lastService = Math.max(0, ...services.map((s) => rank.get(s.id) ?? 0));
-  for (const s of stores) rank.set(s.id, lastService + 1);
+  // What is not a service has a column of its own by what it is, never one heap: messaging, then data, then the
+  // systems of others, the order a request reaches them.
+  const after = (n: MapNode) => (n.type === 'external' ? 3 : n.kind === 'queue' || n.kind === 'stream' || n.kind === 'broker' ? 1 : 2);
+  for (const s of stores) rank.set(s.id, lastService + after(s));
   // Ranks no node took become no column: when no service calls another, none ranks 0, and a hole in `cols` (which
   // map() skips) would leave its sizes undefined and every position NaN.
   const taken = [...new Set(rank.values())].sort((a, b) => a - b);
@@ -132,7 +135,7 @@ export function layout<E extends MapEdge>(g: Indexed, edges: E[], o: { keep?: bo
   for (const n of [...services, ...stores]) (cols[rank.get(n.id)!] ??= []).push(n);
   for (const c of cols) c?.sort((a, b) => a.name.localeCompare(b.name));
   // One barycentre pass, left to right, then right to left.
-  const pos = () => new Map(cols.flatMap((c) => (c ?? []).map((n, i) => [n.id, i] as const)));
+  let pos = () => new Map(cols.flatMap((c) => (c ?? []).map((n, i) => [n.id, i] as const)));
   for (const dir of [1, -1]) {
     const order = dir === 1 ? cols.map((_, i) => i) : cols.map((_, i) => cols.length - 1 - i);
     for (const ci of order) {
@@ -144,6 +147,25 @@ export function layout<E extends MapEdge>(g: Indexed, edges: E[], o: { keep?: bo
       cols[ci]?.sort((a, b) => bary(a.id) - bary(b.id));
     }
   }
+
+  /*
+   * A column holds at most MAX_ROWS pieces: past that it splits into columns of the same level, side by side, each piece
+   * staying with what it connects to (the order the barycentre left). A browser that calls nine services directly made
+   * one column nine boxes tall, which nobody reads at a glance.
+   */
+  const MAX_ROWS = 5;
+  const titleOf: number[] = [];
+  const split: MapNode[][] = [];
+  cols.forEach((c, ci) => {
+    const list = c ?? [];
+    const parts = Math.max(1, Math.ceil(list.length / MAX_ROWS));
+    const per = Math.ceil(list.length / parts);
+    for (let k = 0; k < parts; k++) { split.push(list.slice(k * per, (k + 1) * per)); titleOf.push(k === 0 ? ci : -1); }
+  });
+  cols.length = 0;
+  cols.push(...split);
+  for (const [i, c] of cols.entries()) for (const n of c) rank.set(n.id, i);
+  pos = () => new Map(cols.flatMap((c) => (c ?? []).map((n, i) => [n.id, i] as const)));
 
   const step = NODE_H + ROW_GAP;
   const rowY = new Map<string, number>();
@@ -284,11 +306,13 @@ export function layout<E extends MapEdge>(g: Indexed, edges: E[], o: { keep?: bo
     ...e, d: pts.map(([x, y], k) => (!k ? `M${x} ${y}` : y === pts[k - 1][1] ? `H${x}` : `V${y}`)).join(' '), lx: label[i].x + w / 2, ly: label[i].y + 11, lw: w,
   }));
 
-  // titled by the rank each column stands for, not by its place once the empty ones are gone
-  const columns = cols.map((c, ci) => ({
-    x: colX[ci],
-    title: taken[ci] === lastService + 1 ? 'Datos e infraestructura' : taken[ci] === 0 ? 'Entrada' : `Servicios, nivel ${taken[ci]}`,
-  })).filter((_, ci) => cols[ci]?.length);
+  // titled by the rank each column stands for, not by its place once the empty ones are gone; a column split in parts
+  // is titled once, over its first
+  const TITLE: Record<number, string> = { [lastService + 1]: 'Mensajería', [lastService + 2]: 'Datos', [lastService + 3]: 'Sistemas externos' };
+  const columns = cols.map((c, ci) => {
+    const r = titleOf[ci] < 0 ? undefined : taken[titleOf[ci]];
+    return { x: colX[ci], title: r === undefined ? '' : TITLE[r] ?? (r === 0 ? 'Entrada' : `Servicios, nivel ${r}`) };
+  }).filter((_, ci) => cols[ci]?.length);
   return { nodes: [...placed.values()], edges: routed, width, height: bottom + 24 + under * UNDER, columns, bands };
 }
 

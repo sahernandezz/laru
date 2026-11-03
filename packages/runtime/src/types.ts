@@ -104,8 +104,16 @@ export interface MockSpec {
   real?: string;
   /** for a mock of an external that compose does not run: the port it answers on (80) */
   port?: number;
-  /** `sink`: what it receives and keeps (mail by SMTP, SMS by Twilio's API); it sends nothing out */
-  sink?: 'smtp' | 'twilio';
+  /** `sink`: what it receives and keeps (mail by SMTP, SMS by Twilio's API, or any messaging API); it sends nothing out */
+  sink?: 'smtp' | 'twilio' | 'api';
+  /** an `api` sink: whether what it receives is a text (`sms`, the default) or a mail */
+  kind?: 'sms' | 'mail';
+  /** an `api` sink: the paths (a regex) that send a message; default any POST or PUT */
+  send?: string;
+  /** an `api` sink: where each part of the message is in the request, as a dotted path (`data.recipient`); default the usual names */
+  fields?: { to?: string; body?: string; from?: string; subject?: string };
+  /** an `api` sink: what it answers a send (`{id}` is the message's id); default 202 with `{"id": …, "status": "queued"}` */
+  reply?: { status?: number; body?: string };
   /** a sink's webhook for an SMS that comes in (`http://api:3000/webhooks/sms-entrante`), inside the env */
   inbound?: string;
   /** an SMTP sink: `required` makes a client without TLS fail here as in production; default `optional` */
@@ -116,10 +124,16 @@ export interface MockSpec {
   deliver?: 'auto' | 'manual';
 }
 
+/**
+ * Every env's own mailbox for the mocks the app's messaging is pointed at: a mock someone made (an agent, a person)
+ * publishes each message it receives with `POST http://laru-mailbox/messages`, and it is seen in «Correo y mensajes».
+ * Laru does not replace or guess the mock: the mock tells.
+ */
+export const MAILBOX = 'laru-mailbox';
 /** The ports an SMTP sink listens on unless it replaces a compose service (MailHog on 1025): the usual ones of a mail server. */
 export const SMTP_PORTS = [25, 465, 587, 1025, 2525];
 /** The sinks of an env by kind: their name is what the app reaches (`smtp`, `api.twilio.com`). */
-export const sinksOf = (mocks: Record<string, MockSpec>, kind: 'smtp' | 'twilio') => Object.entries(mocks).filter(([, m]) => m.mode === 'sink' && m.sink === kind).map(([n]) => n);
+export const sinksOf = (mocks: Record<string, MockSpec>, kind: 'smtp' | 'twilio' | 'api') => Object.entries(mocks).filter(([, m]) => m.mode === 'sink' && m.sink === kind).map(([n]) => n);
 
 /** `.laru/envs/<env>/tap/rules.json`, hot-reloaded by the tap. */
 export interface TapRules {

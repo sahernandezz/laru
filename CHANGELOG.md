@@ -6,6 +6,47 @@ Todos los cambios de Laru que importan a quien lo usa quedan aquí. El formato s
 
 ## [Sin publicar]
 
+## [0.1.0-beta.15] - 2026-11-03
+
+### Arreglado
+
+- **Editar una pieza ya no pierde lo escrito cuando algo cambia el workspace.** Con el refresco automático, el formulario volvía al texto guardado cada vez que un agente tocaba cualquier archivo. Ahora solo sigue a la pieza si su texto cambió y no estabas escribiendo. Si cambió fuera mientras la editabas, lo avisa, conserva tus cambios y ofrece cargar la versión nueva.
+- **El paso a paso ya no mueve la página:** al cambiar de paso, la cadena de mensajes y la lista junto al vídeo se desplazan solo dentro de su recuadro. Antes bajaban la página y había que subir otra vez a los controles. Si bajas por la secuencia, aparece abajo una barra flotante con anterior, siguiente, las acciones, dónde vas, volver a los controles y salir.
+- **Las herramientas del árbol de documentación se quedan fijas** (ocultar, filtrar, estado) y solo se desplaza el árbol.
+- **El menú oculto sigue oculto al recargar,** en este navegador.
+- **El panel de avisos se cierra al pulsar fuera de él.**
+- **El menú ya no rebota:** al pulsar una sección, el menú marcaba primero otra (la de antes, o la vista general mientras cargaba) y después la pulsada. Ahora el menú se calcula a partir de la dirección, en el mismo momento que la pantalla, y las pestañas de las hojas salen de la dirección sin copia propia. Las direcciones antiguas se corrigen antes de dibujar nada.
+- **Sin parpadeos al navegar:** lo que una pantalla ya cargó se muestra al instante al volver y se actualiza por detrás, y el menú y la pantalla comparten lo que leen. El código de todas las pantallas se carga en segundo plano tras la primera, el menú ya no se desliza cuando cambia de nivel y la pantalla ya no aparece con un fundido. Antes cada cambio de ruta dejaba la pantalla en blanco un momento y el menú de un flujo cambiaba de título y se deslizaba otra vez.
+- **Docker vigilado en un solo sitio:** mientras hay una página abierta, el servicio pregunta a Docker cada 5 segundos, y las pantallas leen lo que vio en vez de preguntar cada una. La lista de workspaces ya no espera a `docker ps`.
+- **Docker caído o colgado ya no bloquea Laru:** el estudio pregunta primero, en 5 segundos como mucho, si Docker responde. Si no, los entornos se ven como «Docker no responde» y el resto de pantallas (evidencia, documentos, flujos) carga sin esperarlo. Antes las peticiones que esperaban a Docker ocupaban las conexiones del navegador y todo lo demás se quedaba cargando.
+
+### Añadido
+
+- **La pantalla de un mock muestra lo que hizo:**
+  - «Lo que respondió»: cada endpoint con cuántas veces lo llamaron, con qué estados respondió y cuánto tarda normalmente.
+  - «Peticiones»: las últimas que grabó el interceptor y, encima, las que llegan en vivo. Cada una se abre con la petición y la respuesta completas.
+  - Si no tiene mock, el bloque YAML para simularlo, listo para copiar.
+  
+  Antes solo salía lo que llegaba con la pantalla abierta, así que casi siempre estaba vacía.
+- **Cada entorno muestra su buzón y sus mocks:** en su página, el buzón (qué recibe, cuántos correos y mensajes, los últimos) o el aviso de que no tiene. También cada dependencia que tiene delante el interceptor, real, con mock o buzón, con sus fallos; todo enlazado a su pantalla.
+- **El buzón de Laru recibe cualquier sistema de mensajería:** además de correo por SMTP y SMS por Twilio, un buzón `sink: api` recibe la API HTTP de cualquier proveedor de correo, SMS, WhatsApp o notificaciones. Lee el destinatario, el texto, el remitente y el asunto por sus nombres habituales (también anidados), o por los campos que se le indiquen (`fields`). Lo guarda como mensaje o correo, con sus códigos y enlaces, y responde como un proveedor (`reply`). Todo se ve en «Correo y mensajes».
+- **Un mock de mensajería se conecta al buzón de Laru:** cada entorno tiene `http://laru-mailbox/messages`. El mock que reciba el correo, los SMS, WhatsApp o las notificaciones de la app (el que monte el agente, a la medida de cada app) publica allí cada mensaje con un `POST` y se ve en «Correo y mensajes». Puede mandar los campos (`kind`, `to`, `from`, `subject`, `body`, `html`, `channel`, `source`) o el correo original en `eml`, que se guarda entero con sus adjuntos. Laru no adivina ni sustituye el mock: el mock avisa. El buzón aparece en cuanto llega algo, aunque el entorno no declare ningún buzón propio. Hace falta volver a levantar el entorno para que exista la dirección.
+- **El agente conecta su mock al buzón:** la guía le explica que todo mock de mensajería que monte publique cada mensaje en `http://laru-mailbox/messages`, porque un mock que no publica es un buzón que nadie ve. Al empezar cada sesión recibe qué recibe cada entorno y cuántos mensajes tiene.
+- **La forma de trabajo muestra lo que recibe el agente:** su hoja dice por dónde le llega (Claude Code, el servidor MCP, los hooks) y si cada vía está activa en ese workspace. Muestra las ramas protegidas con candado. Marca cada regla de «Nunca» y «Pedir confirmación» como «Laru la bloquea», «Laru te pregunta» (las órdenes `cmd:`, que el hook hace cumplir) o «Indicación» (lo que el agente solo lee). Al final está el texto exacto que lee el agente, con un botón para copiarlo.
+- **Un botón para los dos paneles:** el botón de la izquierda de la cabecera (y `⌘B`) oculta a la vez el menú lateral y el árbol de documentación, y la hoja ocupa todo el ancho. Vuelve a pulsarlo para sacar los dos. Cada panel sigue ocultándose por separado con su propio botón.
+- **«En curso» flotante:** lo que corre aparece en una tarjeta abajo a la derecha, con el número del run, qué corre y en qué entorno, la fase en una barra, el tiempo que lleva y un enlace. Se pliega en una píldora (lo recuerda el navegador) y se va sola cuando nada corre. Los mensajes breves pasan abajo al centro.
+- **Avisos que llegan solos:** lo que pasa mientras la página está abierta aparece arriba a la derecha sin abrir nada, según lo que importa. Un run que falló o Docker que dejó de responder se quedan hasta que se resuelven o los cierras. Un run que pasó o Docker que volvió se van en unos segundos. Que algo cambió el workspace y la pantalla se actualizó es una línea breve con los archivos. Pasar el ratón por encima retiene la tarjeta, y la de un run lleva a él.
+- **Docker caído, a la vista:** mientras Docker no responde, una franja en lo alto de cada pantalla dice desde cuándo y qué dijo, y se va sola cuando vuelve.
+- **Cabecera más limpia:** Docker es una cápsula con su punto de color y su versión. Si cae, se pone roja y dice «Docker caído». Al pulsarla se abre el panel con el detalle y el historial de avisos, y un contador rojo marca los fallos que no has visto. Ya no hay campana. El selector de workspace muestra también el servicio: un punto con su estado y cuántos workspaces hay. Su lista empieza por el servicio local (dirección y estado) y lleva a todos los workspaces.
+- **El historial de avisos:** guarda los avisos de la sesión con el estado de Docker arriba (versión, desde cuándo, el error completo) y agrupa los cambios seguidos.
+- **Las pantallas se actualizan solas:** cuando un agente, un editor o la CLI cambia algo del workspace (un documento, un flujo, una corrida que termina, el estado de un entorno), las páginas abiertas vuelven a pedir sus datos en unos 3 segundos, sin recargar ni perder dónde estabas. Lo que guardas desde la propia página no provoca otro refresco.
+
+### Cambiado
+
+- **Los mapas de servicios, de flujos y de entornos se leen por capas:** después de la entrada y de los servicios por nivel de llamada, cada tipo de pieza tiene su propia columna: Mensajería (colas), Datos (bases de datos, almacenamiento) y Sistemas externos. Antes iban todas juntas en «Datos e infraestructura». Una columna con más de cinco piezas se parte en varias del mismo nivel, una junto a otra, en vez de crecer hacia abajo. Antes, cuando el navegador llamaba directamente a muchos servicios, quedaban todos en una sola columna larga.
+- **La barra del reproductor, ordenada en dos filas:** arriba el tiempo (reproducir, la posición, la línea con los pasos, la duración e ir al fallo); abajo cómo recorrerlo («Seguimiento» y «Paso a paso» a un lado, la velocidad y el dispositivo al otro). La leyenda http/sql/sse pasa junto a la pestaña «Secuencia», que es lo que describe. El dispositivo se elige con botones como los de la velocidad («Todos» y cada dispositivo con su icono y cuántos mensajes envió). Con más de tres dispositivos pasa a ser un desplegable compacto.
+- **«Entornos» tiene su propia sección en el menú,** junto a «Mapa y servicios» (antes «Servicios y entornos», con dos pestañas). Las bases de datos, colas, almacenamiento, correo y variables cuelgan de ella.
+
 ## [0.1.0-beta.14] - 2026-11-03
 
 ### Añadido
@@ -242,7 +283,8 @@ Primera beta pública.
   - `CLAUDE.md` y `AGENTS.md` generados.
   - Hooks para Claude Code.
 
-[Sin publicar]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.14...HEAD
+[Sin publicar]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.15...HEAD
+[0.1.0-beta.15]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.14...v0.1.0-beta.15
 [0.1.0-beta.14]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.13...v0.1.0-beta.14
 [0.1.0-beta.13]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.12...v0.1.0-beta.13
 [0.1.0-beta.12]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.11...v0.1.0-beta.12

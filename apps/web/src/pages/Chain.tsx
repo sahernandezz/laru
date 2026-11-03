@@ -187,16 +187,9 @@ export function ChainTab({ ctx, layout, steps, cur, go, hot, showAll, setShowAll
     reveal((n) => n + 1);
   }, [cur]);
   /**
-   * A node into the part of the tree on screen. The tree scrolls first, so the video and Secuencia stay; only what it
-   * cannot cover (at its end) moves its scroller: the page, or the documentation's sheet.
+   * A node into the part of the tree on screen: the tree scrolls, the page never does. Moving the page put the step
+   * controls out of view on every step, and they had to be scrolled back up for the next one.
    */
-  // Opening a run reveals the failing node inside the tree only: the page stays at its top until the person touches something.
-  const touched = useRef(false);
-  useEffect(() => {
-    const on = () => { touched.current = true; };
-    addEventListener('pointerdown', on, true); addEventListener('keydown', on, true);
-    return () => { removeEventListener('pointerdown', on, true); removeEventListener('keydown', on, true); };
-  }, []);
   const inView = (el: HTMLElement) => {
     const box = tree.current!;
     let scroller: HTMLElement | null = box.parentElement;
@@ -204,8 +197,6 @@ export function ChainTab({ ctx, layout, steps, cur, go, hot, showAll, setShowAll
     const s = scroller?.getBoundingClientRect() ?? { top: 0, bottom: innerHeight };
     const view = { top: Math.max(s.top, 0), bottom: Math.min(s.bottom, innerHeight) };
     box.scrollTop += revealBy(box.getBoundingClientRect(), view, el.getBoundingClientRect());
-    const left = revealBy({ top: -Infinity, bottom: Infinity }, view, el.getBoundingClientRect());
-    if (left && scroller && touched.current) scroller.scrollTop += left;
   };
   useLayoutEffect(() => {
     const p = pending.current;

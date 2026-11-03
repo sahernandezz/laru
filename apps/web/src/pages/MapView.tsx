@@ -11,7 +11,6 @@ import { KIND, pieceLabel, plural } from '../lib/es.ts';
 import { href } from '../lib/route.ts';
 import { ACTORS, edgesOf, groupsOf, homeOf, layout, NO_GROUP, SHARED, type EdgeKind } from '../lib/sysmap.ts';
 import { ServiceEnvMap } from '../components/EnvMap.tsx';
-import { MapTabs } from '../components/MapTabs.tsx';
 import { RunningEnvs } from '../components/RunningEnvs.tsx';
 import { Components, NodeSheet, through } from './Service.tsx';
 
@@ -48,7 +47,6 @@ export function MapView({ g: whole, selected, tabArg }: { g: Indexed; selected?:
   const shown = lay.edges.filter((e) => edges.some((x) => x.id === e.id));
   // A table or a topic is shown by its store, an endpoint by its service, each at that one's address.
   const home = selected && homeOf(g, selected);
-  useEffect(() => { if (home && home !== selected) location.replace(href('map', home)); }, [home, selected]);
   const sel = home && ICON[g.nodes.get(home)?.type ?? ''] ? g.nodes.get(home) : undefined;
   const near = new Set(sel ? edges.filter((e) => e.from === sel.id || e.to === sel.id).flatMap((e) => [e.from, e.to]) : []);
 
@@ -76,19 +74,18 @@ export function MapView({ g: whole, selected, tabArg }: { g: Indexed; selected?:
     <div className="page wide map-page">
       {selected ? (
         <div className="map-top">
-          <nav className="crumbs" aria-label="Ruta"><a href={href('map')}>Servicios y entornos</a><ChevronRight /><span>{sel?.name ?? selected}</span></nav>
+          <nav className="crumbs" aria-label="Ruta"><a href={href('map')}>Mapa y servicios</a><ChevronRight /><span>{sel?.name ?? selected}</span></nav>
           <button className="btn sm" onClick={close}><X />Cerrar</button>
         </div>
       ) : (
         <div className="head">
-          <div><h1>Servicios y entornos</h1><p>Lo que se despliega, con qué habla y dónde corre cada servicio. Elige una pieza para ver su ficha.</p></div>
+          <div><h1>Mapa y servicios</h1><p>Lo que se despliega y con qué habla cada servicio. Elige una pieza para ver su ficha.</p></div>
           <div className="actions faint map-sum">
             {plural(count('service'), 'servicio', 'servicios')} · {plural(count('datastore'), 'almacén', 'almacenes')} · {plural(count('external'), 'externo', 'externos')} · leído de {g.map.repos.map((r) => `${r.name}@${r.commit.slice(0, 7)}`).join(', ')}
           </div>
         </div>
       )}
 
-      {!selected && <MapTabs active="map" />}
       {!selected && <RunningEnvs envs={envs.data} g={g} />}
       <section className="panel map-panel">
         <div className="toolbar">

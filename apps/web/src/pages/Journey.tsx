@@ -182,9 +182,16 @@ export function Journey({ trace, ctx, lanes, sel, onPick, hot, time, follow }: {
   useEffect(() => { if (follow && atEnd.current && box.current) box.current.scrollTop = box.current.scrollHeight; }, [follow, flat.length]);
   // the row picked, or the last one happening now, in view
   const lit = flat.findLast((it) => it.via.some((v) => hot?.has(v.id)))?.e.id;
-  useEffect(() => { box.current?.querySelector('.jr-row.sel')?.scrollIntoView({ block: 'nearest' }); }, [open?.e.id]);
+  // a row into the list's own view: scrollIntoView moves the page too, and walking step by step lost its controls
+  const nearest = (el: Element | null | undefined) => {
+    const b = box.current;
+    if (!b || !el) return;
+    const r = el.getBoundingClientRect(), o = b.getBoundingClientRect();
+    if (r.top < o.top) b.scrollTop -= o.top - r.top; else if (r.bottom > o.bottom) b.scrollTop += r.bottom - o.bottom;
+  };
+  useEffect(() => { nearest(box.current?.querySelector('.jr-row.sel')); }, [open?.e.id]); // eslint-disable-line react-hooks/exhaustive-deps
   // live keeps the end in view itself, and only while the person is there: a row lit must not pull them away from what they read
-  useEffect(() => { if (lit && !open && !follow) box.current?.querySelector(`[data-ex="${CSS.escape(lit)}"]`)?.scrollIntoView({ block: 'nearest' }); }, [lit]);
+  useEffect(() => { if (lit && !open && !follow) nearest(box.current?.querySelector(`[data-ex="${CSS.escape(lit)}"]`)); }, [lit]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const LW = Math.max(14, Math.min(26, Math.floor(240 / Math.max(1, lanes.length))));
   const W = lanes.length * LW;

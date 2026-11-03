@@ -12,7 +12,7 @@ import { issueText, KIND, pieceLabel, STATUS } from '../lib/es.ts';
 import { pageOf } from '../lib/route.ts';
 import { Diagram } from '../lib/md.tsx';
 import { noteLevel } from './Docs.tsx';
-import { iconOf } from '../lib/pieceMenu.tsx';
+import { iconOf } from '../lib/pieceMenu.ts';
 
 type Row = Record<string, string>;
 
@@ -26,7 +26,18 @@ export function PieceForm({ k, piece, type, parent, presetId, done }: { k: Knowl
   const [note, setNote] = useState<DocNote | undefined>(piece?.note);
   const [saving, setSaving] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  useEffect(() => setV(initial), [initial]);
+  // A refresh brings the piece anew (another object, often the same text): the form follows it only when its text changed,
+  // and never over what is being typed. Changed outside while edited here, it says so and keeps the edits.
+  const base = useRef(initial), now = JSON.stringify(initial);
+  const [outside, setOutside] = useState(false);
+  useEffect(() => {
+    const was = JSON.stringify(base.current);
+    if (was === now) return;
+    const samePiece = base.current.id === initial.id && base.current.type === initial.type;
+    const edited = JSON.stringify(v) !== was;
+    base.current = initial;
+    if (samePiece && edited) setOutside(true); else { setV(initial); setOutside(false); }
+  }, [now]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     clearTimeout(timer.current);
     timer.current = setTimeout(() => api<WriteResult>('/api/knowledge/validate', { method: 'POST', body: v }).then((r) => { setIssues(r.issues); if (r.note) setNote(r.note); }).catch(() => {}), 350);
@@ -69,6 +80,12 @@ export function PieceForm({ k, piece, type, parent, presetId, done }: { k: Knowl
           <button className="btn primary" disabled={saving || errors.length > 0} onClick={save} title={errors.length ? `${errors.length} errores por corregir` : undefined}><Save />{piece ? 'Guardar' : 'Crear'}</button>
         </div>
       </div>
+      {outside && (
+        <div className="notice warn" role="status">
+          <div><b>Esta pieza cambió fuera de aquí mientras la editabas</b> (un agente, un editor o la CLI). Tus cambios siguen en el formulario; si guardas, sustituyen a los de fuera.
+            {' '}<button type="button" className="rowlink" onClick={() => { setV(base.current); setOutside(false); }}>Descartar los míos y cargar la versión nueva</button></div>
+        </div>
+      )}
       {errors.length > 0 && <div className="notice"><div><b>{errors.length} {errors.length === 1 ? 'error impide' : 'errores impiden'} guardar.</b> Cada uno está junto a su campo.</div></div>}
 
       <section className="panel"><div className="body form">

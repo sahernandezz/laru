@@ -13,7 +13,7 @@ import { writeMaskFile } from '@laru/trace';
 import { closure, composeFiles, importCompose, interpolations, leftOut, renderCompose, type ComposeDoc, type RenderContext, type Service, type Target } from './compose.ts';
 import { readConfig } from './config.ts';
 import { prune } from './disk.ts';
-import { destroyByLabel, docker, dockerStream, envLock, hold, inspectEnv, LABEL, machineLock, recentStats, stats, withLock, workspaceKey, type ContainerState, type DestroyReport } from './docker.ts';
+import { destroyByLabel, docker, dockerAnswers, DockerError, dockerStream, envLock, hold, inspectEnv, LABEL, machineLock, recentStats, stats, withLock, workspaceKey, type ContainerState, type DestroyReport } from './docker.ts';
 import { checkShare, ENV_KEYS, envDir, envKeys, envMasker, forgetValues, isInstance, jointSpec, loadEnvSpec, projectName, readState, translateSpec, writeState, type EnvState } from './env.ts';
 import { joinComposes, jointRouting } from './join.ts';
 import { nameOf, provisional } from './names.ts';
@@ -739,7 +739,8 @@ export function unheld(wants: Array<{ svc: string; topic: string }>, rows: kafka
 export interface EnvStatus {
   env: string;
   project: string;
-  state: 'ready' | 'starting' | 'failed' | 'stopped' | 'absent';
+  /** unknown: Docker did not answer, so nothing was asked of it */
+  state: 'ready' | 'starting' | 'failed' | 'stopped' | 'absent' | 'unknown';
   source?: string;
   /** a joint env's: every member's snapshot */
   sources?: string[];
@@ -757,8 +758,11 @@ export async function status(ws: Workspace, env: string, opts: { stats?: boolean
   const composePath = join(dir, 'compose.yml');
   const project = projectName(ws, env);
   if (!state || !existsSync(composePath)) return { env, project, state: 'absent', services: [], addresses: [] };
+  if (!(await dockerAnswers())) return { env, project, state: 'unknown', source: state.source, lastReadyAt: state.lastReadyAt, services: [], addresses: [] };
   const doc = parse(readFileSync(composePath, 'utf8')) as ComposeDoc;
-  const cs = (await inspectEnv(ws, env)).filter((c) => !c.labels[LABEL.run]);
+  const all = await inspectEnv(ws, env).catch((e) => { if (e instanceof DockerError && e.timedOut) return null; throw e; });
+  if (!all) return { env, project, state: 'unknown', source: state.source, lastReadyAt: state.lastReadyAt, services: [], addresses: [] };
+  const cs = all.filter((c) => !c.labels[LABEL.run]);
   const st = opts.stats ? await recentStats(cs.filter((c) => c.state === 'running').map((c) => c.id)) : [];
   const services: ServiceStatus[] = Object.entries(doc.services).map(([k, s]) => {
     const c = cs.find((x) => x.labels['com.docker.compose.service'] === k);

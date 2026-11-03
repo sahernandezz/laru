@@ -1,20 +1,31 @@
 /** The interface: one shell, one route per screen, and the map loaded once for all of them. */
 import { Database, GitBranch, Globe, Server, Waypoints } from 'lucide-react';
-import { Component, lazy, Suspense, useEffect, useMemo, type ComponentType, type ReactNode } from 'react';
-import { indexMap, useApi, type KnowledgeData, type SystemMap, type WorkspaceInfo } from './api.ts';
+import { Component, createElement, lazy, Suspense, useEffect, useMemo, type ComponentType, type ReactNode } from 'react';
+import { indexMap, useApi, type EnvSummary, type FlowInfo, type Indexed, type KnowledgeData, type RunInfo, type StandardData, type SystemMap, type WorkspaceInfo } from './api.ts';
 import { NAV, Shell, type Jump } from './components/Shell.tsx';
 import { Skeleton } from './components/ui.tsx';
 import { FINDING, pieceLabel } from './lib/es.ts';
-import { HOME, href, moved, pageOf, splitStop, useRoute } from './lib/route.ts';
+import { addRouteFix, HOME, href, pageOf, splitStop, useRoute } from './lib/route.ts';
+import { EXPLORERS, menuOf, type Menu } from './lib/menu.ts';
 import { FromFlow } from './components/FromFlow.tsx';
-import { EnvScope } from './components/EnvScope.tsx';
-import { flowOfEnv } from './lib/useEnvs.ts';
 import { frontNodes } from './lib/fronts.ts';
-import { appMenuOf, iconOf, TABS_OF } from './lib/pieceMenu.tsx';
+import { appMenuOf, iconOf, TABS_OF } from './lib/pieceMenu.ts';
 import { homeOf } from './lib/sysmap.ts';
 
-/** Each screen's code is fetched when it is first opened: the first page loads only its own. */
-const page = <K extends string>(load: () => Promise<Record<K, ComponentType<any>>>, name: K) => lazy(() => load().then((m) => ({ default: m[name] })));
+/**
+ * Each screen's code is its own file: the first page loads only its own, and the rest come in behind once it is drawn,
+ * so opening another screen never waits on its code (no skeleton between two screens).
+ */
+const loaders: Array<() => Promise<unknown>> = [];
+const page = <K extends string>(load: () => Promise<Record<K, ComponentType<any>>>, name: K) => {
+  // once its code is here the screen is drawn as it is: a lazy one would suspend for a moment and keep the old screen up
+  let ready: ComponentType<any> | undefined;
+  const got = () => load().then((m) => (ready = m[name]));
+  const Lazy = lazy(() => got().then((C) => ({ default: C })));
+  loaders.push(got);
+  return (props: any) => (ready ? createElement(ready, props) : createElement(Lazy, props));
+};
+const preload = () => { for (const l of loaders) void l().catch(() => undefined); };
 const Data = page(() => import('./pages/Data.tsx'), 'Data');
 const Envs = page(() => import('./pages/Envs.tsx'), 'Envs');
 const Files = page(() => import('./pages/Files.tsx'), 'Files');
@@ -59,10 +70,12 @@ export function App() {
     : parts.map((p) => VIEW[p] ?? p);
   const title = [...said.reverse(), screenName, ws.data?.title].filter(Boolean).join(' · ');
   useEffect(() => { document.title = `${title} — Laru`; }, [title]);
+  useEffect(() => { const t = setTimeout(preload, 1500); return () => clearTimeout(t); }, []);
 
-  // An address that moved is replaced, not pushed: Back does not bounce off the old one.
-  const to = moved(route);
-  if (to) { location.replace(to); return null; }
+  // A table or a topic lives at its store's address, an endpoint at its service's: put right before anything is drawn.
+  useEffect(() => g ? addRouteFix(([s, id]) => { const home = s === 'map' && id ? homeOf(g, id) : id; return home !== id ? href('map', home) : null; }) : undefined, [g]);
+  const fronts = g ? frontNodes(g).length : 0;
+  const nav = useMenu(route, g, pieces.data, fronts);
   if (ws.gone) return <div className="page"><div className="notice" role="alert"><div><b>Este workspace ya no está registrado en esta máquina.</b> <a className="rowlink" href={HOME}>Ir a todos los workspaces</a></div></div></div>;
   if (ws.error) return <div className="page"><div className="notice">{ws.error}</div></div>;
   const jumps: Jump[] = g ? g.map.nodes.flatMap((n): Jump[] => {
@@ -107,7 +120,7 @@ export function App() {
   // The studio is a screen of its own, on the whole window: no shell, no menu, nothing of the page it came from.
   if (screen === 'studio') return <div className="studio-page"><Guard at={route.join('/')}><Suspense fallback={<div className="page"><Skeleton lines={10} /></div>}><Studio parts={route.slice(1)} g={g} /></Suspense></Guard></div>;
   const explorer = ['data', 'queues', 'storage', 'vars', 'mail'].includes(screen);
-  return <Shell app={ws.data?.title ?? '…'} active={screen} counts={counts} jumps={[...docJumps, ...jumps]} menu={pieces.data ? appMenuOf(pieces.data, g ? frontNodes(g).length : 0) : undefined}>{explorer && (flowOfEnv() ? <FromFlow screen={screen} /> : arg ? <EnvScope env={arg} active={screen} /> : null)}<Guard at={route.join('/')}><Suspense fallback={<div className="page"><Skeleton lines={6} /></div>}>{body}</Suspense></Guard></Shell>;
+  return <Shell app={ws.data?.title ?? '…'} nav={nav} counts={counts} jumps={[...docJumps, ...jumps]} menu={pieces.data ? appMenuOf(pieces.data, fronts) : undefined}>{explorer && /^f-./.test(arg ?? '') && <FromFlow />}<Guard at={route.join('/')}><Suspense fallback={<div className="page"><Skeleton lines={6} /></div>}>{body}</Suspense></Guard></Shell>;
 }
 
 /** A screen that throws says so in its place; the shell keeps working, and going elsewhere clears it. */
@@ -124,3 +137,15 @@ class Guard extends Component<{ at: string; children: ReactNode }, { error?: Err
 const NoMap = () => (
   <div className="page"><section className="panel"><div className="empty">Todavía no se ha leído el código. Pulsa «Releer el código» en <a className="rowlink" href="#/repos">Proyectos</a>, o ejecuta <code>laru map</code>.</div></section></div>
 );
+
+/** The menu of the address, from what the page has loaded: the reads are the shared cache's, so they cost nothing twice. */
+function useMenu(route: string[], g: Indexed | null, k: KnowledgeData | undefined, fronts: number): Menu {
+  const [screen, a] = route;
+  const thing = Boolean(a) && screen !== 'runs';
+  const flows = useApi<FlowInfo[]>(thing && (screen === 'docs' || screen === 'map' || EXPLORERS.includes(screen)) ? '/api/flows' : null);
+  const envs = useApi<EnvSummary[]>(thing && (screen === 'envs' || EXPLORERS.includes(screen)) ? '/api/envs' : null);
+  const runs = useApi<RunInfo[]>(thing && (screen === 'envs' || screen === 'live' || EXPLORERS.includes(screen)) ? '/api/runs' : null);
+  const std = useApi<StandardData>(thing && screen === 'standard' ? '/api/standard' : null);
+  const session = useApi<{ id: string; env: string }>(thing && screen === 'live' ? `/api/run?id=${encodeURIComponent(a)}` : null);
+  return menuOf(route, { k, g, flows: flows.data, envs: envs.data, runs: runs.data, session: session.data, std: std.data, fronts });
+}

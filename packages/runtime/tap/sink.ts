@@ -1,5 +1,6 @@
 /**
- * The sink: a mock that *receives* what an app sends out, mail by SMTP and SMS by Twilio's API, keeps it in the env's
+ * The sink: a mock that *receives* what an app sends out, mail by SMTP, SMS by Twilio's API or either by any other
+ * messaging API (`sink: api`: a provider of its own, or a mock someone made of one), keeps it in the env's
  * mailbox (`tap/mail/messages.jsonl`, one line per fact, and the original in `eml/`) and sends nothing anywhere. It has
  * no relay, no forward and no «release». It reaches the app only to call back its own status webhook, inside the env.
  * Stdlib only, like the tap.
@@ -55,6 +56,30 @@ const twilioBody = (status: number) => {
 /** X-Twilio-Signature: HMAC-SHA1 of the URL as the app gave it plus the parameters sorted by name, base64, with the account's Auth Token. */
 export const twilioSignature = (token: string, url: string, params: Record<string, string>) =>
   createHmac('sha1', token).update(url + Object.keys(params).sort().map((k) => k + params[k]).join('')).digest('base64');
+
+/** A list of addresses split at its commas, never at one inside a quoted name (`"Pérez, José" <jose@x>`). */
+export const splitAddresses = (v: string) => v.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map((a) => a.trim()).filter(Boolean);
+/** The address alone: `jose@x` of `"Pérez, José" <jose@x>`. */
+export const bareAddress = (a: string) => /<([^>]+)>/.exec(a)?.[1]?.trim() ?? a.trim();
+
+/** A mail from its parts, as a client would send it: UTF-8 headers encoded, each body in base64, html beside the text. */
+export function composeMail(m: { from: string; to: string; subject: string; text: string; html?: string }): Buffer {
+  const word = (v: string) => (/^[\x20-\x7e]*$/.test(v) ? v : `=?UTF-8?B?${Buffer.from(v).toString('base64')}?=`);
+  // in an address only the display name is encoded: `José <jose@x>` keeps its address readable; a bare address stays as it is
+  // an ASCII name with a comma or another special is quoted; a non-ASCII one is an encoded word, which hides them
+  const name = (n: string) => (!/^[\x20-\x7e]*$/.test(n) ? word(n) : /[,;:@<>()[\]"\\.]/.test(n) ? `"${n.replace(/["\\]/g, '\\$&')}"` : n);
+  const addrs = (v: string) => splitAddresses(v).map((a) => {
+    const m = /^"?((?:[^"\\]|\\.)*?)"?\s*<([^>]+)>$/.exec(a);
+    return m ? (m[1] ? `${name(m[1].replace(/\\(.)/g, '$1'))} <${m[2]}>` : `<${m[2]}>`) : a;
+  }).join(', ');
+  const b64 = (v: string) => Buffer.from(v).toString('base64').replace(/.{76}/g, '$&\r\n');
+  const head = [`From: ${addrs(m.from || 'desconocido')}`, `To: ${addrs(m.to)}`, `Subject: ${word(m.subject)}`, `Date: ${new Date().toUTCString()}`, `Message-ID: <${randomUUID()}@laru-mailbox>`, 'MIME-Version: 1.0'];
+  const part = (type: string, v: string) => [`Content-Type: ${type}; charset=utf-8`, 'Content-Transfer-Encoding: base64', '', b64(v)];
+  const lines = !m.html ? [...head, ...part('text/plain', m.text)]
+    : !m.text ? [...head, ...part('text/html', m.html)]
+    : [...head, 'Content-Type: multipart/alternative; boundary="laru-alt"', '', '--laru-alt', ...part('text/plain', m.text), '--laru-alt', ...part('text/html', m.html), '--laru-alt--'];
+  return Buffer.from(lines.join('\r\n') + '\r\n');
+}
 
 export async function loadSink(name: string, spec: MockSpec, host: SinkHost, mine: Record<string, any>): Promise<Mock> {
   // `mine` is this sink's own (the Twilio token); `state` is the mailbox's, shared by both of them: one journal, one poller, one set of timers
@@ -231,6 +256,74 @@ export async function loadSink(name: string, spec: MockSpec, host: SinkHost, min
     return { user, pass };
   };
 
+  // ---- any messaging API: the recipient, the text, the sender and the subject read from the request by the usual names (or
+  // the paths `fields` gives), kept as a text or a mail; the app is answered as a provider would, and nothing goes on
+  const NAMES = {
+    to: ['to', 'phone', 'phoneNumber', 'phone_number', 'msisdn', 'destination', 'recipient', 'recipients', 'number', 'mobile', 'celular', 'telefono', 'destinatario', 'email', 'toEmail', 'address'],
+    body: ['body', 'message', 'text', 'content', 'msg', 'mensaje', 'texto', 'html', 'contenido'],
+    from: ['from', 'sender', 'senderId', 'sender_id', 'remitente', 'source', 'origin'],
+    subject: ['subject', 'asunto', 'title', 'titulo'],
+  };
+  const flat = (v: unknown): string | undefined => typeof v === 'string' || typeof v === 'number' ? String(v)
+    : Array.isArray(v) ? v.map(flat).filter(Boolean).join(', ') || undefined
+    : v && typeof v === 'object' ? Object.values(v).map(flat).find(Boolean) : undefined;
+  const find = (o: Record<string, unknown>, path: string | undefined, names: string[]): string | undefined => {
+    if (path) return flat(path.split('.').reduce<unknown>((x, k) => (x && typeof x === 'object' ? (x as Record<string, unknown>)[k] : undefined), o));
+    const lower = new Map(Object.keys(o).map((k) => [k.toLowerCase(), k]));
+    // by name, a value only: `message` that holds an object is looked into below, not taken whole
+    for (const n of names) { const k = lower.get(n.toLowerCase()), v = k === undefined ? undefined : o[k]; if (v !== undefined && (typeof v !== 'object' || Array.isArray(v)) && flat(v)) return flat(v); }
+    // one level down: `{ "message": { "to": …, "text": … } }`, `{ "data": … }`
+    for (const v of Object.values(o)) if (v && typeof v === 'object' && !Array.isArray(v)) { const hit = find(v as Record<string, unknown>, undefined, names); if (hit) return hit; }
+    return undefined;
+  };
+  /**
+   * What a mock publishes (or an API sends): the parts by the usual names, or explicit ones — `kind` (sms | mail),
+   * `source` (who received it: the mock's name), `channel` (whatsapp, push…) and `eml` (the original mail, kept whole
+   * with its attachments, as SMTP keeps it; base64 with `encoding: "base64"`).
+   */
+  const apiSend = async (req: MockRequest): Promise<MockResult> => {
+    const raw = req.body.toString('utf8');
+    let o: Record<string, unknown> = {};
+    try { o = JSON.parse(raw); } catch { o = Object.fromEntries(new URLSearchParams(raw)); }
+    if (!o || typeof o !== 'object') o = {};
+    const f = spec.fields ?? {};
+    const to = find(o, f.to, NAMES.to) ?? '', body = find(o, f.body, NAMES.body) ?? raw.slice(0, 1600), sender = find(o, f.from, NAMES.from) ?? '';
+    const subject = find(o, f.subject, NAMES.subject);
+    const bad = host.faults(req.method, to).find((x) => x.status);
+    if (bad?.status) return json(bad.status, { error: 'injected by Laru', status: bad.status });
+    const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 200) : undefined);
+    const source = str(o.source) ?? name, provider = str(o.channel) ?? str(o.provider) ?? 'api';
+    const r = spec.reply ?? {};
+    const answer = (id: string, kind: 'mail' | 'sms', to: string) => ({ ...json(r.status ?? 202, r.body ? r.body.replaceAll('{id}', id) : JSON.stringify({ id, status: 'queued' })), msg: { id, kind, to, ...(subject ? { subject } : {}) }, hideReq: true });
+    // the original mail, whole: kept as the SMTP sink keeps one (headers, text, links, attachments, the .eml)
+    if (typeof o.eml === 'string' && o.eml) {
+      const raw = Buffer.from(o.eml, o.encoding === 'base64' ? 'base64' : 'utf8');
+      const rcpt = to ? to.split(/,\s*/).filter(Boolean) : [];
+      const res = await accept({ envelope: { from: sender, rcpt }, data: raw, size: raw.length, tls: 'none', session: [] }, 0, source);
+      const id = /queued as (\S+)/.exec(res.text)?.[1] ?? randomUUID();
+      return answer(id, 'mail', rcpt.join(', '));
+    }
+    const id = randomUUID(), k = host.masker();
+    const kind = o.kind === 'mail' || o.kind === 'sms' ? o.kind : spec.kind ?? (to.includes('@') ? 'mail' : 'sms');
+    if (kind === 'mail') {
+      // a mail by its fields becomes a real one (text and html as alternatives), kept as SMTP keeps one: the screen
+      // draws every mail from its original, whichever way it came
+      const html = typeof o.html === 'string' && o.html ? o.html : undefined;
+      const raw = composeMail({ from: sender, to, subject: subject ?? '', text: html && body === html ? '' : body, html });
+      // the envelope carries bare addresses; the names stay in the headers
+      const rcpt = splitAddresses(to).map(bareAddress);
+      const res = await accept({ envelope: { from: bareAddress(sender), rcpt }, data: raw, size: raw.length, tls: 'none', session: [] }, 0, source);
+      return answer(/queued as (\S+)/.exec(res.text)?.[1] ?? id, 'mail', rcpt.join(', '));
+    } else {
+      const seg = smsSegments(body);
+      state.sms.set(id, { sender, to, body, status: 'delivered' });
+      write({ id, kind: 'sms', from: source, sink: name, provider, sid: id, sender, to, body: k.known(body), chars: seg.chars, segments: seg.segments, encoding: seg.encoding, direction: 'outbound', codes: codesOf(body) });
+      write({ id, kind: 'status', status: 'delivered' });
+    }
+    learnFrom([body], textLinks(body));
+    return answer(id, kind, to);
+  };
+
   if (spec.sink === 'twilio') state.twilio = { name, spec, status, reply };
   return {
     name,
@@ -239,6 +332,12 @@ export async function loadSink(name: string, spec: MockSpec, host: SinkHost, min
     quiet: true,
     implicitTls: spec.implicitTls ?? (spec.sink === 'smtp' ? [465] : []),
     async http(req) {
+      if (spec.sink === 'api') {
+        const sends = spec.send ? new RegExp(spec.send).test(req.path) : req.method === 'POST' || req.method === 'PUT';
+        if (sends && req.method !== 'GET') return apiSend(req);
+        // anything else of the API (a health check, a status query) is answered empty: the app goes on, nothing is sent
+        return json(req.method === 'GET' ? 200 : 404, req.method === 'GET' ? { status: 'ok' } : { error: 'not a send' });
+      }
       if (spec.sink !== 'twilio') return null;
       const a = authOf(req);
       if (a.pass) mine.token = a.pass; // kept in memory only, never written; it signs the status calls

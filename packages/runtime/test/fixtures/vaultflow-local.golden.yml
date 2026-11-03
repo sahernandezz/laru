@@ -491,6 +491,7 @@ services:
           - frontend
           - minio
           - notification-service
+          - laru-mailbox
     extra_hosts:
       - host.docker.internal:host-gateway
     healthcheck:

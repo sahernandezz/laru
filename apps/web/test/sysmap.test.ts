@@ -433,7 +433,7 @@ test('a system where no service calls another (they only publish, consume and st
   for (const e of lay.edges) assert.ok(!e.d.includes('NaN'), e.id);
   const xs = new Set(lay.nodes.map((n) => n.x));
   assert.equal(Math.min(...xs), 24, 'the first column holds a node: none is left empty at the left');
-  assert.deepEqual(lay.columns.map((c) => c.title), ['Servicios, nivel 1', 'Datos e infraestructura'], 'each column keeps the title of what it holds');
+  assert.deepEqual(lay.columns.map((c) => c.title), ['Servicios, nivel 1', 'Datos'], 'each column keeps the title of what it holds');
 });
 
 test('onlyUsed draws just the pieces some test went through; when none went through any, every piece', () => {
@@ -485,4 +485,24 @@ test('a service’s own group (laru.yaml) places it and its endpoints, over its 
   ];
   const apps = appsOf(index(ns, []) as unknown as Parameters<typeof appsOf>[0]);
   assert.deepEqual(['svc:a', 'svc:b', 'ep:a:GET /x', 'svc:gw'].map((id) => apps?.get(id)), ['Usuarios', 'Pagos', 'Usuarios', 'Usuarios']);
+});
+
+test('the map reads by tiers: messaging, data and the systems of others each in a column of their own, and a column of many splits instead of growing tall', () => {
+  const svc = Array.from({ length: 9 }, (_, i) => ({ id: `svc:s${i}`, type: 'service' as const, name: `servicio-${i}` }));
+  const ns: MapNode[] = [
+    { id: 'svc:front', type: 'service', name: 'frontend' }, ...svc,
+    { id: 'ds:kafka', type: 'datastore', name: 'kafka', kind: 'queue' }, { id: 'ds:pg', type: 'datastore', name: 'postgres', kind: 'relational' },
+    { id: 'ext:pay', type: 'external', name: 'pasarela' },
+  ];
+  const es: MapEdge[] = [...svc.map((s) => ['call', 'svc:front', s.id]), ['event', 'svc:s0', 'ds:kafka'], ['store', 'svc:s1', 'ds:pg'], ['call', 'svc:s2', 'ext:pay']]
+    .map(([kind, from, to]) => ({ id: `${kind}|${from}|${to}`, kind: kind as MapEdge['kind'], from, to, label: '', origin: 'observed', facts: [] }));
+  const lay = layout(index(ns, []), es, { keep: true });
+  const x = (id: string) => lay.nodes.find((n) => n.node.id === id)!.x;
+  assert.ok(x('ds:kafka') < x('ds:pg') && x('ds:pg') < x('ext:pay'), 'messaging, then data, then the systems of others');
+  assert.ok(x('svc:s8') < x('ds:kafka'), 'every service before them');
+  const services = lay.nodes.filter((n) => n.node.id.startsWith('svc:s'));
+  assert.ok(new Set(services.map((n) => n.x)).size >= 2, 'nine services of one level split into columns');
+  for (const xs of new Set(services.map((n) => n.x))) assert.ok(services.filter((n) => n.x === xs).length <= 5, 'no column holds more than five');
+  assert.deepEqual(lay.columns.map((c) => c.title), ['Entrada', 'Servicios, nivel 1', '', 'Mensajería', 'Datos', 'Sistemas externos']);
+  for (const e of lay.edges) assert.ok(!e.d.includes('NaN'), e.id);
 });

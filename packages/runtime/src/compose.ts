@@ -12,7 +12,7 @@ import { stringify } from 'yaml';
 import { dockerEnv, LABEL } from './docker.ts';
 import { merge } from './env.ts';
 import type { EnvSpec, TapRoute } from './types.ts';
-import { ksVar, SMTP_PORTS, sinksOf } from './types.ts';
+import { ksVar, MAILBOX, SMTP_PORTS, sinksOf } from './types.ts';
 
 const run = promisify(execFile);
 
@@ -326,7 +326,10 @@ export function renderCompose(normalized: ComposeDoc, spec: EnvSpec, ctx: Render
   }
 
   // Mocks of externals compose does not run: the tap takes their name too.
-  for (const [m, ms] of Object.entries(spec.mocks)) if (!normalized.services[m] && !spec.hosts.includes(m) && ms.mode !== 'sink') routes.push({ svc: m, aliases: [m], ports: [ms.port ?? 80], upstream: ms.real ?? '', proto: 'http' });
+  // An API sink the compose does not run answers under its name too (a provider the app calls by a plain name).
+  for (const [m, ms] of Object.entries(spec.mocks)) if (!normalized.services[m] && !spec.hosts.includes(m) && (ms.mode !== 'sink' || ms.sink === 'api')) routes.push({ svc: m, aliases: [m], ports: [ms.port ?? 80], upstream: ms.real ?? '', proto: 'http' });
+  // The mailbox the env's own mocks publish to: always there, under its name.
+  if (!normalized.services[MAILBOX] && !routes.some((r) => r.svc === MAILBOX)) routes.push({ svc: MAILBOX, aliases: [MAILBOX], ports: [80], upstream: '', proto: 'http' });
 
   // Joint envs: a member's published host port reaches its service through the tap, from every project's network.
   if (nets) {

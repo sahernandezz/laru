@@ -10,7 +10,7 @@ import { Dot, Skeleton, Status } from '../components/ui.tsx';
 import { plural } from '../lib/es.ts';
 import { href, pageOf } from '../lib/route.ts';
 import { flowDot, lastWord, RunFlows, Spark, usePick } from './Flows.tsx';
-import { iconOf } from '../lib/pieceMenu.tsx';
+import { iconOf } from '../lib/pieceMenu.ts';
 
 export function FlowList({ embedded }: { embedded?: boolean }) {
   const kd = useApi<KnowledgeData>('/api/knowledge');

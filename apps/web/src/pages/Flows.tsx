@@ -15,7 +15,8 @@ import { archGraph, expectedGraph, layout, type FlowEdge } from '../lib/sysmap.t
 import { FlowEvidence, FlowMap, SeqView, useFlowView, type FlowView } from './Runs.tsx';
 
 /** A flow's glyph: its newest result that says something about the code (a cached one passed). */
-export const flowDot = (f?: FlowInfo): DotState => (!f?.exists || !f.last ? 'idle' : f.last.status === 'failed' ? 'err' : 'ok');
+import { flowDot, lastWord } from '../lib/es.ts';
+export { flowDot, lastWord };
 /** The flows whose last run reached an endpoint. */
 export const walkers = (flows: FlowInfo[], ep: string) => flows.filter((f) => f.last?.endpoints.some((e) => e.id === ep));
 /** Whether the flow's failing hop landed on that endpoint. */
@@ -70,11 +71,6 @@ function RunOnReady({ chosen, envs, single }: { chosen: FlowInfo[]; envs?: EnvSu
 }
 
 /** The newest result in a few words: an error says it could not run, the rest as the flow's last result. */
-export const lastWord = (f: FlowInfo): [DotState, string] => {
-  if (!f.exists) return ['idle', 'Sin prueba'];
-  if (f.history.at(-1)?.status === 'error') return ['err', 'No pudo correr'];
-  return [flowDot(f), lastText(f.last)];
-};
 
 /**
  * The flows of a piece: how each did, its last ten runs and when. «Vive en» only when they come from more than one

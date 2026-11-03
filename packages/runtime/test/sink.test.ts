@@ -14,6 +14,7 @@ import { createMasker, readLearned } from '../../trace/src/mask.ts';
 import { specFrom } from '../src/env.ts';
 import * as mail from '../src/explore/mail.ts';
 import { FRAME_HEADERS, sanitizeHtml } from '../src/explore/html.ts';
+import { parseMime } from '../../trace/src/mime.ts';
 import type { FaultRule, MockSpec, TapConfig, TapRoute, TrafficRecord } from '../src/types.ts';
 import { LIMITS } from '../tap/smtp.ts';
 import { twilioSignature } from '../tap/sink.ts';
@@ -346,7 +347,10 @@ test('an env file: a Twilio sink joins the hosts, a sink never forwards, and not
   const at = (raw: Record<string, unknown>) => { try { return specFrom(ws, 'correo', { from: 'app:c.yml', ...raw }); } catch (x) { return (x as Error).message; } };
   const ok = at({ mocks: { smtp: { mode: 'sink', sink: 'smtp' }, 'api.twilio.com': { mode: 'sink', sink: 'twilio', inbound: 'http://api:3000/webhooks/sms-entrante' } } }) as { hosts: string[] };
   assert.deepEqual(ok.hosts, ['api.twilio.com']);
-  assert.match(at({ mocks: { smtp: { mode: 'sink' } } }) as string, /mocks\.smtp\.sink: `sink: smtp` or `sink: twilio`/);
+  assert.match(at({ mocks: { smtp: { mode: 'sink' } } }) as string, /mocks\.smtp\.sink: `sink: smtp`, `sink: twilio` or `sink: api`/);
+  // a messaging API of its own: an internet provider joins the hosts, a compose service (a mock someone made) is answered as it is
+  assert.deepEqual((at({ mocks: { 'api.dana.co': { mode: 'sink', sink: 'api' }, 'dana-mock': { mode: 'sink', sink: 'api', kind: 'sms' } } }) as { hosts: string[] }).hosts, ['api.dana.co']);
+  assert.match(at({ mocks: { 'dana-mock': { mode: 'sink', sink: 'api', send: '(' } } }) as string, /mocks\.dana-mock\.send/);
   assert.match(at({ mocks: { smtp: { mode: 'sink', sink: 'smtp', real: 'smtp.gmail.com:587' } } }) as string, /a sink keeps what it receives and sends nothing: it has no `real`/);
   assert.match(at({ mocks: { 'smtp.sendgrid.net': { mode: 'record', real: 'smtp.sendgrid.net:587' } } }) as string, /would send real mail or texts: use `mode: sink`/);
   assert.match(at({ mocks: { 'api.twilio.com': { mode: 'spy' } } }) as string, /would send real mail or texts/);
@@ -512,4 +516,90 @@ test('an env file: a key Laru does not read is left alone and named, never a rea
   const ws = { root, app: 'shop', repos: [{ name: 'app', source: 'git', url: 'https://x.test/app.git', branch: 'main', role: 'service' }], services: [], checkouts: {}, lock: {}, title: 'Shop', docsLanguage: 'es' } as unknown as Workspace;
   assert.deepEqual(specFrom(ws, 'local', { from: 'app:c.yml', notas: 'para el equipo', region: 'eu' }).ignored, ['notas', 'region']);
   assert.equal(specFrom(ws, 'local', { from: 'app:c.yml' }).ignored, undefined);
+});
+
+test('api sink: any messaging API is kept in the mailbox: the recipient and text by their usual names, nested or as `fields` says; a mail when it goes to an address; nothing goes on', async () => {
+  const [port, cport] = [await free(), await free()];
+  const s = await sinkTap({
+    mocks: { 'dana-mock': { mode: 'sink', sink: 'api' }, 'correo-api': { mode: 'sink', sink: 'api', send: '^/v2/enviar$', fields: { to: 'para.correo', body: 'cuerpo', subject: 'asunto' }, reply: { status: 200, body: '{"ok":true,"ref":"{id}"}' } } },
+    routes: [{ svc: 'dana-mock', aliases: ['dana-mock'], ports: [port], upstream: '', proto: 'http' }, { svc: 'correo-api', aliases: ['correo-api'], ports: [cport], upstream: '', proto: 'http' }],
+  });
+  const send = (p: number, path: string, body: unknown, method = 'POST') => new Promise<{ status: number; json: any }>((ok, fail) => {
+    const req = request({ host: '127.0.0.1', port: p, method, path, agent: false, headers: { 'content-type': 'application/json' } }, (res) => { let t = ''; res.setEncoding('utf8').on('data', (c) => { t += c; }).on('end', () => ok({ status: res.statusCode!, json: t ? JSON.parse(t) : {} })); });
+    req.on('error', fail);
+    req.end(method === 'GET' ? undefined : JSON.stringify(body));
+  });
+  try {
+    // a nested JSON, as a provider of its own takes it
+    const a = await send(port, '/api/v1/sms', { message: { destination: '+573001112233', text: 'Dana: tu código es 551204', sender: 'VaultFlow' } });
+    assert.equal(a.status, 202);
+    assert.equal(a.json.status, 'queued');
+    await wait(() => s.box().some((l) => l.kind === 'sms'));
+    const sms = s.box().find((l) => l.kind === 'sms')!;
+    assert.deepEqual([sms.to, sms.sender, sms.provider, sms.codes], ['+573001112233', 'VaultFlow', 'api', ['551204']]);
+    assert.ok(s.box().some((l) => l.kind === 'status' && l.id === sms.id && l.status === 'delivered'));
+    // a health check is answered and sends nothing
+    assert.equal((await send(port, '/health', undefined, 'GET')).status, 200);
+    // an API that mails, read by `fields`: only its send path keeps a message, and it answers what `reply` says
+    assert.equal((await send(cport, '/v2/otra-cosa', { para: { correo: 'x@y.test' }, cuerpo: 'no' })).status, 404);
+    const m = await send(cport, '/v2/enviar', { para: { correo: 'luis@vaultflow.test' }, cuerpo: 'Restablece tu contraseña: https://app.vaultflow.localhost/reset/abc', asunto: 'Tu contraseña' });
+    assert.equal(m.status, 200);
+    assert.equal(m.json.ok, true);
+    await wait(() => s.box().some((l) => l.kind === 'mail'));
+    const mail = s.box().find((l) => l.kind === 'mail')!;
+    assert.equal(m.json.ref, mail.id);
+    assert.deepEqual([mail.headers.to, mail.headers.subject], [['luis@vaultflow.test'], 'Tu contraseña']);
+    assert.ok(mail.eml && existsSync(join(s.mail, mail.eml)), 'a mail by its fields is kept as a real one: the screen draws it from its original');
+    assert.equal(mail.links[0].url, 'https://app.vaultflow.localhost/reset/abc');
+    assert.equal(s.box().filter((l) => l.kind === 'mail' || l.kind === 'sms').length, 2, 'the health check and the other path kept nothing');
+    // the traffic journal names the message, never its body
+    const rec = s.traffic().find((r) => r.msg?.kind === 'sms');
+    assert.ok(rec && !JSON.stringify(rec).includes('551204'));
+  } finally { await s.close(); }
+});
+
+
+test('laru-mailbox: a mock of the env publishes what it receives and it is kept, its own kind, source and channel; a mail published whole keeps its attachments', async () => {
+  const port = await free();
+  // no rule asks for it: an env that routes laru-mailbox always has its mailbox
+  const s = await sinkTap({ mocks: {}, routes: [{ svc: 'laru-mailbox', aliases: ['laru-mailbox'], ports: [port], upstream: '', proto: 'http' }] });
+  const post = (body: unknown) => new Promise<{ status: number; json: any }>((ok, fail) => {
+    const req = request({ host: '127.0.0.1', port, method: 'POST', path: '/messages', agent: false, headers: { host: 'laru-mailbox', 'content-type': 'application/json' } }, (res) => { let t = ''; res.setEncoding('utf8').on('data', (c) => { t += c; }).on('end', () => ok({ status: res.statusCode!, json: t ? JSON.parse(t) : {} })); });
+    req.on('error', fail);
+    req.end(JSON.stringify(body));
+  });
+  try {
+    assert.equal((await post({ kind: 'sms', to: '+573001112233', from: 'Dana', body: 'Tu código es 482913', channel: 'whatsapp', source: 'mensajeria-mock' })).status, 202);
+    const eml = ['From: Dana <no-reply@dana.test>', 'To: luis@dana.test', 'Subject: Factura de octubre', 'MIME-Version: 1.0', 'Content-Type: multipart/mixed; boundary="b"', '', '--b', 'Content-Type: text/plain; charset=utf-8', '', 'Adjuntamos tu factura.', '--b', 'Content-Type: application/pdf; name="factura.pdf"', 'Content-Disposition: attachment; filename="factura.pdf"', 'Content-Transfer-Encoding: base64', '', Buffer.from('%PDF-1.4 x').toString('base64'), '--b--', ''].join('\r\n');
+    assert.equal((await post({ eml, to: 'luis@dana.test', from: 'no-reply@dana.test', source: 'correo-mock' })).status, 202);
+    await wait(() => s.box().some((l) => l.kind === 'sms') && s.box().some((l) => l.kind === 'mail'));
+    const sms = s.box().find((l) => l.kind === 'sms')!;
+    assert.deepEqual([sms.to, sms.sender, sms.from, sms.provider, sms.codes], ['+573001112233', 'Dana', 'mensajeria-mock', 'whatsapp', ['482913']]);
+    const m = s.box().find((l) => l.kind === 'mail')!;
+    assert.deepEqual([m.headers.subject, m.headers.to, m.from, m.attachments.map((a: { name: string }) => a.name)], ['Factura de octubre', ['luis@dana.test'], 'correo-mock', ['factura.pdf']]);
+    assert.ok(existsSync(join(s.mail, m.eml)), 'the original is kept');
+    // a mail by its fields, html beside the text: the same as one that came whole
+    assert.equal((await post({ kind: 'mail', to: 'ana@dana.test', from: 'Dana <hola@dana.test>', subject: 'Bienvenida a Dana', body: 'Hola Ana, activa tu cuenta: https://dana.localhost/activar/xyz', html: '<p>Hola Ana, <a href="https://dana.localhost/activar/xyz">activa tu cuenta</a></p>', source: 'correo-mock' })).status, 202);
+    await wait(() => s.box().some((l) => l.kind === 'mail' && l.headers?.subject === 'Bienvenida a Dana'));
+    const w = s.box().find((l) => l.kind === 'mail' && l.headers.subject === 'Bienvenida a Dana')!;
+    assert.deepEqual([w.headers.from, w.headers.to, w.from], ['Dana <hola@dana.test>', ['ana@dana.test'], 'correo-mock']);
+    assert.ok(w.htmlBytes > 0, 'its html is kept');
+    assert.match(w.text, /activa tu cuenta/);
+    assert.ok(w.links.some((l: { url: string }) => l.url === 'https://dana.localhost/activar/xyz'));
+    const original = parseMime(readFileSync(join(s.mail, w.eml)));
+    assert.match(original.html ?? '', /<a href="https:\/\/dana\.localhost\/activar\/xyz">/);
+    // an accented name keeps its address: only the name is encoded
+    assert.equal((await post({ kind: 'mail', to: 'Ana Muñoz <ana@dana.test>', from: 'José Pérez <jose@dana.test>', subject: 'Ñandú', body: 'Hola', source: 'correo-mock' })).status, 202);
+    await wait(() => s.box().some((l) => l.kind === 'mail' && l.headers?.subject === 'Ñandú'));
+    const acc = s.box().find((l) => l.kind === 'mail' && l.headers.subject === 'Ñandú')!;
+    assert.deepEqual([acc.headers.from, acc.headers.to], ['José Pérez <jose@dana.test>', ['Ana Muñoz <ana@dana.test>']]);
+    assert.deepEqual(acc.envelope, { from: 'jose@dana.test', rcpt: ['ana@dana.test'] }, 'the envelope carries bare addresses');
+    // a name with a comma, quoted as it may be: each recipient stays whole, in the headers and in the envelope
+    assert.equal((await post({ kind: 'mail', to: '"Muñoz, Ana" <ana@dana.test>, "Smith, Bob" <bob@dana.test>, carla@dana.test', from: '"Pérez, José" <jose@dana.test>', subject: 'Comas', body: 'Hola', source: 'correo-mock' })).status, 202);
+    await wait(() => s.box().some((l) => l.kind === 'mail' && l.headers?.subject === 'Comas'));
+    const cm = s.box().find((l) => l.kind === 'mail' && l.headers.subject === 'Comas')!;
+    assert.deepEqual(cm.headers.to, ['Muñoz, Ana <ana@dana.test>', 'Smith, Bob <bob@dana.test>', 'carla@dana.test']);
+    assert.equal(cm.headers.from, 'Pérez, José <jose@dana.test>');
+    assert.deepEqual(cm.envelope, { from: 'jose@dana.test', rcpt: ['ana@dana.test', 'bob@dana.test', 'carla@dana.test'] });
+  } finally { await s.close(); }
 });

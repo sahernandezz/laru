@@ -5,7 +5,7 @@
  */
 import type { DiagramKind } from '@laru/diagrams';
 import { DIAGRAM_STANDARDS, inSpanish } from '@laru/diagrams';
-import { Copy, ScrollText } from 'lucide-react';
+import { Copy } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { typeColor } from '../lib/typeColor.ts';
 import { useApi, type KnowledgeData, type Shape, type StandardData } from '../api.ts';
@@ -13,9 +13,8 @@ import { copy, Skeleton } from '../components/ui.tsx';
 import { pieceLabel, plural, STAGE, STATUS } from '../lib/es.ts';
 import { Diagram, Markdown } from '../lib/md.tsx';
 import { href } from '../lib/route.ts';
-import { useScope } from '../lib/scope.ts';
 import { FieldView } from './Docs.tsx';
-import { iconOf } from '../lib/pieceMenu.tsx';
+import { iconOf } from '../lib/pieceMenu.ts';
 
 const CONTAINER = ['application', 'module', 'process', 'repository', 'service', 'datastore', 'external'];
 
@@ -48,12 +47,6 @@ export function Standard({ parts }: { parts: string[] }) {
   const types = std.data?.types ?? [];
   const current = types.find((t) => t.type === parts[0]);
   const groups = useMemo(() => [['Contenedores: lo que se documenta', types.filter((t) => CONTAINER.includes(t.type))], ['Facetas: lo que se escribe sobre ello', types.filter((t) => !CONTAINER.includes(t.type))]] as const, [types]);
-  useScope(current ? {
-    back: { label: 'Todas las piezas', to: href('standard') },
-    card: { icon: ScrollText, kind: 'Cómo se documenta', title: pieceLabel(current.type), sub: current.question },
-    sections: groups.flatMap(([, list]) => list).map((t) => ({ key: t.type, label: pieceLabel(t.type), to: href('standard', t.type), icon: iconOf({ type: t.type }) })),
-    active: current.type,
-  } : null);
   if (std.loading && !std.data) return <div className="page"><Skeleton lines={6} /></div>;
   if (std.error || !types.length) return <div className="page"><div className="notice">{std.error}</div></div>;
   if (current) return (

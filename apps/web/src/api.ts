@@ -1,5 +1,5 @@
 /** The local service's API. Types come from the core and the runtime as type-only imports: one definition, never a copy. */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useReducer } from 'react';
 import { toast } from './components/ui.tsx';
 import { apiUrlFor, wsOf } from './lib/route.ts';
 import type { Impact, TopicContract, LiveData, OwedItem, SheetNote, DocNote, ConventionResult, Fact, FileIssue, Finding, FindingType, Freshness, Issue, knowledgeShape, Loaded, MapNode, PieceType, RepoConfig, RepoStatus, StageCoverage, SystemMap, WriteInput, WriteResult } from '@laru/core';
@@ -110,28 +110,44 @@ async function request<T>(path: string, init?: { method?: 'GET' | 'POST'; body?:
 }
 
 /**
- * A GET that loads on mount and can be reloaded. A reload keeps the data on screen while it runs, and when it fails
- * (a toast says so); a new path does not show the old path's data (another env's, another run's), and an answer that
- * arrives late for an old path is dropped.
+ * What the GETs answered, shared by every view and kept while the page is open: a screen opened again, or a menu and a
+ * screen that read the same path, show what is known at once and refresh it behind (nothing goes blank, nothing jumps).
+ * A refresh keeps the data on screen while it runs and when it fails (a toast says so, once); a path never shows another
+ * path's data (another env's, another run's).
+ */
+type Entry = { data?: unknown; error?: ApiError; busy?: boolean; again?: boolean; subs: Set<() => void> };
+const known = new Map<string, Entry>();
+const entryOf = (path: string) => known.get(path) ?? known.set(path, { subs: new Set() }).get(path)!;
+function refresh(path: string): void {
+  const e = entryOf(path);
+  // asked again while a GET is on its way (a save just landed): one more after it, so the answer is never older than the ask
+  if (e.busy) { e.again = true; return; }
+  e.busy = true;
+  const done = () => { e.busy = false; e.subs.forEach((f) => f()); if (e.again) { e.again = false; refresh(path); } };
+  api(path).then((data) => { e.data = data; e.error = undefined; done(); }, (err: ApiError) => {
+    if (e.data !== undefined) toast(`No se pudo actualizar: ${err.message}`); else e.error = err;
+    done();
+  });
+}
+
+/**
+ * A GET that loads on mount and can be reloaded; it comes back again when the service answers after a break or the
+ * workspace changed from outside (`laru:back`, `laru:changed`).
  */
 export function useApi<T>(path: string | null) {
-  const [state, set] = useState<{ data?: T; error?: string; gone?: boolean; loading: boolean; path?: string | null }>({ loading: true });
-  const current = useRef(path);
-  current.current = path;
-  const load = useCallback(() => {
+  const [, rerender] = useReducer((n: number) => n + 1, 0);
+  useEffect(() => {
     if (!path) return;
-    set((s) => ({ ...s, loading: true }));
-    api<T>(path).then((data) => current.current === path && set({ data, loading: false, path }), (e: ApiError) => current.current === path && set((s) => {
-      if (s.path !== path || s.data === undefined) return { error: e.message, gone: Boolean(e.workspace), loading: false, path };
-      toast(`No se pudo actualizar: ${e.message}`);
-      return { ...s, loading: false };
-    }));
+    const e = entryOf(path), load = () => refresh(path);
+    e.subs.add(rerender);
+    load();
+    for (const ev of ['laru:back', 'laru:changed']) addEventListener(ev, load);
+    return () => { e.subs.delete(rerender); for (const ev of ['laru:back', 'laru:changed']) removeEventListener(ev, load); };
   }, [path]);
-  useEffect(load, [load]);
-  // the service answered again after a break: what is on screen is fetched anew, with no reload of the page
-  useEffect(() => { addEventListener('laru:back', load); return () => removeEventListener('laru:back', load); }, [load]);
-  const mine = state.path === path;
-  return { data: mine ? state.data : undefined, error: mine ? state.error : undefined, gone: mine && state.gone, loading: state.loading || !mine, reload: load };
+  const reload = useCallback(() => { if (path) refresh(path); }, [path]);
+  const e = path ? known.get(path) : undefined;
+  const fresh = e?.data === undefined;
+  return { data: e?.data as T | undefined, error: fresh ? e?.error?.message : undefined, gone: fresh && Boolean(e?.error?.workspace), loading: !e || Boolean(e.busy) || (fresh && !e.error), reload };
 }
 
 /** The map with its two indexes, as the core's Graph builds them. */

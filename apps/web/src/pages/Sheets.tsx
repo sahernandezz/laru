@@ -15,7 +15,7 @@ import { admissionText, plural, pieceLabel, piecesLabel, PLATFORM, reasonText, S
 import { frontNodes } from '../lib/fronts.ts';
 import { href, pageOf } from '../lib/route.ts';
 import { NoteChip, noteLevel, PieceFields } from './Docs.tsx';
-import { iconOf } from '../lib/pieceMenu.tsx';
+import { iconOf } from '../lib/pieceMenu.ts';
 import { flowDot, lastWord } from './Flows.tsx';
 import { Session, Start, type Preset } from './Live.tsx';
 

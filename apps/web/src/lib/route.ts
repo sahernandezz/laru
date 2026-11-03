@@ -1,22 +1,38 @@
-/** Hash routes: every object has an address, and reloading returns to it. */
-import { useEffect, useState } from 'react';
+/**
+ * Hash routes: every object has an address, and reloading returns to it. The address is read in one place and every
+ * reader (the shell's menu, the screen) gets the same route in the same render. An address that moved is put right
+ * before anything is drawn — replaced, not pushed, so Back does not bounce off it — and no screen ever shows on the old
+ * one only to jump to the new one.
+ */
+import { useSyncExternalStore } from 'react';
 
 /** An address's parts, decoded. */
 export const partsOf = (hash: string) => hash.replace(/^#\/?/, '').split('?')[0].split('/').map(decodeURIComponent).filter(Boolean);
 /** The `?a=b` of a hash route (filters, kept in the address): `#/runs?flujo=x&estado=failed`. */
 export const queryOf = (hash: string) => new URLSearchParams(hash.split('?')[1] ?? '');
 
+/** Where an address lives now, or null when it is where it should be. */
+type Fix = (parts: string[]) => string | null;
+let fixes: Fix[] = [(parts) => moved(parts)];
+const fixed = (): string[] => {
+  for (let i = 0; i < 3; i++) {
+    const parts = partsOf(location.hash), to = fixes.map((f) => f(parts)).find(Boolean);
+    if (!to || to === location.hash) return parts;
+    history.replaceState(history.state, '', `${location.pathname}${location.search}${to}`);
+  }
+  return partsOf(location.hash);
+};
+// read on first use: the rules call functions defined further down this module
+let route: string[] | undefined;
+const current = () => (route ??= fixed());
+const subs = new Set<() => void>();
+const sync = () => { const now = fixed(); if (now.join('/') !== current().join('/')) { route = now; subs.forEach((f) => f()); } };
+if (typeof window !== 'undefined') { addEventListener('hashchange', sync); addEventListener('popstate', sync); }
+/** Rules that need what the page has loaded (the map knows where an endpoint lives): added when it is there. */
+export function addRouteFix(f: Fix) { fixes = [...fixes, f]; sync(); return () => { fixes = fixes.filter((x) => x !== f); }; }
+
 export function useRoute(): string[] {
-  const read = () => partsOf(location.hash);
-  const [parts, set] = useState(read);
-  useEffect(() => {
-    const on = () => set((cur) => { const now = read(); return now.join('/') === cur.join('/') ? cur : now; });
-    addEventListener('hashchange', on);
-    // An address replaced during the first render (a moved one) can change before this listens: read it again.
-    on();
-    return () => removeEventListener('hashchange', on);
-  }, []);
-  return parts;
+  return useSyncExternalStore((f) => { subs.add(f); return () => { subs.delete(f); }; }, current);
 }
 
 export const href = (...parts: string[]) => '#/' + parts.map(encodeURIComponent).join('/');

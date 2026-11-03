@@ -33,12 +33,23 @@ export function dockerEnv(extra: Record<string, string> = {}): Record<string, st
 export class DockerError extends Error {
   readonly stderr: string;
   readonly args: string[];
-  constructor(args: string[], stderr: string) { super(`docker ${args.slice(0, 3).join(' ')}: ${stderr.trim().split('\n').slice(-3).join(' ')}`); this.stderr = stderr; this.args = args; }
+  /** it ran out of time: Docker hung */
+  readonly timedOut: boolean;
+  constructor(args: string[], stderr: string, timedOut = false) { super(`docker ${args.slice(0, 3).join(' ')}: ${timedOut ? 'Docker did not answer in time' : stderr.trim().split('\n').slice(-3).join(' ')}`); this.stderr = stderr; this.args = args; this.timedOut = timedOut; }
 }
+
+/**
+ * How long a question to Docker (ps, inspect, stats, a list) may take before it is given up on: one that hangs never holds
+ * a screen, even when Docker answered a moment before. A build, an up or an exec has no limit unless its caller gives one.
+ */
+export const DOCKER_READ = { ms: 20_000 };
+const isRead = (args: string[]) => ['ps', 'inspect', 'stats', 'info', 'version'].includes(args[0]) || ['ls', 'inspect'].includes(args[1]);
 
 export function docker(args: string[], opts: { env?: Record<string, string>; input?: string; cwd?: string; timeoutMs?: number } = {}): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = execFile('docker', args, { env: dockerEnv(opts.env), cwd: opts.cwd, maxBuffer: 512 * 1024 * 1024, timeout: opts.timeoutMs ?? 0 }, (err, stdout, stderr) => {
+    const child = execFile('docker', args, { env: dockerEnv(opts.env), cwd: opts.cwd, maxBuffer: 512 * 1024 * 1024, timeout: opts.timeoutMs ?? (isRead(args) ? DOCKER_READ.ms : 0) }, (err, stdout, stderr) => {
+      // a question that ran out of time: until the next ask, screens take Docker as not answering
+      if (err?.killed) { noteDocker(false, undefined, 'Docker did not answer in time'); return reject(new DockerError(args, String(stderr), true)); }
       if (err) return reject(new DockerError(args, String(stderr || err.message)));
       resolve(String(stdout));
     });
@@ -64,6 +75,32 @@ export const dockerJson = async <T>(args: string[]): Promise<T> => JSON.parse(aw
 export async function dockerAvailable(): Promise<{ ok: boolean; server?: string; error?: string }> {
   try { return { ok: true, server: (await docker(['version', '--format', '{{.Server.Version}}'], { timeoutMs: 10_000 })).trim() }; }
   catch (e) { const msg = (e as Error).message, hint = dockerHint(msg, inWsl()); return { ok: false, error: hint ? `${msg.split('\n')[0]}. ${hint}` : msg }; }
+}
+
+/**
+ * Docker as last seen: whether it answers, its version or what it said, and since when it is so. One place asks
+ * (`docker version`, at most every 10 s, never for longer than 5 s) and every screen reads what it found: a screen that
+ * only shows an env's state does not wait on a Docker that is down or hung (each request it held took one of the
+ * browser's six connections, and the evidence waited behind them). `ok` is null until the first answer.
+ */
+export interface DockerState { ok: boolean | null; version?: string; error?: string; since: number; at: number }
+let seen: DockerState = { ok: null, since: Date.now(), at: 0 }, asking: Promise<boolean> | undefined;
+const noteDocker = (ok: boolean, version?: string, error?: string): boolean => {
+  const now = Date.now();
+  seen = { ok, version, error, since: ok === seen.ok ? seen.since : now, at: now };
+  return ok;
+};
+export const dockerState = (): DockerState => seen;
+/** Asks Docker now (one ask at a time: a second caller shares it). */
+export function checkDocker(): Promise<boolean> {
+  return asking ??= docker(['version', '--format', '{{.Server.Version}}'], { timeoutMs: 5000 })
+    .then((v) => noteDocker(true, v.trim()), (e: Error) => { const msg = e.message.split('\n')[0], hint = dockerHint(msg, inWsl()); return noteDocker(false, undefined, hint ? `${msg}. ${hint}` : msg); })
+    .finally(() => { asking = undefined; });
+}
+/** Whether Docker answers, by the last ask when it is under 10 s old; only the very first ask is waited for. */
+export function dockerAnswers(): Promise<boolean> {
+  if (Date.now() - seen.at > 10_000) void checkDocker();
+  return seen.ok === null ? (asking ?? checkDocker()) : Promise.resolve(seen.ok);
 }
 
 /** Linux inside WSL2: Docker there is Docker Desktop's integration or Docker Engine installed in the distribution. */

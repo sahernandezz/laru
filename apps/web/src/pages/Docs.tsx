@@ -16,10 +16,10 @@ import { ago, findingText, secs, FINDING, KIND, pieceLabel, SEVERITY, piecesLabe
 import { Markdown } from '../lib/md.tsx';
 import { href, pageOf, partsOf, splitStop, whereFailed, withStop } from '../lib/route.ts';
 import { failedOn, flowDot, FlowPage, FlowTable, lastWord, RunFlows, Spark, usePick, walkers } from './Flows.tsx';
-import { useScope, type Scope } from '../lib/scope.ts';
+import { docsTab } from '../lib/menu.ts';
+import { AgreementView } from './Agreement.tsx';
 import { Vars } from './Vars.tsx';
-import { FlowScope } from '../components/FlowScope.tsx';
-import { CODE_OF, CONTAINERS, iconOf, kindsOf, ownFlows, sectionsOf, TABS_OF, TYPE_ICON } from '../lib/pieceMenu.tsx';
+import { CODE_OF, CONTAINERS, iconOf, kindsOf, ownFlows, sectionsOf, TABS_OF, TYPE_ICON } from '../lib/pieceMenu.ts';
 import { FlowList } from './FlowList.tsx';
 import { Scenarios } from './Scenarios.tsx';
 import { Accept, fixPrompt } from '../components/Accept.tsx';
@@ -69,43 +69,37 @@ export function Docs({ g, parts }: { g: Indexed | null; parts: string[] }) {
   // The tree can be put away to give the sheet the whole width; the choice is kept in this browser.
   const [showTree, setShowTree] = useState(() => { try { return localStorage.getItem('laru.docs.tree') !== 'off'; } catch { return true; } });
   const toggleTree = (on: boolean) => { setShowTree(on); try { localStorage.setItem('laru.docs.tree', on ? 'on' : 'off'); } catch { /* not kept */ } };
+  // the header's button puts the menu and the tree away together, and brings both back
+  useEffect(() => { const on = (e: Event) => toggleTree((e as CustomEvent<boolean>).detail); addEventListener('laru:tree', on); return () => removeEventListener('laru:tree', on); }, []);
   const k = kd.data;
   const byId = useMemo(() => new Map((k?.pieces ?? []).map((p) => [p.id, p])), [k]);
   // «Paso a paso»'s stop sits after a flow's view and test: the player reads it
   const [first, second, third, fourth] = splitStop(parts)[0];
   const app = k?.pieces.find((p) => p.type === 'application');
 
-  // A flow's menu is the route's own business, not the sheet's: it is there while loading, in its sheet and in its edit form.
-  const isFlow = Boolean(first?.startsWith('flow:'));
-  const flowMenu = isFlow && <FlowScope id={first} active={second === 'edit' ? 'edit' : second === 't' ? (third === 'env' ? 'live' : third ?? 'summary') : 'summary'} p={byId.get(first)} flow={flows.data?.find((f) => f.id === first)} envs={envs.data} app={app?.id} />;
-  if (kd.loading && !k) return <><div className="page"><Skeleton lines={6} /></div>{flowMenu}</>;
+  if (kd.loading && !k) return <div className="page"><Skeleton lines={6} /></div>;
   if (kd.error || !k) return <div className="page"><div className="notice">{kd.error}</div></div>;
 
   // A flow written here must reach the flows too, or its page and its container never see it.
   const reload = () => { kd.reload(); flows.reload(); };
   let main;
   if (first === 'new') main = <PieceForm k={k} type={second} parent={third} presetId={fourth} done={(id) => { reload(); location.hash = pageOf(id); }} />;
-  else if (second === 'edit' && byId.get(first)) main = <><PieceForm k={k} piece={byId.get(first)!} done={(id) => { reload(); location.hash = pageOf(id); }} />{!isFlow && <EditScope p={byId.get(first)!} />}</>;
+  else if (second === 'edit' && byId.get(first)) main = <><PieceForm k={k} piece={byId.get(first)!} done={(id) => { reload(); location.hash = pageOf(id); }} /></>;
   else if (!app) main = <NoApp />;
   else {
     const id = first ?? app.id;
     const piece = byId.get(id);
-    main = piece ? <Sheet tabArg={second === 't' ? third : undefined} sub={second === 't' ? fourth : undefined} k={k} g={g} p={piece} byId={byId} reload={reload} flows={flows} envs={envs.data} seen={seen} view={second === 'map' || second === 'seq' ? second : undefined} test={second === 'map' || second === 'seq' ? third : undefined} op={second === 'op' ? third : undefined} />
+    main = piece ? <Sheet key={TABS_OF[piece.type] ? piece.id : `${piece.id}|${second === 't' ? third ?? '' : ''}`} tabArg={second === 't' ? third : undefined} sub={second === 't' ? fourth : undefined} k={k} g={g} p={piece} byId={byId} reload={reload} flows={flows} envs={envs.data} seen={seen} view={second === 'map' || second === 'seq' ? second : undefined} test={second === 'map' || second === 'seq' ? third : undefined} op={second === 'op' ? third : undefined} />
       : <div className="page"><div className="notice">No hay ninguna pieza «{id}».</div></div>;
   }
   return (
     <div className={`docs${showTree ? '' : ' no-tree'}`}>
       {showTree && <DocsTree k={k} flows={flows.data} current={first === 'new' ? third : first ?? app?.id} onHide={() => toggleTree(false)} />}
-      <div className="sheet">{!showTree && <button className="btn sm tree-show" onClick={() => toggleTree(true)} title="Mostrar el árbol de documentación"><PanelLeftOpen />Árbol</button>}{main}{flowMenu}</div>
+      <div className="sheet">{!showTree && <button className="btn sm tree-show" onClick={() => toggleTree(true)} title="Mostrar el árbol de documentación"><PanelLeftOpen />Árbol</button>}{main}</div>
     </div>
   );
 }
 
-/** While a piece is being edited, the menu keeps a way back to it. */
-function EditScope({ p }: { p: DocPiece }) {
-  useScope({ back: { label: p.title, to: pageOf(p.id) }, card: { icon: iconOf(p), kind: 'Editando', title: p.title }, sections: [], active: '' });
-  return null;
-}
 
 const NoApp = () => (
   <div className="page"><div className="head"><div><h1>Documentación</h1><p>El árbol empieza por el aplicativo: su propósito, sus usuarios y su alcance. Lo demás cuelga de él.</p></div>
@@ -247,20 +241,17 @@ type Flows = { data?: FlowInfo[]; error?: string; loading: boolean };
 
 /** What is read from the code, apart from what is written: the sections that look like the pieces' but come from the repositories. */
 const FROM_CODE = new Set(['interfaces', 'data', 'tests', 'vars', 'code']);
-/**
- * What the code says about a module lives with the piece that says it in writing, not in a section of its own: the endpoints
- * in the contracts, the tables and dependencies in the data models, the tests in the test plans, the variables in the secrets.
- */
-const KIND_OF_CODE: Record<string, string> = { interfaces: 'contract', data: 'data-model', tests: 'test-plan', vars: 'secrets' };
 
 function Sheet({ k, g, p, byId, reload, flows, envs, seen, view, test, op, tabArg, sub }: { k: KnowledgeData; g: Indexed | null; p: DocPiece; byId: Map<string, DocPiece>; reload: () => void; flows: Flows; envs?: EnvSummary[]; seen: Loaded<Seen>; view?: FlowView; test?: string; op?: string; tabArg?: string; sub?: string }) {
-  // «Entorno» was folded into «Probar en vivo»: an old address still lands there.
-  const asked = p.type === 'module' && tabArg && KIND_OF_CODE[tabArg] ? `p-${KIND_OF_CODE[tabArg]}` : tabArg === 'env' ? 'live' : (p.type === 'application' && (tabArg === 'built' || tabArg === 'gov' || tabArg === 'rel')) || (p.type === 'module' && tabArg === 'built') ? undefined : tabArg;
-  const [tab, setTab] = useState<string>(asked ?? 'summary');
-  useEffect(() => setTab(asked ?? 'summary'), [p.id, op, asked]);
-  // The tab is in the address so a sheet can be linked and ⌘K can open it; replacing it does not add a history entry.
+  // A sheet with sections in the menu takes its tab from the address alone (no copy of it here: a copy is one render late, and
+  // the menu and the sheet would show the old tab for a moment); the other pieces keep theirs while they are open.
+  const routed = Boolean(TABS_OF[p.type]);
+  const asked = docsTab(p, tabArg);
+  const [own, setOwn] = useState<string>(asked ?? 'summary');
+  const tab = routed ? asked ?? 'summary' : own;
+  // The tab is in the address so a sheet can be linked and ⌘K can open it.
   // Each section is a step of its own in the history: «atrás» goes back to the section before, not out of the sheet.
-  const pick = (key: string) => { setTab(key); if (TABS_OF[p.type]) location.hash = key === 'summary' ? href('docs', p.id) : href('docs', p.id, 't', key); };
+  const pick = (key: string) => { if (routed) location.hash = key === 'summary' ? href('docs', p.id) : href('docs', p.id, 't', key); else setOwn(key); };
   const chain: DocPiece[] = [];
   for (let x = byId.get(p.parent ?? ''); x; x = byId.get(x.parent ?? '')) chain.unshift(x);
   const { facets: all, inherited } = facetsOf(k, p);
@@ -281,12 +272,9 @@ function Sheet({ k, g, p, byId, reload, flows, envs, seen, view, test, op, tabAr
     ...(CONTAINERS.includes(p.type) && !TABS_OF[p.type] ? [{ key: 'facets', label: 'Facetas', n: facets.length + inherited.length }] : []),
     ...(p.anchors?.length && !TABS_OF[p.type] ? [{ key: 'code', label: 'Código', n: p.anchors.length }] : []),
   ];
-  // The menu is the container's: this piece's own, or the nearest one above it that has sections (a stack opened from the application keeps the application's menu).
-  const owner = TABS_OF[p.type] && (p.type as string) !== 'flow' ? p : (p.type as string) === 'flow' ? undefined : [...chain].reverse().find((x) => TABS_OF[x.type] && (x.type as string) !== 'flow');
-  const toCode = () => { setTab('code'); requestAnimationFrame(() => document.getElementById('piece-tab-code')?.focus()); };
+  const toCode = () => { pick('code'); requestAnimationFrame(() => document.getElementById('piece-tab-code')?.focus()); };
   return (
     <div className="page">
-      {owner && <ContainerScope k={k} byId={byId} owner={owner} fronts={nFronts} active={owner === p ? tab : `p-${p.type}`} />}
       <nav className="crumbs" aria-label="Ruta">{[...chain, p].map((x, i) => <span key={x.id} style={{ display: 'contents' }}>{i > 0 && <ChevronRight />}<a href={pageOf(x.id)}>{x.title}</a></span>)}</nav>
       <div className="head">
         <div style={{ minWidth: 0 }}>
@@ -366,6 +354,7 @@ function Sheet({ k, g, p, byId, reload, flows, envs, seen, view, test, op, tabAr
             {p.type === 'module' && tab === 'doc' && <><PieceFields k={k} p={p} /><div style={{ height: 16 }} /><FacetList k={k} facets={facets} inherited={inherited} /><div style={{ height: 16 }} /><ReferencedBy k={k} p={p} /><div style={{ height: 16 }} /></>}
             {p.type !== 'application' && tab === 'summary' && (p.type === 'contract' ? <ContractReference k={k} g={g} p={p} seen={seen} focus={op} />
               : p.type === 'data-model' ? <DataModelReference p={p} g={g} />
+              : p.type === 'agreement' ? <AgreementView p={p} />
               : <>{p.type === 'module' && ((p.fields.usecases as Array<Record<string, string>> | undefined)?.length ?? 0) > 0 && <UseCases p={p} flows={flows.data} />}{/* a module's summary keeps how it is built, its diagram with it: «Construcción» left the menu for Documento, and the drawing went with it */}<PieceFields k={k} p={p} skip={p.type === 'module' ? ['usecases', 'interfaces', 'submodules'] : undefined} />{p.type === 'scenario' && <><div style={{ height: 16 }} /><ScenarioExtras k={k} p={p} envs={envs} /></>}<div style={{ height: 16 }} />{p.type === 'infrastructure' && <><FidelityByEnv envs={envs} /><div style={{ height: 16 }} /></>}<ReferencedBy k={k} p={p} />{p.type !== 'module' && <><div style={{ height: 16 }} /></>}</>)}
             {((tab === 'interfaces' && p.type !== 'module') || tab === 'tests' || tab === 'vars') && <LiveTab p={p} which={tab as 'interfaces' | 'tests' | 'vars'} />}
             {tab === 'facets' && <FacetList k={k} facets={facets} inherited={inherited} />}
@@ -403,19 +392,6 @@ function PieceList({ k, p, type, under }: { k: KnowledgeData; p: DocPiece; type:
 
 
 
-/** The side menu of a container: a module keeps its own, with a way back; the application's is the main menu, which lights its section up. A piece opened from it keeps that menu. */
-function ContainerScope({ k, byId, owner, active, fronts }: { k: KnowledgeData; byId: Map<string, DocPiece>; owner: DocPiece; active: string; fronts: number }) {
-  const parent = byId.get(owner.parent ?? '');
-  const Icon = iconOf(owner);
-  useScope({
-    back: parent ? { label: parent.title, to: pageOf(parent.id) } : { label: 'Resumen', to: href('overview') },
-    card: { icon: Icon, kind: pieceLabel(owner.type), title: owner.title },
-    sections: sectionsOf(k, byId, owner, active.startsWith('p-') ? active.slice(2) : undefined, fronts),
-    active,
-    ...(owner.type === 'application' ? { app: true } : {}),
-  });
-  return null;
-}
 
 /** The document's note: a number, always with its words, and a shape of its own so colour is never the only signal. */
 export const noteLevel = (n: number) => (n >= 80 ? 'good' : n >= 50 ? 'mid' : 'low');

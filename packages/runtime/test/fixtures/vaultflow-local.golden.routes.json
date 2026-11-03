@@ -86,5 +86,16 @@
     ],
     "upstream": "notification-service-real",
     "proto": "http"
+  },
+  {
+    "svc": "laru-mailbox",
+    "aliases": [
+      "laru-mailbox"
+    ],
+    "ports": [
+      80
+    ],
+    "upstream": "",
+    "proto": "http"
   }
 ]

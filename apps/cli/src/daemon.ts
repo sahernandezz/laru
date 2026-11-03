@@ -9,18 +9,18 @@
  */
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { execFile, spawn } from 'node:child_process';
-import { chmodSync, closeSync, createReadStream, createWriteStream, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, readSync, realpathSync, renameSync, rmSync, statSync, watchFile, unwatchFile, writeFileSync } from 'node:fs';
+import { chmodSync, closeSync, createReadStream, createWriteStream, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, readSync, realpathSync, renameSync, rmSync, statSync, watch, watchFile, unwatchFile, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { promisify } from 'node:util';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { dirname, extname, join, normalize, relative, resolve, sep } from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import { combineScreens, flowEnvDown, flowEnvStatus, flowEnvUp, instanceOf, instancesOf, prepareInstance, diskReport, dirBytes, dockerSizes, envLock, heldByEnvs, prune, readConfig, readRunnerFile, runnerFile, runnerFiles, snapshotRows, recentStats, docker, withLock, workspaceKey, writeConfig, type PruneWhat } from '@laru/runtime';
+import { combineScreens, flowEnvDown, flowEnvStatus, flowEnvUp, instanceOf, instancesOf, prepareInstance, diskReport, dirBytes, checkDocker, dockerAnswers, dockerState, dockerSizes, envLock, heldByEnvs, prune, readConfig, readRunnerFile, runnerFile, runnerFiles, snapshotRows, recentStats, docker, withLock, workspaceKey, writeConfig, type PruneWhat } from '@laru/runtime';
 import { mail, sqs, envFor, envProjects, flowDir, flowProjects, runDir, proposeJoint, maskJson, mockContracts, sweepOrphans, readRules, saveFaults, setFaults, setMockMode, kafka, storage, mongo, rabbit, redis, custom, cancelRun, compareRuns, failedFlows, markSession, openSessionBrowser, screenOf, sessionToFlow, sessionToScenario, approveBehavior, behaviorIn, readApproved, fidelity, applyScenario, provisionScenario, appliedOn, listScenarios, scenarioState, ScenarioConfirm, shown, sessionBrowser, sessionTrace, startSession, stopSession, listFlows, listRuns, readRun, readTrace, runsDir, startRun, connection, query as dbQuery, reset as dbReset, rows as dbRows, schema as dbSchema, snapshot as dbSnapshot, storeOf, stores as dbStores, storePassword, updateRow, updateSql, type Browse, type RowUpdate, down, envDir, envMasker, missingVars, listEnvs, loadEnvSpec, logs, revealVar, varValues, mountAll, mountedOf, rebuildText, setVar, status, unsetVar, up, varTable, importEnvFile, type Level } from '@laru/runtime';
-import { endpointMatcher, flowLast, seenIn, type EndpointMatch, type FlowLast, type Seen, type Trace } from '@laru/trace';
+import { endpointMatcher, flowLast, seenIn, type EndpointMatch, type FlowLast, type Seen, type Trace, type TrafficRecord } from '@laru/trace';
 import { affected, brokersOf, doctorChecks, runEnv, screenFindings, vaultServices, writeJoint } from './env-cli.ts';
-import { appHome, byCwd, envOf, idOf, initWorkspace, isWorkspace, laruHome, loadRegistry, realRoot, register, resolveId, stateDir, touch, unregister } from '@laru/core';
+import { agreementText, appHome, byCwd, envOf, loadAgreement, idOf, initWorkspace, isWorkspace, laruHome, loadRegistry, realRoot, register, resolveId, stateDir, touch, unregister } from '@laru/core';
 import { drawModel } from '@laru/diagrams';
 import { acceptFinding, withEvidence, shareEvidence, addRepo, queueContracts, CONTAINERS, coverage, DEFAULT_IGNORE, docsLang, documentNote, deriveDiagram, derivedList, evaluateConventions, freshness, liveOf, serviceTests, sheetNote, git, gitOf, isContainer, knowledgeShape, knowledgeWrite, linkRepo, loadExtraction, loadGraph, loadKnowledge, loadWorkspace, PIECE_TYPES, refreshMap, repoStatus, syncRepos, verifyPiece, writeAgentFiles, WorkspaceError, type RepoRole, type Workspace, type WriteInput } from '@laru/core';
 
@@ -41,7 +41,7 @@ export function traceViewerDir(): string | null {
   } catch { viewerDir = null; }
   return viewerDir;
 }
-export const VERSION = '0.1.0-beta.14';
+export const VERSION = '0.1.0-beta.15';
 
 
 export interface Daemon { url: string; port: number; token: string | null; close: () => Promise<void> }
@@ -79,6 +79,20 @@ function shared<T>(key: string, f: () => Promise<T>): Promise<T> {
 }
 const envStatus = (w: Workspace, env: string) => shared(`status|${w.root}|${env}`, () => status(w, env));
 const envsHeld = () => shared('held', heldByEnvs);
+
+/**
+ * Docker, watched in one place: while a page is open (it asks for the pulse every 3 s) this asks Docker every 5 s whether
+ * it answers and which envs hold containers, and every screen reads that instead of asking. With no page open it asks
+ * nothing.
+ */
+const watched = { held: [] as Awaited<ReturnType<typeof heldByEnvs>>, heldAt: 0, lookedAt: 0 };
+async function watchDocker() {
+  if (Date.now() - watched.lookedAt > 60_000) return;
+  if (await checkDocker()) watched.held = await heldByEnvs().then((h) => { watched.heldAt = Date.now(); return h; }, () => watched.held);
+}
+// what the watch saw when it is fresh; with no page watching (the home page alone), asked as before
+const heldNow = async () => (Date.now() - watched.heldAt < 10_000 ? watched.held : (await dockerAnswers()) ? envsHeld().catch(() => []) : []);
+const look = () => { const first = !watched.lookedAt; watched.lookedAt = Date.now(); if (first) void watchDocker(); return dockerState(); };
 
 /** One workspace's routes, as they were when the service served one workspace: only where `ws()` comes from changed. */
 export function makeApi(root: Workspace['root']): { api: Record<string, Handler>; streams: Record<string, Stream> } {
@@ -140,6 +154,36 @@ export function makeApi(root: Workspace['root']): { api: Record<string, Handler>
     try { const sp = loadEnvSpec(w, env); return { projects: envProjects(w, env), ...(sp.join ? { join: sp.join, share: sp.share } : {}) }; } catch { return {}; }
   };
   const envForOne = (w: Workspace, g: ReturnType<typeof graph>, f: { id: string; needs: string[] }, ready: Set<string>) => envFor(w, g, [f], ready);
+
+  /**
+   * What changed in the workspace from outside this service (an agent, an editor, the CLI) since it started: a number
+   * the open pages poll with the heartbeat, fetching what they show anew when it moves. Writes this service makes itself
+   * (the page's own saves) do not count: the page that saved already shows them. Runs, env logs and caches change all
+   * the time and are left out; what a screen shows of them (a run's end, an env's state) is not.
+   * Known limit: fs.watch, which a workspace on /mnt/c under WSL does not get events for; poll a stamp file if that matters.
+   */
+  let changes = 0, changedFiles: string[] = [], writing = 0, wroteAt = 0, watching = false, settle: ReturnType<typeof setTimeout> | undefined;
+  const pending = new Set<string>();
+  const STATE_SEEN = /^(map\.json|observed\.json|agreement\.md|runs\/index\.jsonl|envs\/[^/]+\/state\.json|instances\/[^/]+)$/;
+  const SKIP = /(^|\/)(\.git|node_modules|graphify-out|target|dist|build|\.gradle|\.idea)(\/|$)|\.DS_Store$|\.log$/;
+  const follow = () => {
+    if (watching) return;
+    watching = true;
+    const w = ws(), state = relative(w.root, stateDir(w)).split(sep).join('/');
+    const seen = (f: string) => f === state ? false : f.startsWith(state + '/') ? STATE_SEEN.test(f.slice(state.length + 1)) : !SKIP.test(f);
+    try {
+      watch(w.root, { recursive: true, persistent: false }, (_e, f) => {
+        const rel = f ? String(f).split(sep).join('/') : '';
+        if (rel && !seen(rel)) return;
+        if (rel) pending.add(rel);
+        clearTimeout(settle);
+        settle = setTimeout(() => {
+          if (!writing && Date.now() - wroteAt > 1500) { changes++; changedFiles = [...pending].slice(0, 5); }
+          pending.clear();
+        }, 600);
+      }).on('error', () => { watching = false; });
+    } catch { watching = false; }
+  };
 
   // Server-sent events: the stream owns the response until the client goes away.
   const sse = (res: ServerResponse) => res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
@@ -384,6 +428,18 @@ export function makeApi(root: Workspace['root']): { api: Record<string, Handler>
       const d = drawModel(model, `d${Math.abs([...id].reduce((h, c) => (h * 31 + c.charCodeAt(0)) | 0, 7))}`);
       return { id, kind: model.kind, title: model.title, svg: d.svg, mermaid: d.mermaid, viewBox: d.viewBox, ms: d.ms, pieces: model.nodes.length, links: model.edges.length };
     },
+    // A working agreement as the agent gets it: the very text it reads, whether it is the one in force, and how it reaches
+    // the agent here (Claude Code's import, the MCP server, the hooks that enforce its branches and commands).
+    'GET /api/agreement': async (_req, url) => {
+      const w = ws(), id = url.searchParams.get('id') ?? '', p = loadKnowledge(w).pieces.find((x) => x.id === id && x.type === 'agreement');
+      if (!p) throw new HttpError(404, `no agreement ${id}`);
+      const read = (f: string) => { try { return readFileSync(join(w.root, f), 'utf8'); } catch { return ''; } };
+      const hooks = read('.claude/settings.json');
+      return {
+        text: agreementText(p), inForce: loadAgreement(w)?.id === p.id,
+        reaches: { claude: read('CLAUDE.local.md').includes(`@${p.path}`), mcp: /"laru"\s*:/.test(read('.mcp.json')), hooks: ['laru hook pre-edit', 'laru hook pre-bash'].every((h) => hooks.includes(h)) },
+      };
+    },
     'GET /api/standard': async () => { const w = ws(); return { lang: docsLang(w), types: PIECE_TYPES.map((t) => knowledgeShape(w, t, true)) }; },
     'POST /api/knowledge/validate': async (_req, _url, body: WriteInput) => { const w = ws(); return knowledgeWrite(w, body, graph(w), { dryRun: true }); },
     'POST /api/knowledge/write': async (_req, _url, body: WriteInput) => { const w = ws(); return knowledgeWrite(w, body, graph(w)); },
@@ -560,6 +616,30 @@ export function makeApi(root: Workspace['root']): { api: Record<string, Handler>
       const routes = existsSync(join(dir, 'routes.json')) ? JSON.parse(readFileSync(join(dir, 'routes.json'), 'utf8')).routes : [];
       return { rules: readRules(w, env), routes, spec: { mocks: loadEnvSpec(w, env).mocks, faults: loadEnvSpec(w, env).faults } };
     },
+    // What a dependency received and answered, from the tap's journal: the newest requests (whole, as the tap kept them:
+    // already masked) and, by endpoint, how often and with which statuses. Read from the journal's end only: it can be 100 MB.
+    'GET /api/mocks/traffic': async (_req, url) => {
+      const w = ws(), env = envName(url), svc = url.searchParams.get('service') ?? '', limit = Math.min(200, Number(url.searchParams.get('limit')) || 60);
+      const f = join(envDir(w, env), 'tap', 'traffic.jsonl');
+      if (!existsSync(f)) return { records: [], operations: [], scanned: 0 };
+      const size = statSync(f).size, take = Math.min(size, 16 * 2 ** 20), buf = Buffer.alloc(take), fd = openSync(f, 'r');
+      try { readSync(fd, buf, 0, take, size - take); } finally { closeSync(fd); }
+      const lines = buf.toString('utf8').split('\n');
+      if (take < size) lines.shift(); // cut in half by where the read began
+      const mine: TrafficRecord[] = [];
+      for (const l of lines) { if (!l.includes(`"svc":${JSON.stringify(svc)}`)) continue; try { mine.push(JSON.parse(l)); } catch { /* a line cut by rotation */ } }
+      const ops = new Map<string, { method?: string; path: string; kind: string; count: number; statuses: Record<string, number>; lastAt: number; ms: number[] }>();
+      for (const r of mine) {
+        const path = r.path ?? `:${r.port}`, key = `${r.method ?? r.kind} ${path}`;
+        const o = ops.get(key) ?? ops.set(key, { method: r.method, path, kind: r.kind, count: 0, statuses: {}, lastAt: 0, ms: [] }).get(key)!;
+        o.count++; o.lastAt = Math.max(o.lastAt, r.t0);
+        const st = r.error ? 'error' : r.status !== undefined ? String(r.status) : '—';
+        o.statuses[st] = (o.statuses[st] ?? 0) + 1;
+        if (r.t1 !== undefined) o.ms.push(r.t1 - r.t0);
+      }
+      const operations = [...ops.values()].map(({ ms, ...o }) => ({ ...o, p50: ms.length ? ms.sort((a, b) => a - b)[Math.floor(ms.length / 2)] : undefined })).sort((a, b) => b.count - a.count).slice(0, 100);
+      return { records: mine.slice(-limit).reverse(), operations, scanned: mine.length, partial: take < size };
+    },
     'POST /api/mocks/mode': async (_req, url, b: { env: string; service: string; mode: never }) => setMockMode(ws(), envName(url, b), b.service, b.mode),
     'POST /api/mocks/faults': async (_req, url, b: { env: string; service: string; rules: never[] }) => setFaults(ws(), envName(url, b), b.service, b.rules, false),
     'POST /api/mocks/save': async (_req, url, b: { env: string }) => { saveFaults(ws(), envName(url, b)); return { ok: true }; },
@@ -677,6 +757,9 @@ export function makeApi(root: Workspace['root']): { api: Record<string, Handler>
     },
   };
 
+  // What every open page asks every 3 s: Docker as last seen, what changed from outside, and the runs not finished.
+  api['GET /api/pulse'] = async () => { follow(); return { docker: look(), changes: { n: changes, files: changedFiles }, running: listRuns(ws(), 50).filter((r) => r.phase !== 'done') }; };
+  for (const [k, h] of Object.entries(api)) if (!k.startsWith('GET ')) api[k] = async (...a) => { writing++; try { return await h(...a); } finally { writing--; wroteAt = Date.now(); } };
   return { api, streams };
 }
 
@@ -694,6 +777,8 @@ export async function startDaemon(port = 4100, webDist = WEB_DIST, o: { token?: 
   const apiOf = (root: string) => apis.get(root) ?? apis.set(root, makeApi(root)).get(root)!;
   let actual = port;
   const machine = machineApi(() => actual);
+  const watcher = setInterval(() => void watchDocker(), 5000);
+  watcher.unref();
 
   const server = createServer(async (req, res) => {
     try {
@@ -770,7 +855,7 @@ export async function startDaemon(port = 4100, webDist = WEB_DIST, o: { token?: 
   });
   await new Promise<void>((ok, fail) => { server.once('error', fail); server.listen(port, '127.0.0.1', ok); });
   actual = (server.address() as { port: number }).port;
-  return { url: `http://127.0.0.1:${actual}/${token ? `?token=${token}` : ''}`, port: actual, token, close: () => new Promise((ok) => { server.closeAllConnections(); server.close(() => ok()); }) };
+  return { url: `http://127.0.0.1:${actual}/${token ? `?token=${token}` : ''}`, port: actual, token, close: () => new Promise((ok) => { clearInterval(watcher); server.closeAllConnections(); server.close(() => ok()); }) };
 }
 
 /** «Añadir proyecto» says 20.000+ from here: past it, the count stops. */
@@ -896,7 +981,7 @@ const inside = (a: string, b: string) => a === b || a.startsWith(b + sep);
 /** The registered workspaces with what the home page and the switcher show; most recently opened first. */
 async function workspaceRows() {
   const all = loadRegistry();
-  const held = await envsHeld().catch(() => []);
+  const held = await heldNow();
   return [...all].sort((a, b) => (b.openedAt ?? b.addedAt).localeCompare(a.openedAt ?? a.addedAt)).map((x) => {
     const exists = isWorkspace(x.root);
     const base = { root: x.root, addedAt: x.addedAt, openedAt: x.openedAt, exists, key: workspaceKey(x) };
@@ -928,6 +1013,7 @@ function probeWorkspace(path: string) {
 function machineApi(port: () => number): Record<string, Handler> {
   return {
     'GET /api/workspaces': async () => workspaceRows(),
+    'GET /api/pulse': async () => ({ docker: look() }),
     'GET /api/workspaces/found': async () => {
       // ~/laru, and the folder where the workspaces made before the rename live
       const known = new Set(loadRegistry().map((x) => x.root));
@@ -956,10 +1042,10 @@ function machineApi(port: () => number): Record<string, Handler> {
     },
     'POST /api/workspaces/remove': async (_req, _url, b: { root?: string }) => { await unregister(String(b.root ?? '')); return { ok: true }; },
     'GET /api/machine': async () => {
-      const [version, info, held] = await Promise.all([
-        docker(['version', '--format', '{{.Server.Version}}'], { timeoutMs: 10_000 }).then((v) => v.trim(), () => null),
+      const up = await dockerAnswers(), version = up ? dockerState().version ?? null : null;
+      const [info, held] = !up ? [[] as number[], []] : await Promise.all([
         docker(['info', '--format', '{{.NCPU}} {{.MemTotal}}'], { timeoutMs: 10_000 }).then((v) => v.trim().split(' ').map(Number), () => [] as number[]),
-        envsHeld().catch(() => []),
+        heldNow(),
       ]);
       const persistent = held.filter((h) => !h.run);
       const usage = await recentStats(persistent.flatMap((h) => h.ids)).catch(() => []);

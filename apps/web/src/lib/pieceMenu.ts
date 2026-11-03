@@ -6,12 +6,11 @@ import {
   Archive, BookOpen, Handshake, BookText, Bookmark, Box, Braces, CalendarRange, Cloud, Container, Database, DatabaseBackup, FileText, GitBranch, GitFork, Globe, KeyRound,
   Layers, LifeBuoy, ListChecks, Monitor, Network, Package, Puzzle, Quote, Radio, Route, Ruler, Scale, Server, StickyNote, Table, Tag, Workflow, type LucideIcon,
 } from 'lucide-react';
-import { forwardRef } from 'react';
+import { createElement, forwardRef } from 'react';
 import type { DocPiece, KnowledgeData } from '../api.ts';
-import { FLOW_TABS } from '../components/FlowScope.tsx';
 import { piecesLabel, STAGE } from './es.ts';
 import { href } from './route.ts';
-import type { Scope } from './scope.ts';
+import type { Section } from './menu.ts';
 import { typeColor } from './typeColor.ts';
 
 export const TYPE_ICON: Record<string, LucideIcon> = {
@@ -30,7 +29,7 @@ export const iconOf = (p: { type: string; kind?: string }): LucideIcon => {
   let byColor = tinted.get(Base);
   if (!byColor) tinted.set(Base, (byColor = new Map()));
   let T = byColor.get(color);
-  if (!T) byColor.set(color, (T = forwardRef<SVGSVGElement, Parameters<LucideIcon>[0]>((props, ref) => <Base ref={ref} color={color} {...props} />) as unknown as LucideIcon));
+  if (!T) byColor.set(color, (T = forwardRef<SVGSVGElement, Parameters<LucideIcon>[0]>((props, ref) => createElement(Base, { ref, color, ...props })) as unknown as LucideIcon));
   return T;
 };
 export const CONTAINERS = ['application', 'module', 'process', 'repository', 'service', 'datastore', 'external'];
@@ -43,6 +42,9 @@ export function ownFlows(k: KnowledgeData, id: string): string[] {
   for (const c of k.pieces) if (c.type === 'flow' && ([] as string[]).concat(c.meta?.realizes ?? []).includes(id) && !out.includes(c.id)) out.push(c.id);
   return out;
 }
+
+/** A flow's own sections: its sheet's tabs (its data's sections are the menu's, lib/menu.ts). */
+export const FLOW_TABS: Array<[string, string]> = [['summary', 'Resumen'], ['live', 'Probar en vivo'], ['doc', 'Documento']];
 
 /** The tabs of the classes that have their own sheet (as the approved mock has them): key and label. ⌘K reaches each one. */
 export const TABS_OF: Record<string, Array<[string, string]>> = {
@@ -70,7 +72,7 @@ export function kindsOf(k: KnowledgeData, byId: Map<string, DocPiece>, owner: Do
 
 const STAGES = Object.keys(STAGE);
 /** A container's sections: its own tabs, then a section per kind of piece it holds, all under «Piezas», in the order of the stage each answers to. */
-export function sectionsOf(k: KnowledgeData, byId: Map<string, DocPiece>, owner: DocPiece, keep?: string, fronts = 0): Scope['sections'] {
+export function sectionsOf(k: KnowledgeData, byId: Map<string, DocPiece>, owner: DocPiece, keep?: string, fronts = 0): Section[] {
   const counts: Record<string, number | undefined> = { modules: k.pieces.filter((x) => x.parent === owner.id && x.type === 'module').length, processes: k.pieces.filter((x) => x.parent === owner.id && x.type === 'process').length, flows: ownFlows(k, owner.id).length, owed: owner.sheet?.owed.length ?? 0, code: owner.anchors?.length };
   return [
     // a tab with nothing in it that the application may lack is not shown: clients nobody recognised, processes nobody wrote
@@ -83,9 +85,9 @@ export function sectionsOf(k: KnowledgeData, byId: Map<string, DocPiece>, owner:
 /**
  * The application's own menu: what is written about it (summary, diagrams, modules, flows, what is owed, the document and
  * every kind of living piece) is one menu with the rest of the system's, not a second one inside it. «Entornos» is
- * «Servicios y entornos», in that menu already.
+ * its own section of the main menu.
  */
-export function appMenuOf(k: KnowledgeData, fronts = 0): { title: string; sections: Scope['sections'] } | undefined {
+export function appMenuOf(k: KnowledgeData, fronts = 0): { title: string; sections: Section[] } | undefined {
   const app = k.pieces.find((x) => x.type === 'application');
   if (!app) return undefined;
   return { title: app.title, sections: sectionsOf(k, new Map(k.pieces.map((x) => [x.id, x])), app, undefined, fronts).filter((x) => x.key !== 'envs') };

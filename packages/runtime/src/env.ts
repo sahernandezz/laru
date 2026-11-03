@@ -112,9 +112,12 @@ export function specFrom(ws: Workspace, env: string, raw: Record<string, any>, s
   // What receives mail and texts keeps them and sends nothing: a sink cannot also forward, and nothing that forwards may stand for a mail or SMS provider.
   for (const [n, m] of Object.entries(spec.mocks)) {
     if (m.mode === 'sink') {
-      if (m.sink !== 'smtp' && m.sink !== 'twilio') throw new WorkspaceError('`sink: smtp` or `sink: twilio`', at(`mocks.${n}.sink`));
+      if (m.sink !== 'smtp' && m.sink !== 'twilio' && m.sink !== 'api') throw new WorkspaceError('`sink: smtp`, `sink: twilio` or `sink: api`', at(`mocks.${n}.sink`));
+      if (m.sink === 'api' && m.send) { try { new RegExp(m.send); } catch { throw new WorkspaceError('a regular expression of the paths that send', at(`mocks.${n}.send`)); } }
+      if (m.kind !== undefined && m.kind !== 'sms' && m.kind !== 'mail') throw new WorkspaceError('`sms` or `mail`', at(`mocks.${n}.kind`));
       if (m.real) throw new WorkspaceError('a sink keeps what it receives and sends nothing: it has no `real`', at(`mocks.${n}.real`));
-      if (m.sink === 'twilio' && !spec.hosts.includes(n)) spec.hosts.push(n);
+      // a provider out on the internet (api.twilio.com, api.dana.co) is answered by the tap under its name; a compose service already is
+      if ((m.sink === 'twilio' || (m.sink === 'api' && n.includes('.'))) && !spec.hosts.includes(n)) spec.hosts.push(n);
     } else if ((m.mode === 'record' || m.mode === 'spy' || m.real) && (PROVIDER_HOSTS.includes(n) || /^smtp\./.test(n))) {
       throw new WorkspaceError(`${n} would send real mail or texts: use \`mode: sink\`, which keeps them in the env's mailbox`, at(`mocks.${n}.mode`));
     }

@@ -3,6 +3,7 @@
  * A key missing here falls back to the core's English text rather than to nothing.
  */
 import type { DotState } from '../components/ui.tsx';
+import type { FlowInfo } from '../api.ts';
 
 type P = Record<string, string | number> | undefined;
 
@@ -93,9 +94,9 @@ export const issueText = (i: { key: string; params?: P; message: string }) =>
   ISSUE[i.key]?.(i.params) ?? (i.key.startsWith('diagram-') ? DIAGRAM_RULE[i.key.slice(8)] : undefined) ?? i.message;
 
 // ---------- environments, vault and doctor ----------
-export const ENV_STATE: Record<string, string> = { ready: 'Listo', starting: 'Arrancando', failed: 'Con fallos', stopped: 'Parado', absent: 'Sin levantar' };
+export const ENV_STATE: Record<string, string> = { ready: 'Listo', starting: 'Arrancando', failed: 'Con fallos', stopped: 'Parado', absent: 'Sin levantar', unknown: 'Docker no responde' };
 /** An env's state as a dot, beside its word. */
-export const STATE_DOT: Record<string, DotState> = { ready: 'ok', starting: 'run', failed: 'err', stopped: 'idle', absent: 'idle' };
+export const STATE_DOT: Record<string, DotState> = { ready: 'ok', starting: 'run', failed: 'err', stopped: 'idle', absent: 'idle', unknown: 'idle' };
 export const HEALTH: Record<string, string> = {
   healthy: 'Sano', running: 'En marcha', starting: 'Arrancando', waiting: 'Esperando', unhealthy: 'No responde', exited: 'Se detuvo',
   oom: 'Sin memoria', done: 'Terminado', host: 'En tu máquina', absent: 'Sin contenedor',
@@ -390,3 +391,12 @@ export function workspaceError(msg: string): { field: string; text: string } {
 }
 
 export const twinText = (app: string, id: string) => `Otro workspace ya usa el id ${app}: este queda como ${id}, y los dos compartirán ~/.laru/${app} (clones, instantáneas, clave del vault).`;
+
+/** A flow's dot: no test or never run, its last run failed, or it passed. */
+export const flowDot = (f?: FlowInfo): DotState => (!f?.exists || !f.last ? 'idle' : f.last.status === 'failed' ? 'err' : 'ok');
+/** A flow's last word, as its dot and a few words. */
+export const lastWord = (f: FlowInfo): [DotState, string] => {
+  if (!f.exists) return ['idle', 'Sin prueba'];
+  if (f.history.at(-1)?.status === 'error') return ['err', 'No pudo correr'];
+  return [flowDot(f), lastText(f.last)];
+};

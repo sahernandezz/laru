@@ -14,7 +14,7 @@ import { href, pageOf } from '../lib/route.ts';
 
 const ENV_DOT: Record<string, DotState> = { ready: 'ok', starting: 'run', failed: 'err', stopped: 'idle', absent: 'idle' };
 /** The envs that are not ready, by state, as the reference says it: «1 arrancando, 2 parados». */
-const NOT_READY: Array<[string, string, string]> = [['starting', 'arrancando', 'arrancando'], ['failed', 'con fallos', 'con fallos'], ['stopped', 'parado', 'parados'], ['absent', 'sin levantar', 'sin levantar']];
+const NOT_READY: Array<[string, string, string]> = [['starting', 'arrancando', 'arrancando'], ['failed', 'con fallos', 'con fallos'], ['stopped', 'parado', 'parados'], ['absent', 'sin levantar', 'sin levantar'], ['unknown', 'sin respuesta de Docker', 'sin respuesta de Docker']];
 const took = (r: Data['runs'][number]) => (r.endedAt ? secs(Date.parse(r.endedAt) - Date.parse(r.startedAt)) : undefined);
 
 export function Overview({ title, g }: { title?: string; g: Indexed | null }) {
@@ -71,7 +71,7 @@ export function Overview({ title, g }: { title?: string; g: Indexed | null }) {
       </header>
 
       <section aria-labelledby="ov-envs" className="ov-block">
-        <h2 id="ov-envs" className="ov-h"><Container />Entornos<span className="faint">{d.envs.length ? `${ready.length} de ${d.envs.length} en marcha${notReady ? `; ${notReady}` : ''}` : ''}</span><a className="more" href={href('envs')}>Servicios y entornos</a></h2>
+        <h2 id="ov-envs" className="ov-h"><Container />Entornos<span className="faint">{d.envs.length ? `${ready.length} de ${d.envs.length} en marcha${notReady ? `; ${notReady}` : ''}` : ''}</span><a className="more" href={href('envs')}>Todos los entornos</a></h2>
         {d.envs.length ? (
           <div className="ov-envs">
             {d.envs.map((e) => {

@@ -9,7 +9,6 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { chain as chainOf } from '@laru/trace/chain';
 import { api, apiUrl, indexMap, useApi, type SystemMap, type EnvSummary, type KnowledgeData, type ScenariosData, type Exchange, type Indexed, type RunInfo, type Trace } from '../api.ts';
 import { ActionButton, Dialog, Dot, Segmented, Skeleton, Tabs, toast } from '../components/ui.tsx';
-import { EnvScope, envOfSession } from '../components/EnvScope.tsx';
 import { askFirst } from '../lib/ask.ts';
 import { plural } from '../lib/es.ts';
 import { href } from '../lib/route.ts';
@@ -183,11 +182,8 @@ export function Session({ id, g, embedded }: { id: string; g: Indexed | null; em
   }, [open, studio, lay.hide.side]); // eslint-disable-line react-hooks/exhaustive-deps
 
 
-  // the env's menu from the first frame: while the session loads, the env it was reached from (else the menu waits for it)
-  const known = live?.run.env ?? envOfSession.get(id);
-  const scope = !embedded && known ? <EnvScope env={known} active="live" session={id} /> : null;
-  if (error && !live) return <div className="page">{scope}<div className="notice" role="alert"><CircleX />{error}</div></div>;
-  if (!live) return <div className="page wide">{scope}<Skeleton lines={3} /><div style={{ height: 16 }} /><Skeleton lines={10} /></div>;
+  if (error && !live) return <div className="page"><div className="notice" role="alert"><CircleX />{error}</div></div>;
+  if (!live) return <div className="page wide"><Skeleton lines={3} /><div style={{ height: 16 }} /><Skeleton lines={10} /></div>;
   const { run, browser } = live;
   const trace = shown ?? live.trace;
   const saving = run.phase === 'evidence';
@@ -253,7 +249,6 @@ export function Session({ id, g, embedded }: { id: string; g: Indexed | null; em
   if (studio) return (
     <div ref={studioRef} className="studio live-studio st-resizable" role="region" aria-label={`Estudio de la sesión ${run.id}`} style={panels}
       onKeyDown={(e) => { const t = e.target as HTMLElement; if (e.key === 'Escape' && !t.closest('.screen-box, input, textarea, select, dialog')) { e.preventDefault(); toggleStudio(); } }}>
-      {scope}
       <header className="st-bar">
         <span className="status" aria-live="polite"><Dot state={open || saving ? 'run' : 'ok'} />{status}</span>
         <b className="st-title" title={run.title ?? ''}>{run.title ?? `Sesión ${run.id}`}</b>
@@ -287,7 +282,6 @@ export function Session({ id, g, embedded }: { id: string; g: Indexed | null; em
 
   return (
     <div className={embedded ? undefined : 'page wide'}>
-      {scope}
       {!embedded && <nav className="crumbs" aria-label="Migas"><a href={href('live')}>En vivo</a><span aria-hidden="true">/</span><span>Sesión {run.id}</span></nav>}
       <div className="head">
         <div style={{ minWidth: 0 }}>

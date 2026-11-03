@@ -12,8 +12,8 @@ import { askFirst, Cancelled } from '../lib/ask.ts';
 import { admissionText, BUILT, ENV_STATE, STATE_DOT, HEALTH, laruLine, MODE, PHASE, phaseNote, plural, secs, upError } from '../lib/es.ts';
 import { HOME, href } from '../lib/route.ts';
 import { appsOf } from '../lib/sysmap.ts';
-import { MapTabs } from '../components/MapTabs.tsx';
-import { EnvScope } from '../components/EnvScope.tsx';
+import { MountAll } from '../components/MountAll.tsx';
+import { EnvMocks } from '../components/EnvMocks.tsx';
 
 const HEALTH_DOT: Record<ServiceStatus['health'], DotState> = {
   healthy: 'ok', running: 'ok', host: 'ok', done: 'ok', starting: 'run', waiting: 'run', unhealthy: 'err', exited: 'err', oom: 'err', absent: 'idle',
@@ -49,8 +49,7 @@ export function Envs({ selected, g }: { selected?: string; g?: Indexed | null })
   ];
   return (
     <div className="page wide">
-      {selected && list.some((e) => e.env === selected) && <EnvScope env={selected} active="state" />}
-      <MapTabs active="envs" />
+      <div className="head"><div><h1>Entornos</h1><p>Dónde corre cada servicio: el entorno del proyecto y el de cada flujo, con sus datos y variables.</p></div><div className="actions"><MountAll /></div></div>
       <div className="envs">
         <nav className="env-list" aria-label="Entornos">
           {groups.filter(([, es]) => es.length).map(([title, es]) => (
@@ -253,6 +252,7 @@ function EnvView({ name, onChange, g }: { name: string; onChange: () => void; g?
       ) : (
         <>
           <Addresses addresses={d.addresses} services={d.services} />
+          <EnvMocks env={name} />
           <section className="panel block"><header><h3>Fidelidad con producción</h3><div className="meta">Solo lo que se diferencia; el detalle está en <a className="rowlink" href={href('docs')}>la infraestructura</a></div></header><FidelityTable env={name} compact /></section>
           <Services env={name} services={d.services} source={d.source} g={g} />
           <Logs env={name} services={d.services.filter((s) => s.container).map((s) => s.service)} epoch={d.services.map((s) => s.container?.id ?? '').join()} />

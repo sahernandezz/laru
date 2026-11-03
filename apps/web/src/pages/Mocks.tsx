@@ -4,9 +4,9 @@
  * reach envs/<env>.yaml only through «Guardar en el entorno».
  */
 import { ArrowLeftRight, CircleX, Pause, Play, Plug, Plus, Save, Trash2, Zap } from 'lucide-react';
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { api, useApi, type EnvSummary, type FaultRule, type MocksData, type TapRoute, type TrafficRecord, apiUrl } from '../api.ts';
-import { ActionButton, HttpStatus, Kind, Skeleton, Status, toast } from '../components/ui.tsx';
+import { ActionButton, CopyButton, HttpStatus, Kind, Skeleton, Status, toast } from '../components/ui.tsx';
 import { faultText, MOCK_MODE, plural, secs } from '../lib/es.ts';
 import { href } from '../lib/route.ts';
 
@@ -122,14 +122,16 @@ function Dependency({ env, route, data, peers, reload }: { env: string; route: T
         {mock?.mode === 'sink' ? (
           <div className="empty"><span>{MOCK_MODE.sink.hint}</span><span>Lo que recibe se ve en <a className="rowlink" href={href('mail', env)}>Correo y mensajes</a>.</span></div>
         ) : mock ? <ModeControl env={env} svc={svc} mode={mock.mode} startMode={startMode} reload={reload} /> : (
-          <div className="empty">
-            <span>Sin mock: el interceptor pasa cada petición a <span className="mono">{route.upstream}</span> y la registra.</span>
-            <span>Para simularlo, añade <code>mocks.{svc}</code> a <span className="mono">envs/{env}.yaml</span> y vuelve a levantar {env}.</span>
+          <div className="mk-none">
+            <p>Sin mock: el interceptor pasa cada petición a <span className="mono">{route.upstream}</span> y la registra (abajo, lo que recibió y respondió).</p>
+            <p className="faint">Para simularlo, añade esto a <span className="mono">envs/{env}.yaml</span> y vuelve a levantar {env}: <b>record</b> graba lo que responde el real y <b>simulate</b> lo repite sin él. Si es correo o mensajería, usa el buzón en <a className="rowlink" href={href('mail', env)}>Correo y mensajes</a>.</p>
+            <pre className="mono mk-snippet">{`mocks:\n  ${svc}:\n    mode: record`}<CopyButton value={`mocks:\n  ${svc}:\n    mode: record\n`} label="Copiar" /></pre>
           </div>
         )}
       </section>
 
-      <FaultEditor env={env} svc={svc} live={data.rules.faults[svc] ?? []} peers={peers} onApplied={reload} sink={mock?.mode === 'sink' ? mock.sink : undefined} />
+      <Answered env={env} svc={svc} />
+      <FaultEditor env={env} svc={svc} live={data.rules.faults[svc] ?? []} peers={peers} onApplied={reload} sink={mock?.mode === 'sink' && mock.sink !== 'api' ? mock.sink : undefined} />
       <Live env={env} svc={svc} peers={data.rules.peers} />
     </div>
   );
@@ -278,10 +280,54 @@ function FaultRow({ n, r, peers, peersId, ids, put, remove, sink }: { sink?: 'sm
 const time = (t: number) => { const d = new Date(t); return `${d.toTimeString().slice(0, 8)}.${String(d.getMilliseconds()).padStart(3, '0')}`; };
 
 /** What reaches the dependency from now on, newest first. The stream starts at the end of the journal. */
+interface Traffic { records: TrafficRecord[]; operations: Array<{ method?: string; path: string; kind: string; count: number; statuses: Record<string, number>; lastAt: number; p50?: number }>; scanned: number; partial?: boolean }
+const useTraffic = (env: string, svc: string) => useApi<Traffic>(`/api/mocks/traffic?env=${encodeURIComponent(env)}&service=${encodeURIComponent(svc)}&limit=80`);
+
+/** What the dependency answered, by endpoint: how often it was called, with which statuses, how long it usually takes. */
+function Answered({ env, svc }: { env: string; svc: string }) {
+  const t = useTraffic(env, svc);
+  const ops = t.data?.operations ?? [];
+  return (
+    <section className="panel block" aria-labelledby="ans-h">
+      <header><h3 id="ans-h">Lo que respondió</h3><div className="meta">{t.data ? `${plural(t.data.scanned, 'petición', 'peticiones')} grabadas${t.data.partial ? ', de lo último' : ''}` : ''}</div></header>
+      {!t.data ? <div className="body"><Skeleton lines={3} /></div> : !ops.length ? (
+        <div className="empty"><span>Todavía nadie la ha llamado en {env}: cuando un flujo, el navegador u otro servicio lo haga, aquí sale cada endpoint con lo que respondió.</span></div>
+      ) : (
+        <div className="scroll-x"><table className="t mk-ops">
+          <thead><tr><th>Endpoint</th><th className="r">Veces</th><th>Respuestas</th><th className="r">Típica</th><th>Última</th></tr></thead>
+          <tbody>{ops.map((o) => (
+            <tr key={`${o.method} ${o.path}`}>
+              <td className="wrap mono">{o.method ? <><span className={`m-${o.method.toLowerCase()}`}>{o.method}</span> {o.path}</> : <><Kind k={o.kind as TrafficRecord['kind']} /> {o.path}</>}</td>
+              <td className="r num">{o.count}</td>
+              <td><span className="mk-sts">{Object.entries(o.statuses).sort(([a], [b]) => a.localeCompare(b)).map(([st, n]) => <span key={st} className={`chip${/^[45]|error/.test(st) ? ' err' : /^2/.test(st) ? ' ok' : ''}`}>{st === '—' ? 'sin estado' : st} × {n}</span>)}</span></td>
+              <td className="r num faint">{o.p50 !== undefined ? secs(o.p50) : '—'}</td>
+              <td className="num faint">{time(o.lastAt).slice(0, 8)}</td>
+            </tr>
+          ))}</tbody>
+        </table></div>
+      )}
+    </section>
+  );
+}
+
+/** One request whole: what was asked and what was answered, as the tap kept them (already masked). */
+function Exchange({ r }: { r: TrafficRecord }) {
+  const head = (h?: Record<string, string>) => (h ? Object.entries(h).map(([k, v]) => `${k}: ${v}`).join('\n') : '');
+  return (
+    <div className="mk-ex">
+      <div><h4>Petición</h4>{r.reqHeaders && <pre className="mono">{head(r.reqHeaders)}</pre>}{r.req?.text ? <pre className="mono">{r.req.text}</pre> : r.req?.note ? <p className="faint">{r.req.note}</p> : r.req?.bytes ? <p className="faint">{r.req.bytes} bytes sin texto</p> : <p className="faint">Sin cuerpo.</p>}</div>
+      <div><h4>Respuesta {r.status !== undefined && <HttpStatus n={r.status} />}</h4>{r.resHeaders && <pre className="mono">{head(r.resHeaders)}</pre>}{r.res?.text ? <pre className="mono">{r.res.text}</pre> : r.res?.note ? <p className="faint">{r.res.note}</p> : r.res?.bytes ? <p className="faint">{r.res.bytes} bytes sin texto</p> : r.peek ? <pre className="mono">{[r.peek.up, r.peek.down].filter(Boolean).join('\n…\n')}</pre> : <p className="faint">Sin cuerpo.</p>}</div>
+    </div>
+  );
+}
+
+/** The requests it received: the newest the tap kept, then what arrives live on top. A row opens to the whole exchange. */
 function Live({ env, svc, peers }: { env: string; svc: string; peers: Record<string, string> }) {
+  const kept = useTraffic(env, svc);
   const [items, setItems] = useState<TrafficRecord[]>([]);
   const [paused, setPaused] = useState(false);
   const [said, setSaid] = useState('');
+  const [open, setOpen] = useState<string | null>(null);
   const hold = useRef(false);
   hold.current = paused;
   useEffect(() => {
@@ -297,38 +343,44 @@ function Live({ env, svc, peers }: { env: string; svc: string; peers: Record<str
     };
     return () => es.close();
   }, [env, svc]);
+  const live = new Set(items.map((r) => r.id));
+  const all = [...items, ...(kept.data?.records ?? []).filter((r) => !live.has(r.id))].slice(0, KEEP);
   return (
     <section className="panel" aria-labelledby="live-h">
       <header>
-        <h3 id="live-h">Peticiones en vivo</h3>
+        <h3 id="live-h">Peticiones</h3>
         <div className="meta">
           <span className="sr-only" aria-live="polite">{said}</span>
-          <span className="num">{items.length ? plural(items.length, 'petición', 'peticiones') : ''}{items.length >= KEEP ? ', las últimas' : ''}</span>
+          <span className="num">{all.length ? `${plural(all.length, 'petición', 'peticiones')}, las últimas` : ''}{items.length ? ` · ${items.length} en vivo` : ''}</span>
           <button className="btn sm" aria-pressed={paused} onClick={() => { setPaused((p) => !p); setSaid(paused ? 'Recibiendo de nuevo' : 'En pausa: lo que llegue ahora no se muestra'); }}>{paused ? <Play /> : <Pause />}{paused ? 'Seguir' : 'Pausar'}</button>
         </div>
       </header>
-      {!items.length ? (
-        <div className="empty"><span><Plug className="inline-ic" aria-hidden="true" /> {paused ? 'En pausa.' : `Esperando peticiones a ${svc}.`} Aparecen en cuanto alguien la llama: un flujo, el navegador u otro servicio.</span></div>
+      {!all.length ? (
+        <div className="empty"><span><Plug className="inline-ic" aria-hidden="true" /> {paused ? 'En pausa.' : `Nadie ha llamado a ${svc} todavía.`} Aparecen en cuanto alguien la llama: un flujo, el navegador u otro servicio.</span></div>
       ) : (
         <div className="scroll-x run-list">
-          <table className="t">
+          <table className="t mk-req">
             <thead><tr><th>Hora</th><th>Desde</th><th>Petición</th><th>Respuesta</th><th className="r">Duración</th></tr></thead>
             <tbody>
-              {items.map((r) => {
+              {all.map((r) => {
                 const ok = !r.error && (r.status === undefined || r.status < 500);
                 return (
-                  <tr key={r.id} className={ok ? undefined : 'bad'}>
-                    <td className="num faint">{time(r.t0)}</td>
-                    <td className="mono">{peers[r.from] ?? r.from}</td>
-                    <td className="wrap mono req">{r.method ? <><span className={`m-${r.method.toLowerCase()}`}>{r.method}</span> {r.path ?? '/'}{r.query ? `?${r.query}` : ''}</> : <><Kind k={r.kind} />{r.kind === 'tcp' ? ` :${r.port}` : ''}</>}</td>
-                    <td>
-                      {r.error ? <Status state="err">{r.error}</Status> : r.status !== undefined ? (ok ? <HttpStatus n={r.status} /> : <Status state="err"><HttpStatus n={r.status} /></Status>) : <span className="faint">—</span>}
-                      {r.fault && <span className="chip run"><Zap />{r.fault}</span>}
-                      {r.mock && <span className="chip">mock: {r.mock}</span>}
-                      {r.drift?.length ? <span className="chip err" title={r.drift.join('\n')}>fuera de contrato</span> : null}
-                    </td>
-                    <td className="r num faint">{r.t1 !== undefined ? secs(r.t1 - r.t0) : '—'}</td>
-                  </tr>
+                  <Fragment key={r.id}>
+                    <tr className={`clickrow${ok ? '' : ' bad'}`} aria-expanded={open === r.id} tabIndex={0} onClick={() => setOpen(open === r.id ? null : r.id)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen(open === r.id ? null : r.id); } }}>
+                      <td className="num faint">{time(r.t0)}</td>
+                      <td className="mono">{r.screen ?? peers[r.from] ?? r.from}</td>
+                      <td className="wrap mono req">{r.method ? <><span className={`m-${r.method.toLowerCase()}`}>{r.method}</span> {r.path ?? '/'}{r.query ? `?${r.query}` : ''}</> : <><Kind k={r.kind} />{r.kind === 'tcp' ? ` :${r.port}` : ''}</>}</td>
+                      <td>
+                        {r.error ? <Status state="err">{r.error}</Status> : r.status !== undefined ? (ok ? <HttpStatus n={r.status} /> : <Status state="err"><HttpStatus n={r.status} /></Status>) : <span className="faint">—</span>}
+                        {r.fault && <span className="chip run"><Zap />{r.fault}</span>}
+                        {r.mock && <span className="chip">mock: {r.mock}</span>}
+                        {r.msg && <a className="chip accent" href={href('mail', env)} onClick={(e) => e.stopPropagation()}>{r.msg.kind === 'mail' ? 'correo' : 'mensaje'} a {r.msg.to}</a>}
+                        {r.drift?.length ? <span className="chip err" title={r.drift.join('\n')}>fuera de contrato</span> : null}
+                      </td>
+                      <td className="r num faint">{r.t1 !== undefined ? secs(r.t1 - r.t0) : '—'}</td>
+                    </tr>
+                    {open === r.id && <tr className="mk-open"><td colSpan={5}><Exchange r={r} /></td></tr>}
+                  </Fragment>
                 );
               })}
             </tbody>

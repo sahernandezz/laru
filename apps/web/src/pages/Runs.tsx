@@ -4,8 +4,8 @@
  * still going is followed through its event stream: phases, tests and steps appear as they happen.
  */
 import {
-  ArrowDownLeft, ArrowUpRight, Ban, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ChevronsLeft, ChevronsRight, CircleX, Crosshair, Radio, Download, FileCode, FileText, Film, Footprints, GitCompare, Image, Info,
-  Maximize2, Minimize2, Pause, Play, RotateCw, ScrollText, Search, Terminal, X, Zap,
+  AppWindow, ArrowDownLeft, ArrowUpRight, Ban, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ChevronsLeft, ChevronsRight, CircleX, Crosshair, Radio, Download, FileCode, FileText, Film, Footprints, GitCompare, Image, Info,
+  FlaskConical, Layers, Maximize2, Minimize2, Monitor, Pause, Play, RotateCw, ScrollText, Search, Smartphone, Terminal, X, Zap,
 } from 'lucide-react';
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode, type RefObject } from 'react';
 import { endpointMatcher } from '@laru/trace/assemble';
@@ -28,6 +28,8 @@ import { actName, ChainTab, StepCard, whereOf, type Where } from './Chain.tsx';
 import { ExchangeIO, Journey, RouteStrip } from './Journey.tsx';
 
 const fileUrl = (id: string, path: string) => apiUrl(`/api/run-file?id=${encodeURIComponent(id)}&path=${encodeURIComponent(path)}`);
+/** A device's kind from its name: a phone, the test itself, another machine, else a browser. */
+const deviceIcon = (name: string) => (/iphone|ipad|android|m[oó]vil|mobile|phone/i.test(name) ? Smartphone : /^prueba/i.test(name) ? FlaskConical : /^equipo/i.test(name) ? Monitor : AppWindow);
 const BIG = 'laru.run.bigVideo';
 /** the studio: the player on the whole window, kept for the next run this browser opens */
 const STUDIO = 'laru.run.studio';
@@ -411,14 +413,26 @@ function FlowTraces({ run, slug, flow, g, view, onView, address, k, studio, only
   );
   const at = 0;
   // one device has nothing to pick
-  const follow = devices && devices.list.length > 1 && (
-    <label className="faint st-device">Dispositivo{' '}
-      <select value={device} onChange={(e) => setDevice(e.target.value)} title="Solo lo que envió ese dispositivo y lo que provocó en el sistema">
-        <option value="">Todos</option>
-        {devices.list.map((d) => <option key={d.name} value={d.name}>{d.name} ({d.count})</option>)}
+  // which device to follow: a few side by side, each with its kind's icon and how many messages it sent; many, a picker
+  const follow = devices && devices.list.length > 1 && (devices.list.length <= 3 ? (
+    <div className="dev-seg" role="group" aria-label="Dispositivo: solo lo que envió y lo que provocó en el sistema">
+      <button type="button" aria-pressed={!device} onClick={() => setDevice('')} title="Todos los dispositivos"><Layers />Todos</button>
+      {devices.list.map((d) => { const I = deviceIcon(d.name); return (
+        <button type="button" key={d.name} aria-pressed={device === d.name} onClick={() => setDevice(d.name)} title={`${d.name}: ${plural(d.count, 'mensaje', 'mensajes')}`}>
+          <I /><span className="dev-name">{d.name}</span><span className="dev-n num">{d.count}</span>
+        </button>
+      ); })}
+    </div>
+  ) : (
+    <label className="dev-pick" title="Solo lo que envió ese dispositivo y lo que provocó en el sistema">
+      {(() => { const I = device ? deviceIcon(device) : Layers; return <I aria-hidden="true" />; })()}
+      <select value={device} onChange={(e) => setDevice(e.target.value)} aria-label="Dispositivo">
+        <option value="">Todos los dispositivos</option>
+        {devices.list.map((d) => <option key={d.name} value={d.name}>{d.name} · {d.count}</option>)}
       </select>
+      <ChevronDown aria-hidden="true" />
     </label>
-  );
+  ));
   return (
     <>
       <Player key={`${at}/${device}`} run={run} slug={slug} trace={shown!} story={test.story ?? true} flow={flow} g={g} view={view} onView={onView} k={k}
@@ -792,6 +806,7 @@ function Player({ run, slug, trace, story, flow, g, view: asked, onView, k, arch
       <div className="view-bar">
         <Tabs id={vid} className="tabs view-tabs" label="Vista del flujo" value={shown} onChange={(v) => { setStage(v === 'journey' ? 'journey' : 'view'); if (v !== 'journey') pickView(v); }}
           tabs={[...(studio ? [{ key: 'journey' as const, label: 'Recorrido' }] : []), { key: 'seq', label: 'Secuencia' }, { key: 'map', label: 'Mapa' }]} />
+        {shown === 'seq' && <span className="ex-kinds" aria-label="Tipos de intercambio en el diagrama">{[...new Set(trace.exchanges.map((e) => e.kind))].map((k) => <span key={k} className={`k-${k}`}><i aria-hidden="true" />{k}</span>)}</span>}
         <span className="faint num">{mode === 'step' ? `Paso a paso · ${pos + 1 || '–'} de ${total}` : shown !== 'map' ? plural(trace.exchanges.length, 'mensaje', 'mensajes') : lit ? `${plural(lit.edges.size, 'conexión', 'conexiones')}${badEdges ? ` · ${badEdges} ${badEdges === 1 ? 'falló' : 'fallaron'}` : ''}` : ''}</span>
       </div>
       <div role="tabpanel" id={`${vid}-panel`} aria-labelledby={`${vid}-tab-${shown}`} className="diagram-panel">
@@ -1086,6 +1101,18 @@ function Transport({ layout, trace, c, onFail, walking, following, onFollow, fol
   };
   const steps = [...trace.steps].sort((a, b) => a.t0 - b.t0);
   const w = walking?.where;
+  // walking down the sequence takes the bar out of view: a small one floats at the bottom until the row of step buttons
+  // is wholly in view again (a sliver of the bar on screen leaves the buttons out of reach)
+  const bar = useRef<HTMLDivElement>(null), buttons = useRef<HTMLDivElement>(null);
+  const [away, setAway] = useState(false);
+  const on = Boolean(walking && w);
+  useEffect(() => {
+    const el = buttons.current;
+    if (!on || !el) { setAway(false); return; }
+    const io = new IntersectionObserver(([e]) => setAway(e.intersectionRatio < 0.99), { threshold: [0, 0.99, 1] });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [on]);
   const scrubber = (
     <div className="scrub" ref={scrub} role="slider" tabIndex={0} aria-label="Tiempo" aria-valuemin={0} aria-valuemax={Math.round(T)} aria-valuenow={Math.round(c.now)} aria-valuetext={clock(c.now)}
       onKeyDown={keys} onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); fromX(e); }} onPointerMove={(e) => e.currentTarget.hasPointerCapture(e.pointerId) && fromX(e)}>
@@ -1095,8 +1122,8 @@ function Transport({ layout, trace, c, onFail, walking, following, onFollow, fol
     </div>
   );
   if (walking && w) return (
-    <div className="transport walking" role="group" aria-label="Paso a paso">
-      <div className="walk-row">
+    <div className="transport walking" role="group" aria-label="Paso a paso" ref={bar}>
+      <div className="walk-row" ref={buttons}>
         <button type="button" className="btn sm" onClick={walking.prev} aria-keyshortcuts="ArrowUp"><ChevronLeft />Anterior <kbd>↑</kbd></button>
         <button type="button" className="btn sm" onClick={walking.next} aria-keyshortcuts="ArrowDown">Siguiente <kbd>↓</kbd><ChevronRight /></button>
         <button type="button" className="btn sm" onClick={walking.prevAct} aria-keyshortcuts="Shift+ArrowUp"><ChevronsLeft />Acción <kbd>⇧↑</kbd></button>
@@ -1111,19 +1138,40 @@ function Transport({ layout, trace, c, onFail, walking, following, onFollow, fol
         <button type="button" className="btn sm" onClick={onPlay}><Play />Reproducir desde aquí</button>
         <button type="button" className="btn sm" onClick={walking.leave} aria-keyshortcuts="Escape"><X />Salir <kbd>Esc</kbd></button>
       </div>
+      {away && (
+        <div className="walk-float" role="group" aria-label="Paso a paso, a mano">
+          <button type="button" className="icon-btn" onClick={walking.prevAct} aria-label="Acción anterior" title="Acción anterior (⇧↑)"><ChevronsLeft /></button>
+          <button type="button" className="icon-btn" onClick={walking.prev} aria-label="Anterior" title="Anterior (↑)"><ChevronLeft /></button>
+          <span className="walk-float-where num">{actName(w)}{w.m ? <span className="faint"> · {w.m} de {w.n}</span> : null}</span>
+          <button type="button" className="icon-btn" onClick={walking.next} aria-label="Siguiente" title="Siguiente (↓)"><ChevronRight /></button>
+          <button type="button" className="icon-btn" onClick={walking.nextAct} aria-label="Acción siguiente" title="Acción siguiente (⇧↓)"><ChevronsRight /></button>
+          <span className="walk-float-sep" aria-hidden="true" />
+          <button type="button" className="icon-btn" onClick={() => bar.current?.scrollIntoView({ block: 'center', behavior: 'smooth' })} aria-label="Ir a los controles" title="Ir a los controles y al vídeo"><ChevronUp /></button>
+          <button type="button" className="icon-btn" onClick={walking.leave} aria-label="Salir del paso a paso" title="Salir (Esc)"><X /></button>
+        </div>
+      )}
     </div>
   );
   return (
-    <div className="transport">
-      <button className="icon-btn" onClick={onPlay} aria-label={c.playing ? 'Pausar' : 'Reproducir'}>{c.playing ? <Pause /> : <Play />}</button>
-      <button className="icon-btn" onClick={() => onFail?.()} aria-disabled={!onFail || undefined} aria-label={layout.bad >= 0 || !onFail ? 'Ir al salto que falló' : 'Ir al momento en que falló'} title={!onFail ? 'Nada falló en esta prueba' : layout.bad >= 0 ? 'Ir al salto que falló' : 'Ir al momento en que falló'}><Crosshair /></button>
-      <span className="time">{clock(c.now)} / {clock(T)}</span>
-      {scrubber}
-      <div className="speed" role="group" aria-label="Velocidad">{[0.25, 0.5, 1, 2].map((s) => <button key={s} aria-pressed={c.speed === s} onClick={() => c.setSpeed(s)}>{String(s).replace('.', ',')}×</button>)}</div>
-      <button className="btn sm" aria-pressed={following} onClick={onFollow} title="Recorre la secuencia un mensaje tras otro, quedándose un rato en cada uno para seguirla (la velocidad lo acorta o lo alarga)">{following ? <Pause /> : <Radio />}Seguimiento</button>
-      {follow}
-      <button className="btn sm" aria-pressed={false} onClick={onWalk} aria-keyshortcuts="P" title="Un mensaje cada vez, con el reloj parado (P)"><Footprints />Paso a paso</button>
-      <span className="kinds" aria-label="Tipos de intercambio en el diagrama">{[...new Set(trace.exchanges.map((e) => e.kind))].map((k) => <span key={k} className={`k-${k}`}><i aria-hidden="true" />{k}</span>)}</span>
+    // two rows: the time (play, the failure, the line) and how to go through it (follow, step by step; speed, device)
+    <div className="transport tp">
+      <div className="tp-time">
+        <button className="icon-btn tp-play" onClick={onPlay} aria-label={c.playing ? 'Pausar' : 'Reproducir'} title={c.playing ? 'Pausar (espacio)' : 'Reproducir (espacio)'}>{c.playing ? <Pause /> : <Play />}</button>
+        <span className="time">{clock(c.now)}</span>
+        {scrubber}
+        <span className="time faint">{clock(T)}</span>
+        <button className="icon-btn" onClick={() => onFail?.()} aria-disabled={!onFail || undefined} aria-label={layout.bad >= 0 || !onFail ? 'Ir al salto que falló' : 'Ir al momento en que falló'} title={!onFail ? 'Nada falló en esta prueba' : layout.bad >= 0 ? 'Ir al salto que falló' : 'Ir al momento en que falló'}><Crosshair /></button>
+      </div>
+      <div className="tp-ways">
+        <div className="tp-group" role="group" aria-label="Recorrer la secuencia">
+          <button className="btn sm" aria-pressed={following} onClick={onFollow} title="Avanza solo, un mensaje tras otro, quedándose un rato en cada uno para leerlo (la velocidad lo acorta o lo alarga)">{following ? <Pause /> : <Radio />}Seguimiento</button>
+          <button className="btn sm" aria-pressed={false} onClick={onWalk} aria-keyshortcuts="P" title="Un mensaje cada vez, con el reloj parado; avanzas tú con ↑ y ↓ (P)"><Footprints />Paso a paso</button>
+        </div>
+        <div className="tp-group tp-end">
+          <div className="speed" role="group" aria-label="Velocidad" title="Velocidad">{[0.25, 0.5, 1, 2].map((s) => <button key={s} aria-pressed={c.speed === s} onClick={() => c.setSpeed(s)}>{String(s).replace('.', ',')}×</button>)}</div>
+          {follow}
+        </div>
+      </div>
     </div>
   );
 }

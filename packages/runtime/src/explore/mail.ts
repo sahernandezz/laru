@@ -13,7 +13,7 @@ import { parseDocument } from 'yaml';
 import { ENV_NAME, envDir, envFile, listEnvs, loadEnvSpec, readState } from '../env.ts';
 import { readRules } from '../rules.ts';
 import { status } from '../up.ts';
-import { sinksOf, SMTP_PORTS, type MockSpec } from '../types.ts';
+import { MAILBOX, sinksOf, SMTP_PORTS, type MockSpec } from '../types.ts';
 import { FRAME_HEADERS, framePage, sanitizeHtml } from './html.ts';
 
 export const mailDir = (ws: Workspace, env: string) => join(envDir(ws, env), 'tap', 'mail');
@@ -141,13 +141,17 @@ export function sinkReport(ws: Workspace, env: string) {
   const state = readState(ws, env);
   const smtp = sinksOf(spec.mocks, 'smtp');
   const twilio = sinksOf(spec.mocks, 'twilio');
+  const apis = sinksOf(spec.mocks, 'api');
   const dir = mailDir(ws, env);
   return {
     env, sinks: [
       ...smtp.map((n) => ({ name: n, kind: 'smtp' as const, ports: Object.entries(state?.ports?.[n] ?? {}).map(([c, h]) => ({ container: Number(c), host: h })), containerPorts: SMTP_PORTS })),
       ...twilio.map((n) => ({ name: n, kind: 'twilio' as const, ports: [], containerPorts: [443] })),
+      ...apis.map((n) => ({ name: n, kind: 'api' as const, ports: [], containerPorts: [], receives: spec.mocks[n].kind ?? 'sms' })),
     ],
-    hasSinks: smtp.length + twilio.length > 0,
+    // what the env's own mocks publish lands here too: a mailbox with messages is shown even when the env declares no sink
+    hasSinks: smtp.length + twilio.length + apis.length > 0 || (existsSync(join(dir, 'messages.jsonl')) && fold(ws, env).order.length > 0),
+    mailbox: `http://${MAILBOX}/messages`,
     egress: spec.egress ?? 'open',
     running: existsSync(dir),
   };

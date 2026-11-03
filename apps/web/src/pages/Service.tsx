@@ -12,7 +12,7 @@ import { KIND, lastText, MOCK_MODE, pieceLabel, plural } from '../lib/es.ts';
 import { Inline } from '../lib/md.tsx';
 import { href } from '../lib/route.ts';
 import { appsOf, groupsOf } from '../lib/sysmap.ts';
-import { useScope } from '../lib/scope.ts';
+import { nodeParts, nodeTab, through } from '../lib/nodeTabs.ts';
 import { AddMenu, Anchors, FacetList, facetsOf, PieceFields, Stale } from './Docs.tsx';
 import { failedOn, flowDot, walkers } from './Flows.tsx';
 import { TestList, VarLevels } from './Sheets.tsx';
@@ -24,8 +24,7 @@ const kindOf = (n: MapNode) => KIND[n.kind ?? ''] ?? n.kind ?? '';
 type Hop = NonNullable<NonNullable<NonNullable<FlowInfo['last']>['failure']>['hop']>;
 const failed = (f: FlowInfo) => f.last?.status === 'failed';
 
-/** The flows whose last run touched this node. */
-export const through = (flows: FlowInfo[], id: string) => flows.filter((f) => f.last?.nodes.includes(id));
+export { through };
 
 /** Its tables and topics: mapped in the code, or held by a store. */
 function dataOf(g: Indexed, n: MapNode) {
@@ -76,57 +75,23 @@ export function Components({ g, flows, k, onOpen }: { g: Indexed; flows?: FlowIn
   );
 }
 
-type Tab = 'endpoints' | 'events' | 'contract' | 'content' | 'links' | 'data' | 'vars' | 'libs' | 'tests' | 'flows' | 'docs';
 const OPEN_IN: Record<string, [string, string]> = { relational: ['data', 'Abrir en Bases'], queue: ['queues', 'Abrir en Colas'], file: ['storage', 'Abrir en Almacenamiento'] };
 
 /** One service, store or external: its header, how the flows that cross it did, and its tabs. */
 export function NodeSheet({ g, node, flows, k, seen, reload, headRef, close, tabArg }: { g: Indexed; node: MapNode; flows?: FlowInfo[]; k?: KnowledgeData; seen: Loaded<Seen>; reload: () => void; headRef: RefObject<HTMLHeadingElement | null>; close: () => void; tabArg?: string }) {
-  const svc = node.type === 'service';
-  // a service with no HTTP endpoints (a consumer) opens on its events
-  const [tab, setTab] = useState<Tab>((tabArg as Tab | undefined) ?? (svc ? (g.out(node.id).some((f) => f.p === 'exposes') || !g.out(node.id).some((f) => f.p === 'publishes' || f.p === 'consumes') ? 'endpoints' : 'events') : node.type === 'datastore' ? 'content' : 'contract'));
-  useEffect(() => { if (tabArg) setTab(tabArg as Tab); }, [tabArg]);
+  // the tab is the address's: the sheet keeps no copy of it, so a click moves the menu and the sheet in the same frame
+  const parts = nodeParts(g, node, k, flows);
+  const { svc, out, inn, endpoints, links, tables, events, vars, libs, held, tests, mine, tabs } = parts;
+  const tab = nodeTab(parts, tabArg);
   const Icon = ICON[node.type] ?? Server;
   const piece = k?.pieces.find((p) => p.id === node.id);
   const app = k?.pieces.find((p) => p.type === 'application');
-  const out = g.out(node.id), inn = g.in(node.id);
-  const mine = flows ? through(flows, node.id) : [];
   // The failing hop of a flow, when it ended in this node.
   const here = (f: FlowInfo) => (f.last?.failure?.hop?.to === node.name ? f.last.failure.hop : undefined);
 
-  const endpoints = out.filter((f) => f.p === 'exposes').map((f) => ({ f, ep: g.nodes.get(f.o)! })).filter(({ ep }) => ep);
-  const callersOf = (id: string) => g.in(id).filter((f) => f.p === 'calls' || f.p === 'forwards-to');
-  const links = svc ? [
-    ...inn.filter((f) => f.p === 'calls'),
-    ...endpoints.flatMap(({ ep }) => callersOf(ep.id).filter((f) => f.p === 'calls')),
-    ...out.filter((f) => f.p === 'calls' || f.p === 'uses'),
-  ] : [...inn.filter((f) => f.p !== 'contains'), ...out.filter((f) => f.p !== 'contains')];
-  const tables = new Set(out.filter((f) => ['maps-table', 'defines-table', 'reads', 'writes'].includes(f.p)).map((f) => f.o));
-  const events = new Set([...out.filter((f) => f.p === 'publishes' || f.p === 'consumes').map((f) => `${f.p} ${f.o}`), ...(k ? eventsOf(k.pieces).filter((e) => e.service === node.id).map((e) => `${e.direction} topic:${e.topic}`) : [])]);
-  const vars = out.filter((f) => f.p === 'reads-var' || f.p === 'declares-var');
-  const libs = out.filter((f) => f.p === 'depends-on');
-  const held = out.filter((f) => f.p === 'contains').map((f) => g.nodes.get(f.o)!).filter(Boolean);
-  const tests = (node.attrs?.tests ?? {}) as Record<string, number>;
   const repo = g.nodes.get(`repo:${node.repo}`);
   const open = node.type === 'external' ? ['mocks', 'Mocks y fallos'] : OPEN_IN[node.kind ?? ''];
 
-  const tabs: Array<{ key: Tab; label: string; n?: number }> = [
-    ...(svc ? [{ key: 'endpoints' as const, label: 'Endpoints', n: endpoints.length }] : []),
-    ...(svc && events.size ? [{ key: 'events' as const, label: 'Eventos', n: events.size }] : []),
-    ...(node.type === 'external' ? [{ key: 'contract' as const, label: 'Contrato' }] : []),
-    ...(node.type === 'datastore' ? [{ key: 'content' as const, label: 'Contenido', n: held.length }] : []),
-    { key: 'links', label: 'Conexiones', n: links.length },
-    ...(svc ? [{ key: 'data' as const, label: 'Datos', n: tables.size }, { key: 'vars' as const, label: 'Variables', n: vars.length }, { key: 'libs' as const, label: 'Librerías', n: libs.length }] : []),
-    ...(svc ? [{ key: 'tests' as const, label: 'Pruebas', n: Object.values(tests).reduce((a, b) => a + b, 0) }] : []),
-    { key: 'flows', label: 'Flujos', n: flows ? mine.length : undefined },
-    { key: 'docs', label: 'Documentación' },
-  ];
-
-  useScope({
-    back: { label: 'Servicios y entornos', to: href('map') },
-    card: { icon: Icon, kind: pieceLabel(node.type), title: node.name, sub: kindOf(node) || node.repo },
-    sections: tabs.map((t) => ({ key: t.key, label: t.label, n: t.n, to: href('map', node.id, 't', t.key) })),
-    active: tab,
-  });
   return (
     <div className="node-sheet" onKeyDown={(e) => { if (e.key === 'Escape') close(); }}>
       <div className="head">
@@ -153,7 +118,7 @@ export function NodeSheet({ g, node, flows, k, seen, reload, headRef, close, tab
       {piece && <Stale p={piece} reload={reload} />}
       {flows && <Verdict mine={mine} here={here} />}
 
-      <Tabs id="node" label={`Secciones de ${node.name}`} value={tab} className="tabs piece-tabs" onChange={(t) => { setTab(t); location.hash = href('map', node.id, 't', t); }} tabs={tabs} />
+      <Tabs id="node" label={`Secciones de ${node.name}`} value={tab} className="tabs piece-tabs" onChange={(t) => { location.hash = href('map', node.id, 't', t); }} tabs={tabs} />
       <div role="tabpanel" id="node-panel" aria-labelledby={`node-tab-${tab}`}>
         {tab === 'endpoints' && <ServiceApi g={g} node={node} k={k} seen={seen} flows={flows} />}
         {tab === 'events' && <ServiceEvents g={g} node={node} k={k} seen={seen.data} />}

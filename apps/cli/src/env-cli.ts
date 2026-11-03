@@ -200,10 +200,17 @@ export async function sessionStart(w: Workspace): Promise<string> {
   const envs = await Promise.all([...listEnvs(w), ...listInstances(w)].map(async (e) => `${e} ${d.ok ? (await status(w, e).catch(() => null))?.state ?? '?' : '?'}`));
   const last = lastResults(w), flows = listFlows(w);
   const agr = loadAgreement(w);
+  // where the app's mail and messages land: what each env's mailbox receives and holds
+  const boxes = listEnvs(w).map((e) => {
+    let sinks: string[] = [], n = 0;
+    try { sinks = mail.sinkReport(w, e).sinks.map((x) => `${x.name} (${x.kind})`); n = mail.list(w, e, { limit: 1 }).counts.all; } catch { /* an env that does not load says nothing */ }
+    return `${e}: ${sinks.length ? `sinks ${sinks.join(', ')}` : 'no sink'}, ${n} received`;
+  });
   return [
     `Laru workspace «${w.title}» (${w.app}) at ${w.root}. Use Laru's tools (MCP server \`laru\`, or \`laru <command>\`) for everything below: read its guide (the workspace's CLAUDE.md or AGENTS.md) before acting.`,
     `Docker, as Laru reaches it (Laru runs on ${process.platform}${inWsl() ? ' inside WSL2' : ''}${host}): ${d.ok ? `engine ${d.server}${where ? ` (${where})` : ''}` : `not answering: ${d.error}`}. Your own shell may not see Docker where Laru does (Windows with the engine in WSL, another DOCKER_HOST): never conclude there is none from \`docker\` in your shell, and never run docker or compose on Laru's envs yourself; ask env_status or \`laru doctor\`.`,
     `Envs: ${envs.join(', ') || 'none yet (laru env init local --from <repo>:<compose file>)'}. A flow is worked on in its own env f-<flow> (flow_env up, then flow_run of that flow plays there): never on an env other flows or a person are using.`,
+    `Mail and messages the app sends: ${boxes.join('; ') || 'no env yet'}. The person reads them in Laru's mailbox («Correo y mensajes»), you with mail_list: a messaging mock you build publishes each message it receives to http://laru-mailbox/messages (see the guide), or a Laru sink receives them.`,
     `Flows (${flows.length}): ${flows.slice(0, 30).map((f) => `${f.slug} ${last[f.slug] ?? (f.exists ? 'never run' : 'no spec')}`).join('; ') || 'none yet'}${flows.length > 30 ? '; …' : ''}.`,
     agr ? agreementText(agr) : 'No working agreement yet: when the person tells you how they work here, write it (knowledge_write, type agreement).',
   ].join('\n');

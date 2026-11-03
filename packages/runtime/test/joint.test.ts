@@ -111,9 +111,9 @@ test('a joint render: a network per project, the tap on all, names reached acros
   const tap = doc.services['ks-tap'];
   assert.deepEqual(Object.fromEntries(Object.entries(tap.networks as Record<string, { ipv4_address: string }>).map(([k, v]) => [k, v.ipv4_address])), { ks: '172.30.7.254', app: '172.30.8.254', ledger: '172.30.9.254' });
   const aliases = (n: string) => (tap.networks[n].aliases as string[]).slice().sort();
-  assert.deepEqual(aliases('ks'), ['api', 'ledger', 'ledger-postgres', 'ledger-web', 'postgres', 'web']);
-  assert.deepEqual(aliases('app'), ['api', 'ledger', 'ledger-web', 'postgres', 'web'], 'app reaches ledger by its names: it does not define them');
-  assert.deepEqual(aliases('ledger'), ['api', 'ledger', 'ledger-web', 'postgres', 'web'], 'each project\'s Postgres is read by the tap under the name its project uses');
+  assert.deepEqual(aliases('ks'), ['api', 'laru-mailbox', 'ledger', 'ledger-postgres', 'ledger-web', 'postgres', 'web']);
+  assert.deepEqual(aliases('app'), ['api', 'laru-mailbox', 'ledger', 'ledger-web', 'postgres', 'web'], 'app reaches ledger by its names: it does not define them; every project reaches the mailbox');
+  assert.deepEqual(aliases('ledger'), ['api', 'laru-mailbox', 'ledger', 'ledger-web', 'postgres', 'web'], 'each project\'s Postgres is read by the tap under the name its project uses');
   assert.ok(!aliases('app').includes('host.docker.internal'), 'host.docker.internal comes from extra_hosts, not DNS');
   // stores: each project keeps its own postgres, fronted by the tap; the shared broker is on both networks under the name each uses
   assert.deepEqual(doc.services['postgres-real'].networks, { app: { aliases: ['postgres-real'] } });

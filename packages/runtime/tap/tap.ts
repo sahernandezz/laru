@@ -53,6 +53,8 @@ export interface Tap {
   log(msg: string): void;
 }
 
+/** The mailbox the env's mocks publish to (src/types.ts MAILBOX: the tap imports only types from src). */
+const MAILBOX = 'laru-mailbox';
 type Hit = { route: TapRoute; port: number; /** the Host a browser used at the entrance, when the request came that way */ entrance?: string };
 type Body = NonNullable<TrafficRecord['req']>;
 
@@ -72,6 +74,10 @@ export async function startTap(o: { config: TapConfig; rules: TapRules; masker: 
         if (!mockState.has(svc)) mockState.set(svc, {});
         next.set(svc, await loadMock(svc, spec, join(o.mocks?.root ?? o.out, spec.dir ?? svc), { openapi, state: mockState.get(svc), masker: () => masker, ...(spec.mode === 'sink' ? { sink: sinkFor(svc) } : {}) }));
       } catch (e) { log(`mock ${svc}: ${(e as Error).message}`); }
+    }
+    // the mailbox the env's mocks publish to, when the env routes it: always loaded, whatever the rules say
+    if (!next.has(MAILBOX) && config.routes.some((r) => r.svc === MAILBOX)) {
+      try { next.set(MAILBOX, await loadMock(MAILBOX, { mode: 'sink', sink: 'api' }, join(o.out, MAILBOX), { state: {}, masker: () => masker, sink: sinkFor(MAILBOX) })); } catch (e) { log(`mailbox: ${(e as Error).message}`); }
     }
     mocks = next;
   };
