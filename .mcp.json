@@ -1,0 +1,5 @@
+{
+  "mcpServers": {
+    "laru": { "command": "laru", "args": ["mcp"] }
+  }
+}

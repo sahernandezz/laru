@@ -3,10 +3,10 @@ import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { userInfo } from 'node:os';
 import { join } from 'node:path';
-import { acceptFinding, checkWorkspace, preBash, stopCheck, shareEvidence, changesFromWorktrees, computeFindings, findWorkspace, impact, loadGraph, loadKnowledge, loadWorkspace, postEdit, preEdit, renderImpact, scaffoldSpec, specPath, workspaceChanges, WorkspaceError, type Impact, type Workspace } from '@laru/core';
+import { acceptFinding, agentGuide, agentRoot, agreementText, envOf, loadAgreement, outsideNote, checkWorkspace, preBash, stopCheck, shareEvidence, changesFromWorktrees, computeFindings, findWorkspace, impact, loadGraph, loadKnowledge, loadWorkspace, postEdit, preEdit, renderImpact, scaffoldSpec, specPath, workspaceChanges, WorkspaceError, type Impact, type Workspace } from '@laru/core';
 import { endpointMatcher, sessionSummary, summarize } from '@laru/trace';
 import { flowEnvDown, flowEnvStatus, flowEnvUp, instanceOf,
-  connection, docker, dockerAvailable, dockerHint, inWsl, down, envMasker, mongo, rabbit, redis, query as dbQuery, reset as dbReset, schema as dbSchema, snapshot as dbSnapshot, storeOf, stores as dbStores, storePassword, envDir, envFile, EnvError, exportKey, hybridEnv, importEnvFile, importKey, interpolations, listEnvs, logs, missingVars, readState, revealVar,
+  connection, docker, dockerAvailable, dockerHint, inWsl, down, envMasker, mongo, rabbit, redis, query as dbQuery, reset as dbReset, schema as dbSchema, snapshot as dbSnapshot, storeOf, stores as dbStores, storePassword, envDir, envFile, EnvError, exportKey, hybridEnv, importEnvFile, importKey, interpolations, listEnvs, listInstances, logs, missingVars, readState, revealVar,
   sqs, mail, sweepOrphans, calibrate, writeConfig, clearFaults, readRules, saveFaults, setFaults, setMockMode, kafka, storage, cancelRun, compareRuns, failedFlows, markSession, openSessionBrowser, runSessionBrowser, sessionToFlow, sessionToScenario, sessionTrace, startSession, stopSession, applyScenario, listScenarios, provisionScenario, ScenarioConfirm, scenarioState, approveBehavior, behaviorIn, readApproved, fidelity, fidelityText, listFlows, listRuns, readRun, readTrace, runFlows, runsDir, runTraces,
   rebuildText, setVar, status, unsetVar, up, varTable, vaultKey, envFor, envProjects, flowProjects, loadEnvSpec, specFrom, ENV_NAME, diskReport, prune, heldByEnvs, envLock, runnerFiles, withLock, workspaceKey, type ComposeDoc, type EnvEvent, type EnvStatus, type Level, type PruneWhat, type VaultService,
 } from '@laru/runtime';
@@ -73,10 +73,11 @@ export function envGaps(w: Workspace, g: ReturnType<typeof graphOrNull>): Array<
   return listFlows(w).flatMap((f) => { const need = flowProjects(g, f); return need.length && !runs.some((r) => need.every((p) => r.includes(p))) ? [{ flow: f.id, projects: need }] : []; });
 }
 
-/** The env a run of these flows uses when none is named: the smallest that runs every project they need. */
+/** The env a run of these flows uses when none is named: one flow's own env when it is up, else the smallest that runs every project they need. */
 export async function runEnv(w: Workspace, flows: string[]): Promise<string> {
   const all = listFlows(w);
   const picked = flows.length ? all.filter((f) => flows.includes(f.slug) || flows.includes(f.id)) : all.filter((f) => f.exists);
+  if (picked.length === 1 && (await flowEnvStatus(w, picked[0].slug).catch(() => null))?.status?.state === 'ready') return instanceOf(picked[0].slug);
   const ready = new Set((await Promise.all(listEnvs(w).map((e) => status(w, e).catch(() => null)))).filter((s) => s?.state === 'ready').map((s) => s!.env));
   return envFor(w, graphOrNull(w), picked, ready);
 }
@@ -186,6 +187,26 @@ export async function doctorChecks(w?: Workspace): Promise<Check[]> {
   // What the envs running on this machine hold now: an up of another env moves off these.
   if (d.ok) for (const h of await heldByEnvs().catch(() => [])) checks.push({ name: `held ${h.app}/${h.env}${h.run ? ` run ${h.run}` : ''}`, ok: true, note: `${h.key === workspaceKey(w) ? 'this workspace' : `workspace ${h.key}`}: subnets ${h.subnets.join(', ') || '-'}, ports ${h.ports.join(', ') || '-'}` });
   return checks;
+}
+
+/**
+ * What an agent is told as its session starts: the workspace as it is now (where Docker is, as Laru reaches it; the envs
+ * and their state; the flows), the working agreement in force, and how to begin. Said once, so it does not guess.
+ */
+export async function sessionStart(w: Workspace): Promise<string> {
+  const d = await dockerAvailable();
+  const where = d.ok ? (await docker(['info', '--format', '{{.Name}} · {{.OperatingSystem}}'], { timeoutMs: 10_000 }).then((v) => v.trim(), () => '')) : '';
+  const host = process.env.DOCKER_HOST ? `, DOCKER_HOST=${process.env.DOCKER_HOST}` : '';
+  const envs = await Promise.all([...listEnvs(w), ...listInstances(w)].map(async (e) => `${e} ${d.ok ? (await status(w, e).catch(() => null))?.state ?? '?' : '?'}`));
+  const last = lastResults(w), flows = listFlows(w);
+  const agr = loadAgreement(w);
+  return [
+    `Laru workspace «${w.title}» (${w.app}) at ${w.root}. Use Laru's tools (MCP server \`laru\`, or \`laru <command>\`) for everything below: read its guide (the workspace's CLAUDE.md or AGENTS.md) before acting.`,
+    `Docker, as Laru reaches it (Laru runs on ${process.platform}${inWsl() ? ' inside WSL2' : ''}${host}): ${d.ok ? `engine ${d.server}${where ? ` (${where})` : ''}` : `not answering: ${d.error}`}. Your own shell may not see Docker where Laru does (Windows with the engine in WSL, another DOCKER_HOST): never conclude there is none from \`docker\` in your shell, and never run docker or compose on Laru's envs yourself; ask env_status or \`laru doctor\`.`,
+    `Envs: ${envs.join(', ') || 'none yet (laru env init local --from <repo>:<compose file>)'}. A flow is worked on in its own env f-<flow> (flow_env up, then flow_run of that flow plays there): never on an env other flows or a person are using.`,
+    `Flows (${flows.length}): ${flows.slice(0, 30).map((f) => `${f.slug} ${last[f.slug] ?? (f.exists ? 'never run' : 'no spec')}`).join('; ') || 'none yet'}${flows.length > 30 ? '; …' : ''}.`,
+    agr ? agreementText(agr) : 'No working agreement yet: when the person tells you how they work here, write it (knowledge_write, type agreement).',
+  ].join('\n');
 }
 
 /** What a config file holds: '' when there is none, null when it is there but cannot be read (never mistaken for empty). */
@@ -659,9 +680,18 @@ export async function runtimeCommand(cmd: string, args: string[], o: Opts, ws: (
       // Claude Code passes the event as JSON on stdin; silence (exit 0, no output) unless there is something to say.
       const input = JSON.parse(readFileSync(0, 'utf8') || '{}');
       const root = findWorkspace(input.cwd ?? process.cwd());
+      // a session opened outside the workspace's folder (one of its projects, or Laru's own folder: then the one opened last)
+      // starts told so, with the guide whole, since none of the workspace's files is loaded
+      if (!root && args[0] === 'start') {
+        let at; try { at = agentRoot({ env: envOf('WORKSPACE'), cwd: input.cwd ?? process.cwd() }); } catch { return 0; }
+        const w = loadWorkspace(at.root);
+        io.log(JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: [outsideNote(w, at), await sessionStart(w), agentGuide(w)].join('\n\n') } }));
+        return 0;
+      }
       if (!root) return 0;
       const w = loadWorkspace(root);
       const errors = async () => { let g = null; try { g = loadGraph(w); } catch { /* no map yet */ } return (await checkWorkspace(w, g)).issues.filter((i) => i.level === 'error'); };
+      if (args[0] === 'start') { io.log(JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: await sessionStart(w) } })); return 0; }
       const out = args[0] === 'pre-edit' ? preEdit(w, input) : args[0] === 'post-edit' ? postEdit(w, input) : args[0] === 'pre-bash' ? preBash(w, input)
         : args[0] === 'stop' ? (input.stop_hook_active ? null : stopCheck(w, input, await errors())) : null;
       if (out) io.log(JSON.stringify(out));

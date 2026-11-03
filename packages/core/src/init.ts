@@ -74,10 +74,27 @@ export function agentGuide(ws: Pick<Workspace, 'app' | 'title'>, o: { cli?: bool
     '- A flow is a business journey proven end to end: its flow.md (Precondiciones, Pasos) and its spec next to it, one story played on screen as a person would and recorded in one video, the validations of its forms among its steps, to the e2e guide (`guide:flujos-e2e`). Its approved behaviour (behavior.yaml) is what later runs are compared with.',
     '',
     '## Environments and evidence',
+    `- Docker is Laru's to reach, not your shell's: Laru may run where your shell does not see Docker (on Windows with the engine inside WSL, or with another DOCKER_HOST), and it starts, builds and isolates every env itself. Never conclude there is no Docker from \`docker\` in your shell, and never run docker or compose on Laru's envs: ask ${via('env_status', 'env status')}, or \`laru doctor\` for the machine. The session starts with where Laru reaches Docker and each env's state.`,
+    `- One flow, its own env: to write, fix or play a flow, bring up ${via('flow_env', 'flow env flow:<slug>')} (\`f-<slug>\`, a whole copy of fast or local with the flow's scenario in, its data, values and addresses of its own) and play it there; ${via('flow_run', 'test <flow>')} of that one flow uses it by itself. Never work a flow on an env other flows or a person are using: their scenarios, data and values collide. A run of many flows (\`test --affected\`) shares one env, and Laru restores each flow's scenario before it plays.`,
     `- ${via('env_status', 'env status')} before testing; ${via('env_up', 'up')} builds only what changed; ${via('env_logs', 'logs <service>')} for a service. Data: ${via('db_query', 'db query "<sql>"')} (read-only), ${via('env_reset', 'reset')} back to «base». Values: ${via('vars_list', 'vars')} (never a value).`,
     `- Named states: ${via('scenario_list', 'scenario')} / ${via('scenario_apply', 'scenario apply <scn:x>')}. A person trying the app live: ${via('session_start', 'session start')} (each hop recorded; it can become a flow). Mail and SMS the app sends stay in the env's mailbox: ${via('mail_list', 'mail')}. Dependencies can be mocked or made to fail: ${via('mock_mode', 'mock <svc> <mode>')}, ${via('fault_set', 'fault set <svc>')}.`,
     '- The crew in `.claude/agents/` splits the work: architect, developer, tester, reviewer, operator.',
   ].join('\n');
+}
+
+/**
+ * For an agent opened outside the workspace, which reads none of its files: where the work is. `last`: it was opened where
+ * no workspace is (Laru's own folder) and given the one opened last, so it is told how to pick another, and to leave Laru's code.
+ */
+export function outsideNote(ws: Pick<Workspace, 'app' | 'title' | 'root'>, o: { last?: boolean } = {}): string {
+  return (o.last ? [
+    `You were opened outside any workspace, in Laru's own folder: the tool's code, not the work. The workspace in use is «${ws.title}» (${ws.app}) at ${ws.root}, the one opened last in Laru;`,
+    '`laru workspace list` lists the others, and LARU_WORKSPACE=<id> (or `--ws <id>`) picks another. Its documentation, envs, flows and working agreement live there:',
+    'reach them through Laru\'s tools, which act on it, and read its files by that path. Never edit Laru\'s own code here to get past something: it is the installed tool and an update replaces it; say what failed instead.',
+  ] : [
+    `You were opened outside the workspace's folder, so its CLAUDE.md and AGENTS.md are not loaded: the workspace is «${ws.title}» (${ws.app}) at ${ws.root}.`,
+    'Its documentation, envs, flows and working agreement live there: reach them through Laru\'s tools, which act on it, and read its files by that path.',
+  ]).join(' ');
 }
 
 export function writeAgentFiles(ws: Workspace): void {
@@ -117,8 +134,8 @@ export function writeAgentFiles(ws: Workspace): void {
   const team = readJson(shared) as { hooks?: Record<string, Array<{ matcher?: string; hooks: Array<{ type: string; command: string }> }>> };
   team.hooks ??= {};
   for (const list of Object.values(team.hooks)) for (const h of list) for (const x of h.hooks) x.command = x.command.replace(new RegExp(`^${OLD} hook`), 'laru hook');
-  // each of Laru's hooks once, by its command: an edit's before and after, a shell command's before, and the stop
-  for (const [event, matcher, cmd] of [['PreToolUse', 'Edit|Write|MultiEdit', 'laru hook pre-edit'], ['PostToolUse', 'Edit|Write|MultiEdit', 'laru hook post-edit'], ['PreToolUse', 'Bash', 'laru hook pre-bash'], ['Stop', undefined, 'laru hook stop']] as const) {
+  // each of Laru's hooks once, by its command: the session's start, an edit's before and after, a shell command's before, and the stop
+  for (const [event, matcher, cmd] of [['SessionStart', undefined, 'laru hook start'], ['PreToolUse', 'Edit|Write|MultiEdit', 'laru hook pre-edit'], ['PostToolUse', 'Edit|Write|MultiEdit', 'laru hook post-edit'], ['PreToolUse', 'Bash', 'laru hook pre-bash'], ['Stop', undefined, 'laru hook stop']] as const) {
     const list = (team.hooks[event] ??= []);
     if (!list.some((h) => h.hooks.some((x) => x.command === cmd))) list.push({ ...(matcher ? { matcher } : {}), hooks: [{ type: 'command', command: cmd }] });
   }

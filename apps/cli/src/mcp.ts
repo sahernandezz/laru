@@ -7,24 +7,27 @@ import { driftOf, sessionSummary, summarize } from '@laru/trace';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { affected, brokersOf, findingsOf, lastResults, pickBroker, pickEnv, runEnv, vaultServices, whereText } from './env-cli.ts';
-import { agentGuide, agreementText, loadAgreement, withEvidence, renderImpact, scaffoldSpec, specPath, loadKnowledge, ask, checkWorkspace, context, docsTree, knowledgeShape, knowledgeWrite, PIECE_TYPES, verifyPiece, loadGraph, loadWorkspace, path, refreshMap, repoStatus, syncRepos, tree, writeAgentFiles, type Workspace } from '@laru/core';
+import { agentGuide, outsideNote, agreementText, loadAgreement, withEvidence, renderImpact, scaffoldSpec, specPath, loadKnowledge, ask, checkWorkspace, context, docsTree, knowledgeShape, knowledgeWrite, PIECE_TYPES, verifyPiece, loadGraph, loadWorkspace, path, refreshMap, repoStatus, syncRepos, tree, writeAgentFiles, type Workspace } from '@laru/core';
 
 const text = (t: string) => ({ content: [{ type: 'text' as const, text: t }] });
 /** A scenario that would delete data of a persistent env answers with what it would do and how to say yes; nothing ran. */
 const asking = <T>(again: string, p: Promise<T>): Promise<T | { content: Array<{ type: 'text'; text: string }> }> =>
   p.catch((e) => { if (e instanceof ScenarioConfirm) return text(`Not applied. ${e.message}\nIf the person agrees to that, ${again}`); throw e; });
 
-export function createServer(root: Workspace['root']): McpServer {
+/** `outside`: the agent was opened outside the workspace (in Laru's own folder), so it reads none of the workspace's files. */
+export function createServer(root: Workspace['root'], o: { outside?: boolean; last?: boolean } = {}): McpServer {
   const ws = () => withEvidence(loadWorkspace(root));
   // The guide any client gets on connecting. Claude Code reads CLAUDE.md and Codex or Cursor AGENTS.md, which hold it
   // whole: when the workspace has them, the server only points there instead of sending it a second time.
   const w0 = ws();
+  // the agent files as this Laru writes them: an upgrade reaches the guide and the hooks with the next session
+  try { writeAgentFiles(w0); } catch { /* a folder it cannot write keeps the files it has */ }
   // and the working agreement, whole: a client that reads neither file still learns how this workspace is worked
   const agr = loadAgreement(w0);
-  const guide = (existsSync(join(w0.root, 'CLAUDE.md')) || existsSync(join(w0.root, 'AGENTS.md'))
+  const guide = (!o.outside && (existsSync(join(w0.root, 'CLAUDE.md')) || existsSync(join(w0.root, 'AGENTS.md')))
     ? 'Laru: this workspace\'s guide (the loop, how the documentation is written, how flows are tested) is in CLAUDE.md and AGENTS.md at its root; follow it. Start with `context` on what you will change, and `impact` after it.'
-    : agentGuide(w0)) + (agr ? `\n\n${agreementText(agr)}` : '');
-  const server = new McpServer({ name: 'laru', version: '0.1.0-beta.13' }, { instructions: guide });
+    : agentGuide(w0)) + (agr ? `\n\n${agreementText(agr)}` : '') + (o.outside ? `\n\n${outsideNote(w0, o)}` : '');
+  const server = new McpServer({ name: 'laru', version: '0.1.0-beta.14' }, { instructions: guide });
   // Every tool is kept by name, so the ones for stores this application does not have can be left out of the list.
   const tools = new Map<string, ReturnType<McpServer['registerTool']>>();
   const register = server.registerTool.bind(server);
@@ -223,7 +226,7 @@ export function createServer(root: Workspace['root']): McpServer {
   });
 
   server.registerTool('flow_env', {
-    description: 'A flow\'s own env (only what it needs, its scenario restored): up, down or status. stop_offered: stop the env the refusal names. Play it with flow_run env=f-<flow>.',
+    description: 'A flow\'s own env f-<flow>: a whole copy of fast or local with its scenario in, its data, values and addresses of its own. Work on one flow there (write, fix, play its spec), never on an env other flows use. up, down or status. stop_offered: stop the env the refusal names. flow_run of that one flow plays there by itself.',
     inputSchema: { flow: z.string().describe('flow:<slug>'), action: z.enum(['up', 'down', 'status']).default('status'), from: z.string().optional().describe('base env; default fast, else local'), stop_offered: z.boolean().default(false) },
   }, async ({ flow, action, from, stop_offered }) => {
     const w = ws(), slug = flow.replace(/^flow:/, '');
@@ -250,7 +253,7 @@ export function createServer(root: Workspace['root']): McpServer {
 
   server.registerTool('flow_run', {
     description: 'Play flows (default all with a spec) and keep their evidence. Waits up to `wait` s, then answers with the evidence or a run id for run_status. A flow with a scenario on a persistent env first answers what it would delete and plays nothing until the person agrees and you call again with confirm: true.',
-    inputSchema: { flows: z.array(z.string()).optional(), affected: z.boolean().default(false).describe('only flows the working copies affect'), failed: z.boolean().default(false).describe('only flows whose last run failed unexpectedly'), env: z.string().optional().describe('default: the smallest env that runs them'), ephemeral: z.boolean().default(false).describe('a throwaway env for this run'), confirm: z.boolean().default(false).describe('the person agreed to what it deletes'),
+    inputSchema: { flows: z.array(z.string()).optional(), affected: z.boolean().default(false).describe('only flows the working copies affect'), failed: z.boolean().default(false).describe('only flows whose last run failed unexpectedly'), env: z.string().optional().describe('default: one flow\'s own env (f-<flow>) when it is up, else the smallest env that runs them'), ephemeral: z.boolean().default(false).describe('a throwaway env for this run'), confirm: z.boolean().default(false).describe('the person agreed to what it deletes'),
     pw_trace: z.boolean().default(false).describe('also keep Playwright\'s trace.zip: UNMASKED, only for the person'), workers: z.number().int().min(1).max(8).optional().describe('runners at once; default by Docker memory, max 3'), wait: z.number().int().min(0).max(600).default(300) },
   }, async ({ flows, affected: onlyAffected, failed, env, ephemeral, confirm, pw_trace, workers, wait }) => {
     const w = ws();
@@ -601,7 +604,7 @@ function trimList(server: McpServer, beforeListing: () => void) {
   });
 }
 
-export async function serve(ws: Workspace): Promise<void> {
+export async function serve(ws: Workspace, o: { outside?: boolean; last?: boolean } = {}): Promise<void> {
   void sweepOrphans(ws).catch(() => undefined);
-  await createServer(ws.root).connect(new StdioServerTransport());
+  await createServer(ws.root, o).connect(new StdioServerTransport());
 }

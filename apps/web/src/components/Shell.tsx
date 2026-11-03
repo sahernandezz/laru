@@ -190,7 +190,7 @@ export function Shell({ app, active, counts, jumps, menu, children }: { app: str
         <div className="side-foot">
           <span>Todo corre en esta máquina</span>
           <a className="mono" href={`https://github.com/sahernandezz/laru/releases/tag/v${__LARU_VERSION__}`} target="_blank" rel="noreferrer" title="Qué trae esta versión">laru {__LARU_VERSION__}</a>
-          <a href="https://github.com/sahernandezz/laru" target="_blank" rel="noreferrer">github.com/sahernandezz/laru</a>
+          <a href="https://github.com/sahernandezz/laru" target="_blank" rel="noreferrer">GitHub</a>
         </div>
       </nav>
       <main id="main" tabIndex={-1} ref={mainRef}>{children}</main>

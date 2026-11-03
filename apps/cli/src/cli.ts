@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import { existsSync, openSync, readFileSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import {
-  addRepo, ask, checkWorkspace, context, docsTree, documentNote, envOf, isContainer, isWorkspace, owedLine, scaffoldPieces, sheetNote, loadKnowledge, migrateWorkspace, movePiece, newPiece, renamePiece, idOf, laruHome, knowledgeShape, knowledgeWrite, loadRegistry, PIECE_TYPES, realRoot, register, resolveId, resolveRoot, unregister, verifyPiece, type PieceType, type WriteInput, initWorkspace, linkRepo, loadGraph, loadWorkspace, withEvidence, path, refreshMap,
+  addRepo, ask, checkWorkspace, context, docsTree, documentNote, envOf, isContainer, isWorkspace, owedLine, scaffoldPieces, sheetNote, loadKnowledge, migrateWorkspace, movePiece, newPiece, renamePiece, agentRoot, idOf, laruHome, knowledgeShape, knowledgeWrite, loadRegistry, PIECE_TYPES, realRoot, register, resolveId, resolveRoot, unregister, verifyPiece, type PieceType, type WriteInput, initWorkspace, linkRepo, loadGraph, loadWorkspace, withEvidence, path, refreshMap,
   repoStatus, ROLES, syncRepos, tree, verify, WorkspaceError, writeAgentFiles, type RepoRole, type RepoStatus, type Workspace,
 } from '@laru/core';
 import { runtimeCommand } from './env-cli.ts';
@@ -49,8 +49,8 @@ const HELP = `laru — a workspace around your application's repositories
   laru snapshot [env] [--service s]     copy each Postgres of the env as «base»
   laru reset [env] [--service s]        put it back as it was at «base» (seconds)
   laru flow list | flow scaffold <flow:id>   the flows and their specs (docs/**/flows/<slug>/<slug>.spec.ts)
-  laru flow env <flow> [--from fast|local] [--yes] | flow env <flow> --down | flow env <flow> status   a flow's own environment: only what it needs, its scenario in, addresses of its own (--yes: stop the env that does not fit beside it)
-  laru test [flow…] [--env e] [--ephemeral] [--retries n] [--pw-trace] [--workers n] [--yes]   play flows and keep their evidence (no --env: the smallest env with every project they need; a flow that starts from a scenario on a persistent env says what applying it deletes and needs --yes)
+  laru flow env <flow> [--from fast|local] [--yes] | flow env <flow> --down | flow env <flow> status   a flow's own environment: a whole copy of fast or local with its scenario in and addresses of its own; work on that flow there (--yes: stop the env that does not fit beside it)
+  laru test [flow…] [--env e] [--ephemeral] [--retries n] [--pw-trace] [--workers n] [--yes]   play flows and keep their evidence (no --env: one flow's own env f-<flow> when it is up, else the smallest env with every project they need; a flow that starts from a scenario on a persistent env says what applying it deletes and needs --yes)
   laru impact [--json]                  what the working copies change: services, endpoints, contracts, conventions, flows and why
   laru test --affected [--no-cache]     run only the flows the change affects (built from the working copy)
   laru test --failed [--worktree]       play again the flows whose last result failed unexpectedly (known deviations, // app:, are green); with --affected: both, built from the working copy
@@ -271,9 +271,11 @@ export async function run(argv: string[], io: Out = stdio, cwd = process.cwd()):
       }
       case 'mcp': {
         const { serve } = await import('./mcp.ts');
-        const w = ws();
-        io.err(`laru mcp: workspace ${w.app} at ${w.root}`);
-        await serve(w);
+        // opened outside the workspace's folder (one of its projects, or Laru's own folder: then the one opened last)
+        const at = agentRoot({ dir: o.workspace ? String(o.workspace) : undefined, ws: o.ws as string | undefined, env: envOf('WORKSPACE'), cwd });
+        const w = withEvidence(loadWorkspace(at.root));
+        io.err(`laru mcp: workspace ${w.app} at ${w.root}${at.last ? ' (the one opened last)' : ''}`);
+        await serve(w, { outside: !at.inside, last: at.last });
         return 0;
       }
       case 'serve': case 'open': {

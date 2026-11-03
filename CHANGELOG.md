@@ -6,6 +6,20 @@ Todos los cambios de Laru que importan a quien lo usa quedan aquí. El formato s
 
 ## [Sin publicar]
 
+## [0.1.0-beta.14] - 2026-11-03
+
+### Añadido
+
+- **El agente empieza sabiendo dónde está:** al abrir una sesión de Claude Code en el workspace, un hook nuevo (`laru hook start`) le dice qué workspace es, dónde llega Laru a Docker, en qué estado está cada entorno, qué flujos hay con su último resultado y tu forma de trabajo. Antes solo tenía la guía general y a menudo no usaba las herramientas de Laru.
+- **El agente también se puede abrir en la carpeta de Laru:** la carpeta donde instalaste Laru trae ahora su guía para el agente (`AGENTS.md` y `CLAUDE.md`), el servidor MCP y el hook de inicio. Abierto ahí, el agente trabaja sobre el último workspace que abriste en Laru, recibe la guía completa y sabe que no debe tocar el código de Laru. `laru workspace list` muestra los demás y `LARU_WORKSPACE=<id>` elige otro.
+
+### Cambiado
+
+- **Un flujo, su entorno:** `laru test <flujo>` y `flow_run` de un solo flujo, sin `--env`, lo juegan en el entorno propio del flujo (`f-<flujo>`) cuando está levantado. La guía del agente le dice ahora que trabaje cada flujo en su entorno (`flow_env`) y nunca en uno que usan otros flujos o una persona.
+- **Docker es cosa de Laru:** la guía le dice al agente que su terminal puede no ver Docker aunque Laru sí lo vea (por ejemplo en Windows con Docker dentro de WSL). Así no concluye que no hay Docker ni maneja los entornos con `docker` o `compose` por su cuenta.
+- **Los archivos del agente se actualizan solos:** al arrancar, el servidor MCP reescribe `CLAUDE.md`, `AGENTS.md` y los hooks como los escribe la versión instalada, así que una actualización de Laru llega al agente en la siguiente sesión.
+- **El menú enlaza a GitHub sin el nombre de usuario:** el pie del menú dice «GitHub» en vez de la dirección del repositorio.
+
 ## [0.1.0-beta.13] - 2026-10-30
 
 ### Seguridad
@@ -228,7 +242,8 @@ Primera beta pública.
   - `CLAUDE.md` y `AGENTS.md` generados.
   - Hooks para Claude Code.
 
-[Sin publicar]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.13...HEAD
+[Sin publicar]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.14...HEAD
+[0.1.0-beta.14]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.13...v0.1.0-beta.14
 [0.1.0-beta.13]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.12...v0.1.0-beta.13
 [0.1.0-beta.12]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.11...v0.1.0-beta.12
 [0.1.0-beta.11]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.10...v0.1.0-beta.11

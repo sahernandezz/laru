@@ -93,6 +93,22 @@ export function idOf(root: string, all = loadRegistry()): string | null {
 /** The root of the workspace with this id; null when none has it or its laru.yaml is gone (the screen says so). */
 export const resolveId = (id: string, all = loadRegistry()): string | null => all.find((x) => x.id === id && appOf(x.root))?.root ?? null;
 
+/** The workspace in use when none is named or around: the one opened last (in the studio, or added), whose laru.yaml is still there. */
+export const lastOpened = (all = loadRegistry()): string | undefined =>
+  all.filter((x) => appOf(x.root)).sort((a, b) => (b.openedAt ?? b.addedAt).localeCompare(a.openedAt ?? a.addedAt))[0]?.root;
+
+/**
+ * The workspace an agent opened at `cwd` works on: as `resolveRoot` finds it (named, LARU_WORKSPACE, around `cwd`, or the one
+ * whose project holds it), else the one opened last (`last`), never in place of one that is named or holds `cwd`. `inside`:
+ * opened in that workspace's folder, so the agent reads its files.
+ */
+export function agentRoot(o: { dir?: string; ws?: string; env?: string; cwd: string }): { root: string; inside: boolean; last: boolean } {
+  const around = findWorkspace(o.cwd);
+  const last = !o.dir && !o.ws && !o.env && !around && !byCwd(o.cwd).length ? lastOpened() : undefined;
+  const root = last ?? resolveRoot(o);
+  return { root, inside: Boolean(around) && real(around!) === real(root), last: Boolean(last) };
+}
+
 const inside = (a: string, b: string) => a === b || a.startsWith(b + '/');
 
 /** Registered workspaces one of whose projects (clone or folder) holds `cwd`. */

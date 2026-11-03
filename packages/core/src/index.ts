@@ -13,12 +13,12 @@ export { loadExtraction, type ExtractStats } from './extract.ts';
 export { Graph, loadGraph, loadObserved, mapFile, observedFile } from './graph.ts';
 export { ask, context, docsTree, estimateTokens, path, render, resolveTarget, tree } from './query.ts';
 export { IMAGE_KINDS, targetsIn, type Target } from './build.ts';
-export { agentGuide, initWorkspace, writeAgentFiles } from './init.ts';
+export { agentGuide, initWorkspace, outsideNote, writeAgentFiles } from './init.ts';
 export { LIMIT_MAX, LIMIT_MIN, parseLimit } from './limit.ts';
 export { git } from './git.ts';
 export { evidenceDir, importEvidence, shareEvidence, withEvidence } from './evidence.ts';
 export { withLock } from './lock.ts';
-export { appOf, byCwd, idOf, loadRegistry, realRoot, register, resolveId, resolveRoot, touch, unregister, type Registered } from './registry.ts';
+export { agentRoot, appOf, byCwd, idOf, lastOpened, loadRegistry, realRoot, register, resolveId, resolveRoot, touch, unregister, type Registered } from './registry.ts';
 export { DEFAULT_IGNORE, gitOf, keepTree, refOf, scanFolder, shadowDir, shareFolder, shadowEnv, treeNow, type FolderScan } from './folder.ts';
 
 /** Reads every repo at its reference branch and rebuilds the map. Unchanged files are not read again. */
