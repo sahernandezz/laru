@@ -8,6 +8,8 @@ import {
   FlaskConical, Layers, Maximize2, Minimize2, Monitor, Pause, Play, RotateCw, ScrollText, Search, Smartphone, Terminal, X, Zap,
 } from 'lucide-react';
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode, type RefObject } from 'react';
+import { Replayer } from '@rrweb/replay';
+import '@rrweb/replay/dist/style.css';
 import { endpointMatcher } from '@laru/trace/assemble';
 import { chain as chainOf, type Cause } from '@laru/trace/chain';
 import { hopWhat } from '@laru/trace/summarize';
@@ -442,7 +444,7 @@ function FlowTraces({ run, slug, flow, g, view, onView, address, k, studio, only
 }
 
 /** Plays a test: the video (or a timer, for a test without one) drives everything below. */
-function useClock(video: HTMLVideoElement | null, duration: number, layout: SeqLayout) {
+function useClock(video: HTMLVideoElement | null, duration: number) {
   const [now, setNow] = useState(0);
   const [playing, setPlaying] = useState(false);
   // always starts slow (0,25×): a run is read, not watched
@@ -479,7 +481,8 @@ function useClock(video: HTMLVideoElement | null, duration: number, layout: SeqL
     raf = requestAnimationFrame(tick);
     // a pause keeps the frame it stopped on (the clock may sit between two frames: the video says where it is)
     return () => { cancelAnimationFrame(raf); video?.pause(); if (video) show(video.currentTime * 1000); };
-  }, [playing, video, duration, layout]);
+    // not on the trace: a refresh of the data (the agent changed something) must not pause and restart the video
+  }, [playing, video, duration]);
   const play = useCallback(() => { if (at.current >= duration - 40) seek(0); setPlaying(true); }, [duration, seek]);
   const pause = useCallback(() => setPlaying(false), []);
   const toggle = useCallback(() => (playing ? pause() : play()), [playing, play, pause]);
@@ -500,6 +503,9 @@ function Player({ run, slug, trace, story, flow, g, view: asked, onView, k, arch
   const [video, setVideo] = useState<HTMLVideoElement | null>(null);
   const blank = useBlank(video);
   const [dims, setDims] = useState('');
+  const [ratio, setRatio] = useState<number>();
+  // the page as rrweb recorded it, over the video (which keeps the clock): inspected, not watched
+  const [asReplica, setAsReplica] = useState(false);
   // The video at the stage's full width, the sequence under it; kept for the next run this browser opens.
   const [big, setBig] = useState(() => { try { return localStorage.getItem(BIG) === '1'; } catch { return false; } });
   // screens opened in their own floating window ('' is the story's own video), each on the same clock
@@ -537,7 +543,7 @@ function Player({ run, slug, trace, story, flow, g, view: asked, onView, k, arch
   useEffect(() => { if (studio) studioRef.current?.focus({ preventScroll: true }); }, [studio]);
   // The clock runs to whichever ends later: the trace or the video (which can outlast it by a second).
   const [videoMs, setVideoMs] = useState(0);
-  const c = useClock(video, Math.max(layout.duration, videoMs), layout);
+  const c = useClock(video, Math.max(layout.duration, videoMs));
   const [sel, setSel] = useState(layout.bad);
   // «Paso a paso»: the clock stops and the cursor moves one stop at a time. An act's header and the failure are stops
   // with no row of their own: `pin` holds them.
@@ -840,11 +846,12 @@ function Player({ run, slug, trace, story, flow, g, view: asked, onView, k, arch
   const screen = (
         <div className="screen">
           <div className="screen-meta"><span>{mode === 'step' ? (src ? `Fotograma de ${atMs(c.now)} · en pausa` : story ? 'Sin vídeo: el fotograma no aplica.' : 'Sin vídeo en los casos cortos: el fotograma no aplica.') : src ? 'Grabación de la historia' : 'Esta prueba no graba vídeo'}</span><span className="screen-tools"><span className="mono num">{clock(c.now)}</span>
-            {trace.video && <OneVideo run={run.id} slug={slug} video={trace.video} several={(trace.screens ?? []).some((x) => x.video && x.startMs !== undefined)} />}{src && !studio && <button className="icon-btn" aria-pressed={big} onClick={toggleBig} aria-label="Vídeo grande" title={big ? 'Volver al vídeo junto a la secuencia' : 'Vídeo a todo el ancho, la secuencia debajo'}>{big ? <Minimize2 /> : <Maximize2 />}</button>}{src && <button className="icon-btn" onClick={() => openFloat('')} aria-label="Abrir el vídeo en una ventana" title="Abrir el vídeo en una ventana flotante que se mueve y cambia de tamaño"><ArrowUpRight /></button>}</span></div>
-          <div className="player">
-            {src ? <video ref={setVideo} src={src} muted playsInline preload="auto" aria-label={`Vídeo de «${trace.test}»`} onClick={mode === 'step' ? () => leave(true) : c.toggle} onLoadedMetadata={(e) => setDims(`${e.currentTarget.videoWidth} × ${e.currentTarget.videoHeight}`)}
+            {trace.replay && src && <button className="icon-btn" aria-pressed={asReplica} onClick={() => setAsReplica((x) => !x)} aria-label="Réplica de la página" title={asReplica ? 'Volver al vídeo' : 'Réplica de la página: lo que se grabó del navegador, no una imagen; se selecciona, se inspecciona y sigue el mismo reloj'}><Monitor /></button>}{trace.replay && <ReplicaVideo run={run.id} slug={slug} />}{trace.video && <OneVideo run={run.id} slug={slug} video={trace.video} several={(trace.screens ?? []).some((x) => x.video && x.startMs !== undefined)} />}{src && !studio && <button className="icon-btn" aria-pressed={big} onClick={toggleBig} aria-label="Vídeo grande" title={big ? 'Volver al vídeo junto a la secuencia' : 'Vídeo a todo el ancho, la secuencia debajo'}>{big ? <Minimize2 /> : <Maximize2 />}</button>}{src && <button className="icon-btn" onClick={() => openFloat('')} aria-label="Abrir el vídeo en una ventana" title="Abrir el vídeo en una ventana flotante que se mueve y cambia de tamaño"><ArrowUpRight /></button>}</span></div>
+          <div className="player" style={ratio ? ({ '--ar': ratio } as React.CSSProperties) : undefined}>
+            {src ? <video ref={setVideo} src={src} muted playsInline preload="auto" aria-label={`Vídeo de «${trace.test}»`} onClick={mode === 'step' ? () => leave(true) : c.toggle} onLoadedMetadata={(e) => { const v = e.currentTarget; setDims(`${v.videoWidth} × ${v.videoHeight}`); if (v.videoWidth && v.videoHeight) setRatio(v.videoWidth / v.videoHeight); }}
               onDurationChange={(e) => Number.isFinite(e.currentTarget.duration) && setVideoMs(e.currentTarget.duration * 1000)} />
               : <div className="novideo"><Film /><span>Sin vídeo: el reloj es un temporizador de {secs(layout.duration)}.</span></div>}
+            {asReplica && trace.replay && <Replica run={run.id} slug={slug} file={trace.replay} t0={trace.t0} now={c.now} playing={c.playing} speed={c.speed} />}
             {blank && <div className="novideo">Abriendo el navegador…</div>}
             {step && !burned && <div className="caption">{step.n}. {step.title}</div>}
           </div>
@@ -1668,6 +1675,13 @@ function PeerScreen({ who, closed, src, label, register, onOpen }: { who: string
 function FloatingScreen({ title, src, startMs, now, playing, speed, index, phone, onClose }: { title: string; src: string; startMs: number; now: number; playing: boolean; speed: number; index: number; phone: boolean; onClose: () => void }) {
   const ref = useRef<HTMLVideoElement>(null);
   const [pos, setPos] = useState({ x: 120 + index * 36, y: 90 + index * 36 });
+  // the window opens at the video's own shape, up to 720 wide and most of the window's height (34: its bar)
+  const [box, setBox] = useState<{ width: number; height: number }>();
+  const fit = (v: HTMLVideoElement) => {
+    if (!v.videoWidth || !v.videoHeight) return;
+    const k = Math.min(1, 720 / v.videoWidth, (window.innerHeight * 0.8 - 34) / v.videoHeight);
+    setBox((b) => b ?? { width: Math.round(v.videoWidth * k), height: Math.round(v.videoHeight * k) + 34 });
+  };
   useEffect(() => {
     const v = ref.current;
     if (!v) return;
@@ -1686,17 +1700,85 @@ function FloatingScreen({ title, src, startMs, now, playing, speed, index, phone
     window.addEventListener('pointerup', up);
   };
   return (
-    <div className={`float-screen${phone ? ' phone' : ''}`} role="dialog" aria-label={title} style={{ left: pos.x, top: pos.y }}>
+    <div className={`float-screen${phone ? ' phone' : ''}`} role="dialog" aria-label={title} style={{ left: pos.x, top: pos.y, ...box }}>
       <div className="float-bar" onPointerDown={drag}>
         <span title={title}>{title}</span>
         <button type="button" className="icon-btn" onPointerDown={(e) => e.stopPropagation()} onClick={onClose} aria-label={`Cerrar «${title}»`}><X /></button>
       </div>
-      <video ref={ref} src={src} muted playsInline preload="auto" aria-label={title} />
+      <video ref={ref} src={src} muted playsInline preload="auto" aria-label={title} onLoadedMetadata={(e) => fit(e.currentTarget)} />
     </div>
   );
 }
 
 /** The video of the flow, from the header of the player: with several screens, all of them in one (made the first time, then kept); with one, its own. */
+/**
+ * The story's page as rrweb recorded it (its DOM and every change), replayed on the video's clock: the instant the clock
+ * shows is t0 + now on the recording's own timeline. It plays while the clock plays and is put back when it drifts.
+ */
+function Replica({ run, slug, file, t0, now, playing, speed }: { run: string; slug: string; file: string; t0: number; now: number; playing: boolean; speed: number }) {
+  const outer = useRef<HTMLDivElement>(null), stage = useRef<HTMLDivElement>(null), rep = useRef<Replayer>(undefined), running = useRef(false);
+  const [first, setFirst] = useState<number>();
+  const [size, setSize] = useState<{ width: number; height: number }>();
+  const [fit, setFit] = useState({ k: 1, left: 0, top: 0 });
+  const [error, setError] = useState<string>();
+  useEffect(() => {
+    let gone = false;
+    fetch(fileUrl(run, `flows/${slug}/${file}`)).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`la grabación no se pudo leer (${r.status})`)))).then((events: Array<{ type: number; timestamp: number; data: { width?: number; height?: number } }>) => {
+      if (gone || !stage.current || events.length < 2) return;
+      // type 4 is rrweb's Meta: the window's size when it began
+      const meta = events.find((e) => e.type === 4)?.data;
+      setSize({ width: meta?.width ?? 1280, height: meta?.height ?? 720 });
+      // no animations: a paused replay freezes them on their first frame (a fade-in stays transparent), and a page is read here, not watched
+      rep.current = new Replayer(events as never, { root: stage.current, mouseTail: false, skipInactive: false, triggerFocus: false, insertStyleRules: ['*, *::before, *::after { animation: none !important; transition: none !important; }'] });
+      setFirst(events[0].timestamp);
+    }, (e: Error) => !gone && setError(e.message));
+    return () => { gone = true; rep.current?.destroy(); rep.current = undefined; running.current = false; };
+  }, [run, slug, file]);
+  // the page keeps its own size, scaled to the frame
+  useEffect(() => {
+    const el = outer.current;
+    if (!el || !size) return;
+    const place = () => { const k = Math.min(el.clientWidth / size.width, el.clientHeight / size.height); setFit({ k, left: (el.clientWidth - size.width * k) / 2, top: (el.clientHeight - size.height * k) / 2 }); };
+    place();
+    const ro = new ResizeObserver(place);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [size]);
+  useEffect(() => { rep.current?.setConfig({ speed }); }, [speed, first]);
+  const at = first === undefined ? 0 : Math.max(0, t0 + now - first);
+  useEffect(() => {
+    const r = rep.current;
+    if (!r) return;
+    if (!playing) { running.current = false; r.pause(at); return; }
+    if (!running.current || Math.abs(r.getCurrentTime() - at) > 400) { r.play(at); running.current = true; }
+  }, [at, playing, first]);
+  return (
+    <div ref={outer} className="replica" aria-label="Réplica de la página grabada">
+      {error ? <div className="novideo">{error}</div> : <div ref={stage} className="replica-stage" style={size ? { width: size.width, height: size.height, left: fit.left, top: fit.top, transform: `scale(${fit.k})` } : undefined} />}
+    </div>
+  );
+}
+
+/** A video made from the replica, on demand: asked once, made by Chrome on this machine, downloaded when ready. */
+function ReplicaVideo({ run, slug }: { run: string; slug: string }) {
+  const [busy, setBusy] = useState(false);
+  const what = 'Descargar un vídeo hecho desde la réplica (se genera la primera vez)';
+  return (
+    <button className="icon-btn" aria-busy={busy || undefined} aria-label={what} title={what} onClick={async () => {
+      if (busy) return;
+      setBusy(true);
+      try {
+        type S = { state: 'none' | 'running' | 'done' | 'failed'; error?: string };
+        let s = await api<S>(`/api/run/replay-video?id=${encodeURIComponent(run)}&flow=${encodeURIComponent(slug)}`);
+        if (s.state !== 'done') s = await api<S>('/api/run/replay-video', { method: 'POST', body: { id: run, flow: slug } });
+        while (s.state === 'running') { await new Promise((ok) => setTimeout(ok, 2000)); s = await api<S>(`/api/run/replay-video?id=${encodeURIComponent(run)}&flow=${encodeURIComponent(slug)}`); }
+        if (s.state === 'failed') throw new Error(`El vídeo de la réplica no se pudo hacer: ${s.error ?? 'sin detalle'}`);
+        const a = document.createElement('a'); a.href = fileUrl(run, `flows/${slug}/replay.mp4`); a.download = `${slug}-replica.mp4`; a.click();
+      } catch (e) { toast((e as Error).message); } finally { setBusy(false); }
+    }}><Film className={busy ? 'spin' : undefined} /></button>
+  );
+}
+
 function OneVideo({ run, slug, video, several }: { run: string; slug: string; video: string; several: boolean }) {
   const [busy, setBusy] = useState(false);
   const what = several ? 'Descargar todas las pantallas en un solo vídeo' : 'Descargar el vídeo';

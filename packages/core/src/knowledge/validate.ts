@@ -3,7 +3,7 @@
  * in Spanish and the AI can fix exactly that field. Errors never reach disk; warnings do, and `check` lists them.
  */
 import { kindOfCode, lintDiagramOfKind, mermaidBlocks } from '@laru/diagrams';
-import { parseLimit } from '../limit.ts';
+import { parseLimit, parseScreen } from '../limit.ts';
 import { hasValue, RELATIONS, type Piece } from './piece.ts';
 import { isContainer, STANDARD, type ContainerType } from './standard.ts';
 
@@ -68,6 +68,7 @@ export function validatePiece(p: Piece, ctx: ValidateContext): Issue[] {
     const v = p.meta?.[m.name];
     if (v === undefined) continue;
     if (m.name === 'timeout' && p.type === 'flow') { if (parseLimit(v) === null) err('timeout', 'bad-timeout', 'a duration like 30s, 2m or 1h, between 1 second and 2 hours', { value: String(v) }); continue; }
+    if (m.name === 'screen' && p.type === 'flow') { if (parseScreen(v) === null) err('screen', 'bad-screen', 'width x height in pixels, like 1920x1080 or 390x844, each side between 240 and 3840', { value: String(v) }); continue; }
     if (m.name === 'number' && !/^DEC-\d{4,}$/.test(String(v))) { err('number', 'bad-number', 'DEC-0001: DEC- and at least four digits', { value: String(v) }); continue; }
     (Array.isArray(v) ? v : [v]).forEach((id, i) => m.ref && checkRef(Array.isArray(v) ? `${m.name}[${i}]` : m.name, id, m.ref));
   }

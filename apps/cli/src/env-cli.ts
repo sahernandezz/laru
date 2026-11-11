@@ -902,6 +902,9 @@ export async function runtimeCommand(cmd: string, args: string[], o: Opts, ws: (
       io.log(`runs       ${verb} the runner's raw media of ${by('raw').length} runs (${human(by('raw').reduce((n, a) => n + a.bytes, 0))}), the video and screenshots of ${by('media').length} (${human(by('media').reduce((n, a) => n + a.bytes, 0))}), ${by('run').length} whole runs (${human(by('run').reduce((n, a) => n + a.bytes, 0))})`);
       io.log(`snapshots  ${verb} ${r.snapshots.length} (${human(r.snapshots.reduce((n, x) => n + x.bytes, 0))})${r.snapshots.length ? `: ${r.snapshots.map((x) => x.path.split('/').pop()).join(', ')}` : ''}`);
       io.log(`images     ${verb} ${r.images.length} tags (${human(r.images.reduce((n, x) => n + x.bytes, 0))}, before Docker shares layers)${r.images.length ? `: ${r.images.map((x) => x.ref).join(', ')}` : ''}`);
+      io.log(`volumes    ${verb} ${r.volumes.length} of apps with no workspace here${r.volumes.length ? `: ${r.volumes.join(', ')}` : ''}`);
+      const b = r.buildCache;
+      if (b) io.log(`build      ${!b.gb ? 'left Docker\'s build cache alone' : b.error ? `could not trim Docker's build cache: ${b.error}` : b.before === undefined ? `would trim Docker's build cache to ${b.gb} GB` : `Docker's build cache ${human(b.before)} → ${human(b.after!)}${b.after! > b.gb * 1e9 ? ` (still above ${b.gb} GB: the rest is layers images use)` : b.before <= b.gb * 1e9 ? ` (under ${b.gb} GB: left as it was)` : ''}`} (buildCacheGB in ~/.laru/config.yaml; 0: left alone)`);
       io.log(`shadow     ${o['dry-run'] ? 'would collect' : 'collected'} ${r.shadow.length} folder shadows`);
       io.log(`${o['dry-run'] ? 'would free' : 'freed'} about ${human(r.bytes)}${o['dry-run'] ? '. Run it without --dry-run to remove.' : '.'}`);
       return 0;
@@ -940,7 +943,9 @@ export async function whereText(w: Workspace, run?: string): Promise<string> {
   for (const e of d.envs) if (existsSync(e.path)) out.push(row(`env ${e.env}`, e.path, e.bytes, e.trafficBytes ? `traffic journal ${human(e.trafficBytes)}` : ''));
   for (const p of d.projects) out.push(p.problem ? `${`project ${p.name}`.padEnd(24)} ${p.problem === 'missing' ? `${p.path} is gone` : 'not on this machine: laru sync / repo link'}` : row(`project ${p.name}`, p.path!, p.bytes, p.source === 'folder' ? 'your folder (Laru only reads it)' : p.managed ? "Laru's clone" : 'your clone'));
   for (const s of d.snapshots) out.push(row(`snapshot ${s.id}`, s.path, s.bytes, s.usedBy.length ? `used by ${s.usedBy.join(', ')}` : 'unused'));
-  if (d.images) out.push(`${'images'.padEnd(24)} ${d.images.count} ks-${w.app}/* tags, ${d.images.old} beyond the 3 newest per service (laru prune)`);
+  if (d.images) out.push(`${'images'.padEnd(24)} ${d.images.count} ks-${w.app}/* tags, ${d.images.old} Laru images no container uses beyond the newest per service (laru prune)`);
+  const k = d.docker, lc = k.lastCleanup;
+  out.push(`${'docker cleanup'.padEnd(24)} after each up and run, at start and every 6 h; build cache ${k.buildCacheBytes === null ? '?' : human(k.buildCacheBytes)}${k.buildCacheGB ? `, capped at ${k.buildCacheGB} GB` : ', left alone (buildCacheGB: 0)'}${lc ? `; last ${lc.at}: ${lc.images} images, ${lc.volumes} volumes${lc.buildCache?.error ? `, build cache NOT trimmed: ${lc.buildCache.error}` : lc.buildCache?.before !== undefined ? `, build cache ${human(lc.buildCache.before)} → ${human(lc.buildCache.after!)}` : ''}` : ''}`);
   if (existsSync(d.personal.path)) out.push(row('personal', d.personal.path, null, d.personal.files.join(', ')));
   out.push(`${'vault key'.padEnd(24)} ${d.vaultKey.store === 'file' ? `a 0600 file in ${d.personal.path}` : `${d.vaultKey.store}, service ${d.vaultKey.service}, account ${d.vaultKey.account}`}`);
   if (existsSync(d.machine.path)) out.push(row('machine', d.machine.path, null, d.machine.files.join(', ')));

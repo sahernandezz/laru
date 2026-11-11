@@ -1,6 +1,6 @@
 {
   "name": "@laru/web",
-  "version": "0.1.0-beta.15",
+  "version": "0.1.0-beta.16",
   "license": "FSL-1.1-ALv2",
   "private": true,
   "type": "module",
@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@excalidraw/excalidraw": "0.18.1",
+    "@rrweb/replay": "2.1.7",
     "lucide-react": "^1.61.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"

@@ -4,7 +4,8 @@
  */
 import { ArrowRight, Check, ChevronDown, Cpu, FolderPlus, Plus, Square, Trash2 } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
-import { api, useApi, type MachineInfo, type WorkspaceProbe, type WorkspaceRow } from '../api.ts';
+import { api, useApi, type MachineInfo, type WorkspaceProbe, type WorkspaceRow, type WorkspacesDisk } from '../api.ts';
+import { LiveNotices, noticeCleanups, type Cleanups } from '../components/Notices.tsx';
 import { Dialog, Dot, Logo, PathChip, Segmented, Skeleton, Status, tilde, toast } from '../components/ui.tsx';
 import { ago, plural, probeText, RUN_DOT, RUN_STATUS, size, twinText, workspaceError } from '../lib/es.ts';
 import { HOME, homeRedirect, wsPage } from '../lib/route.ts';
@@ -63,11 +64,75 @@ export function Home() {
               ))}
             </div>
           )}
+          {list.length > 0 && <Weights />}
           <Machine rows={list} onChange={rows.reload} />
         </div>
       </main>
+      <LiveNotices />
       {adding && <AddWorkspace onClose={() => setAdding(false)} />}
     </div>
+  );
+}
+
+/**
+ * «Lo que pesa cada workspace»: each one part by part, heaviest first, then what all of Laru takes on this machine. A
+ * cleanup (Docker's, every few hours or after an up or a run) comes up as a notice, and the sizes are read again.
+ */
+function Weights() {
+  const d = useApi<WorkspacesDisk>('/api/workspaces/disk');
+  const reload = d.reload;
+  useEffect(() => {
+    let last: Cleanups | undefined, stop = false;
+    const beat = async () => {
+      if (document.hidden) return;
+      const p = await api<{ cleanup?: Cleanups }>('/api/pulse').catch(() => undefined);
+      if (!p || stop) return;
+      if (last && p.cleanup?.docker?.at !== last.docker?.at) reload();
+      noticeCleanups(last, p.cleanup);
+      last = p.cleanup ?? {};
+    };
+    void beat();
+    const t = setInterval(beat, 5000);
+    return () => { stop = true; clearInterval(t); };
+  }, [reload]);
+  const x = d.data;
+  const lc = x?.lastCleanup;
+  return (
+    <section className="panel" aria-labelledby="weights-h" style={{ marginTop: 16 }}>
+      <header><h3 id="weights-h">Lo que pesa cada workspace</h3>{x && <div className="meta num" title="Las imágenes e instantáneas de una app, una vez">{size(x.total)} en total</div>}</header>
+      {d.error ? <div className="notice" role="alert" style={{ margin: 16 }}>{d.error}</div> : !x ? <div className="body"><Skeleton lines={3} /></div> : <>
+        <div className="scroll-x">
+          <table className="t weights">
+            <thead><tr><th>Workspace</th><th className="r">Carpeta</th><th className="r">Runs</th><th className="r">Entornos</th><th className="r">Resto del estado</th><th className="r">Instantáneas</th><th className="r">Imágenes de Docker</th><th className="r">Total</th></tr></thead>
+            <tbody>
+              {x.workspaces.map((w) => (
+                <tr key={w.root}>
+                  <td><b>{w.title ?? w.app}</b><div className="faint mono">{tilde(w.root)}</div></td>
+                  <td className="r num">{size(w.bytes.workspace)}</td>
+                  <td className="r num">{size(w.bytes.runs)}</td>
+                  <td className="r num">{size(w.bytes.envs)}</td>
+                  <td className="r num">{size(w.bytes.state)}</td>
+                  <td className="r num">{size(w.bytes.snapshots)}</td>
+                  <td className="r num">{w.bytes.images === null ? '—' : size(w.bytes.images)}</td>
+                  <td className="r num"><b>{size(w.total)}</b></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="machine-line">
+          <span className="lbl">Además</span>
+          <span>Carpeta de Laru, sin las instantáneas <span className="num">{size(x.home.bytes)}</span></span>
+          <span className="faint">·</span>
+          <span>Caché de compilación de Docker <span className="num">{x.buildCache.bytes === null ? '—' : size(x.buildCache.bytes)}</span>{x.buildCache.gb ? <span className="faint">, tope {x.buildCache.gb} GB</span> : <span className="faint">, sin tope</span>}</span>
+        </div>
+        <p className="retention">
+          Las imágenes se cuentan antes de que Docker comparta capas, y los workspaces de una misma app comparten instantáneas: en disco puede ser menos.
+          {' '}Laru limpia Docker tras cada levantamiento y cada run, al arrancar y cada 6 horas, y avisa cuando borra algo.
+          {lc ? ` Última limpieza: ${ago(lc.at)}${lc.buildCache?.error ? `, la caché no se pudo recortar: ${lc.buildCache.error}` : ''}.` : ''}
+        </p>
+      </>}
+    </section>
   );
 }
 

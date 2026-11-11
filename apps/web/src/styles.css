@@ -985,7 +985,14 @@ ol.phases { list-style: none; padding: 0; margin: 0 0 16px; }
 .flow-switch a { flex: none; white-space: nowrap; }
 .cmp-absent { margin: 0; font-size: var(--t-12); }
 .live-wait { margin: 0; padding: 10px 0; font-size: var(--t-13); }
-.player { position: relative; aspect-ratio: 16 / 9; background: #000; border-radius: var(--r-md); overflow: hidden; box-shadow: 0 0 0 1px var(--line-2); }
+/* The box takes the video's own shape (--ar, set when it loads: a phone stands up, a wide screen lies down) and never
+   grows taller than the window, so the whole recording is in view, uncut. */
+.player { position: relative; aspect-ratio: var(--ar, 16 / 9); max-height: 72vh; max-width: calc(72vh * var(--ar, 16 / 9)); margin-inline: auto; background: #000; border-radius: var(--r-md); overflow: hidden; box-shadow: 0 0 0 1px var(--line-2); }
+/* the page rrweb recorded, over the video that keeps the clock: its own size, scaled to the frame */
+.replica { position: absolute; inset: 0; overflow: hidden; background: #fff; z-index: 1; }
+.replica-stage { position: absolute; transform-origin: 0 0; }
+.replica-stage .replayer-wrapper { position: relative; }
+.replica-stage iframe { border: 0; display: block; }
 .player video { display: block; width: 100%; height: 100%; object-fit: contain; cursor: pointer; }
 .novideo { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 8px; padding: 16px; color: var(--ink-3); font-size: var(--t-13); text-align: center; background: var(--bg-200); }
 .novideo svg { width: 20px; height: 20px; }
@@ -995,12 +1002,12 @@ ol.phases { list-style: none; padding: 0; margin: 0 0 16px; }
 .screen-tools .icon-btn svg { width: 14px; height: 14px; }
 .screen-tools .icon-btn[aria-pressed="true"] { color: var(--ink-1); background: var(--fill-1); }
 /* Large video, on wide screens (narrower ones already stack it at full width): one column, the controls right under
-   the video, the sequence below them. The video keeps 16:9 and fits the window's height with the controls in view. */
-@media (max-width: 1100px) { .screen-tools .icon-btn[aria-pressed] { display: none; } }
+   the video, the sequence below them. The video keeps its shape and fits the window's height with the controls in view. */
+@media (max-width: 1100px) { .screen-tools .icon-btn[aria-label="Vídeo grande"] { display: none; } }
 @media (width > 1100px) {
   .stage-run.big { grid-template-columns: minmax(0, 1fr); }
   .stage-run.big .screen { border-right: 0; border-bottom: 1px solid var(--line-1); }
-  .stage-run.big .player { width: min(100%, calc((100vh - 230px) * 16 / 9)); justify-self: center; }
+  .stage-run.big .player { width: min(100%, calc((100vh - 230px) * var(--ar, 16 / 9))); max-height: none; max-width: none; justify-self: center; }
   .stage-run.big .transport { border-top: 0; border-bottom: 1px solid var(--line-1); }
   .stage-run.big .player .caption { font-size: 14px; }
 }

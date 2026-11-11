@@ -14,6 +14,7 @@ export * from './runs.ts';
 export * from './runner-file.ts';
 export * from './sessions.ts';
 export * from './video.ts';
+export { replayVideoState, startReplayVideo, type ReplayVideoState } from './replay-video.ts';
 export * from './scenarios.ts';
 export * from './behavior.ts';
 export * from './fidelity.ts';

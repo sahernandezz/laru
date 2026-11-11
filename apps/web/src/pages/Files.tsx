@@ -64,8 +64,14 @@ export function Files() {
           </dl>
         )}
         <div className="retention" style={{ borderBottom: 0, borderTop: '1px solid var(--line-1)' }}>
-          {d.images ? <>Imágenes de Docker: {d.images.count} etiquetas <span className="mono">ks-{d.vaultKey.account}/…</span>{d.images.old ? `, ${d.images.old} de versiones anteriores (se conservan las 3 más nuevas de cada servicio y las que use un contenedor)` : ''}.</> : 'Docker no responde: no se pueden contar las imágenes.'}
+          {d.images ? <>Imágenes de Docker: {d.images.count} etiquetas <span className="mono">ks-{d.vaultKey.account}/…</span>{d.images.old ? `, ${d.images.old} de Laru que ningún contenedor usa (se conserva la más nueva de cada servicio y las que use un contenedor)` : ''}.</> : 'Docker no responde: no se pueden contar las imágenes.'}
         </div>
+        <p className="retention">
+          Limpieza de Docker: tras cada levantamiento, tras cada run, al arrancar el servicio y cada 6 horas. Se borran las imágenes de Laru que ningún contenedor usa (queda la más nueva de cada servicio), las imágenes y volúmenes de apps sin espacio de trabajo en esta máquina y los contenedores que el compose ya no declara; el <span className="mono">compose.yml</span> de cada entorno se queda.
+          {' '}Caché de compilación: {d.docker.buildCacheBytes === null ? 'Docker no responde' : size(d.docker.buildCacheBytes)}{d.docker.buildCacheGB ? `, tope ${d.docker.buildCacheGB} GB: por encima se borra primero lo menos usado y, si Docker no baja del tope, toda la que ninguna compilación usa (es la de toda la máquina; solo se pierde tiempo de la siguiente compilación)` : ', Laru no la toca (buildCacheGB: 0)'}.
+          {d.docker.lastCleanup ? ` Última limpieza: ${ago(d.docker.lastCleanup.at)}, ${plural(d.docker.lastCleanup.images, 'imagen', 'imágenes')} y ${plural(d.docker.lastCleanup.volumes, 'volumen', 'volúmenes')}${d.docker.lastCleanup.buildCache?.error ? `; la caché no se pudo recortar: ${d.docker.lastCleanup.buildCache.error}` : d.docker.lastCleanup.buildCache?.before !== undefined && d.docker.lastCleanup.buildCache.after !== undefined ? `; caché de compilación de ${size(d.docker.lastCleanup.buildCache.before)} a ${size(d.docker.lastCleanup.buildCache.after)}` : ''}.` : ''}
+          {' '}El tope se cambia en <span className="mono">~/.laru/config.yaml</span> (buildCacheGB).
+        </p>
       </section>
 
       <section className="panel block" aria-labelledby="f-runs">
@@ -150,7 +156,7 @@ function Prune({ onClose, onDone }: { onClose: () => void; onDone: () => void })
   const r = plan.data;
   const by = (w: string) => (r?.runs ?? []).filter((a) => a.what === w);
   const sum = (xs: Array<{ bytes: number }>) => xs.reduce((n, x) => n + x.bytes, 0);
-  const nothing = r && !r.runs.length && !r.snapshots.length && !r.images.length;
+  const nothing = r && !r.runs.length && !r.snapshots.length && !r.images.length && !r.volumes?.length;
   const go = async () => {
     setBusy(true);
     try { const done = await api<PruneReport>('/api/prune', { method: 'POST', body: { dryRun: false } }); toast(`Liberados unos ${size(done.bytes)}`); onDone(); onClose(); }
@@ -165,6 +171,7 @@ function Prune({ onClose, onDone }: { onClose: () => void; onDone: () => void })
             {by('media').length > 0 && <li>Vídeo y capturas de {plural(by('media').length, 'run', 'runs')} de más de los días de retención: {size(sum(by('media')))}. Se quedan la traza y los registros.</li>}
             {by('run').length > 0 && <li>{plural(by('run').length, 'run entero', 'runs enteros')} ({by('run').map((a) => `#${a.run}`).join(', ')}): {size(sum(by('run')))}. Su fila sigue en el historial.</li>}
             {r.snapshots.length > 0 && <li>{plural(r.snapshots.length, 'instantánea sin usar', 'instantáneas sin usar')}: {size(sum(r.snapshots))}.</li>}
+            {r.volumes?.length > 0 && <li>{plural(r.volumes.length, 'volumen', 'volúmenes')} de Docker de apps sin espacio de trabajo en esta máquina (ninguno en uso).</li>}
             {r.images.length > 0 && <li>{plural(r.images.length, 'imagen anterior', 'imágenes anteriores')} de Docker (ninguna en uso): hasta {size(sum(r.images))}.</li>}
             {r.shadow.length > 0 && <li>Compactar {plural(r.shadow.length, 'sombra', 'sombras')} de carpetas (git gc).</li>}
           </ul>

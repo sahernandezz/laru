@@ -5,10 +5,10 @@
  * on a card keeps it. Docker coming back takes its own alert away. Docker's segment in the header opens the session's
  * history, with Docker's state on top, for whoever wants to look back; it counts only the failures not yet seen.
  */
-import { CheckCheck, Container, PlayCircle, RefreshCw, Trash2, X, type LucideIcon } from 'lucide-react';
+import { CheckCheck, Container, Eraser, PlayCircle, RefreshCw, Trash2, X, type LucideIcon } from 'lucide-react';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { ago } from '../lib/es.ts';
-import { clearNotices, dismiss, markSeen, notices, STAY, subscribe, type Live, type NoticeKind } from '../lib/notices.ts';
+import { ago, plural, size } from '../lib/es.ts';
+import { clearNotices, dismiss, markSeen, notices, notify, STAY, subscribe, type Live, type NoticeKind } from '../lib/notices.ts';
 import { Dot, type DotState } from './ui.tsx';
 
 export { notify } from '../lib/notices.ts';
@@ -19,7 +19,32 @@ const KIND: Record<NoticeKind, { icon: LucideIcon; label: string }> = {
   docker: { icon: Container, label: 'Docker' },
   change: { icon: RefreshCw, label: 'Cambios' },
   run: { icon: PlayCircle, label: 'Runs' },
+  cleanup: { icon: Eraser, label: 'Limpieza' },
 };
+
+/** What the service's pulse says about its cleanups: Docker's (the machine's) and the runs' retention (a workspace's). */
+export interface Cleanups {
+  docker?: { at: string; images: number; imagesBytes?: number; volumes: number; buildCache?: { gb: number; trimmed: boolean; before?: number; after?: number; error?: string } };
+  runs?: { at: string; removed: { media: number; runs: number; bytes: number } };
+}
+/**
+ * A cleanup that happened between two pulses becomes a notice: what went and how much, or why the build cache could
+ * not be trimmed (that one stays until closed). One that found nothing to remove says nothing.
+ */
+export function noticeCleanups(was: Cleanups | undefined, now: Cleanups | undefined, to?: string) {
+  const d = now?.docker;
+  if (d && was && d.at !== was.docker?.at) {
+    const c = d.buildCache, cache = c?.before !== undefined && c.after !== undefined && c.after < c.before ? `caché de compilación de ${size(c.before)} a ${size(c.after)}` : '';
+    const parts = [d.images ? `${plural(d.images, 'imagen', 'imágenes')}${d.imagesBytes ? ` (hasta ${size(d.imagesBytes)})` : ''}` : '', d.volumes ? plural(d.volumes, 'volumen', 'volúmenes') : '', cache].filter(Boolean);
+    if (c?.error) notify({ kind: 'cleanup', title: 'No se pudo recortar la caché de Docker', detail: c.error, state: 'err', to });
+    else if (parts.length) notify({ kind: 'cleanup', title: 'Laru limpió Docker', detail: `Borró ${parts.join(', ')}`, state: 'ok', to });
+  }
+  const r = now?.runs;
+  if (r && was && r.at !== was.runs?.at && (r.removed.media || r.removed.runs)) {
+    const parts = [r.removed.runs ? plural(r.removed.runs, 'run borrado', 'runs borrados') : '', r.removed.media ? plural(r.removed.media, 'run aligerado', 'runs aligerados') : ''].filter(Boolean);
+    notify({ kind: 'cleanup', title: 'Laru limpió los runs', detail: `${parts.join(' y ')}: ${size(r.removed.bytes)} libres`, state: 'ok', to });
+  }
+}
 
 const useNotices = () => useSyncExternalStore(subscribe, notices);
 const when = (t: number) => ago(new Date(t).toISOString());
@@ -126,6 +151,7 @@ export function Notices({ docker }: { docker?: DockerSeen }) {
                 <li><span className="nt-tile docker"><Container /></span>Docker deja de responder o vuelve</li>
                 <li><span className="nt-tile change"><RefreshCw /></span>Un agente o un editor cambia el workspace y la pantalla se actualiza</li>
                 <li><span className="nt-tile run"><PlayCircle /></span>Termina un run o una sesión, con su resultado</li>
+                <li><span className="nt-tile cleanup"><Eraser /></span>Laru limpia Docker o los runs viejos, con lo que liberó</li>
               </ul>
             </div>
           ) : (

@@ -14,7 +14,7 @@ export { Graph, loadGraph, loadObserved, mapFile, observedFile } from './graph.t
 export { ask, context, docsTree, estimateTokens, path, render, resolveTarget, tree } from './query.ts';
 export { IMAGE_KINDS, targetsIn, type Target } from './build.ts';
 export { agentGuide, initWorkspace, outsideNote, writeAgentFiles } from './init.ts';
-export { LIMIT_MAX, LIMIT_MIN, parseLimit } from './limit.ts';
+export { LIMIT_MAX, LIMIT_MIN, parseLimit, parseScreen, type ScreenSize } from './limit.ts';
 export { git } from './git.ts';
 export { evidenceDir, importEvidence, shareEvidence, withEvidence } from './evidence.ts';
 export { withLock } from './lock.ts';

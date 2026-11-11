@@ -39,7 +39,7 @@ const HELP = `laru — a workspace around your application's repositories
   laru docs note [id] [--json]         how complete each piece is (0–100) and what it still owes
   laru env init <name> --from <repo>:<compose file>[,<file>…] | --join <env>,<env> [--share <svc>=<svc>]   a joint env runs several projects together
   laru env list | env status [env] [--json]
-  laru up [env] [--hybrid a,b] [--services a,b] [--worktree] [--rebuild a,b|all [--yes]] [--force] [-v]   build what changed, start, wait until ready (--rebuild: those images again without the cache; --force: skip the memory check)
+  laru up [env] [--hybrid a,b] [--services a,b] [--worktree] [--rebuild a,b|all [--yes]] [--force] [-v]   build what changed, start, wait until ready (--rebuild: those images again without the cache, only when a dependency fetched at build time changed; --force: skip the memory check)
   laru down [env] [--dry-run] [--caches]   remove the env's containers, network and volumes (by label)
   laru logs [service] [--env e] [-f] [--tail 100]
   laru run [--env e] --service <name> -- <command…>   run a hybrid service here with its values

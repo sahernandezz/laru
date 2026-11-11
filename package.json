@@ -1,6 +1,6 @@
 {
   "name": "laru-monorepo",
-  "version": "0.1.0-beta.15",
+  "version": "0.1.0-beta.16",
   "private": true,
   "license": "FSL-1.1-ALv2",
   "author": "sahernandezz (https://github.com/sahernandezz)",
@@ -13,7 +13,7 @@
     "node": ">=24"
   },
   "scripts": {
-    "test": "node --test --test-reporter=spec \"packages/*/test/*.test.ts\" \"apps/*/test/*.test.ts\"",
+    "test": "LARU_DOCKER_CLEANUP=0 node --test --test-reporter=spec \"packages/*/test/*.test.ts\" \"apps/*/test/*.test.ts\"",
     "typecheck": "tsc -p tsconfig.json && tsc -p apps/web/tsconfig.json",
     "laru": "node apps/cli/src/main.ts",
     "build": "pnpm --filter @laru/web build"

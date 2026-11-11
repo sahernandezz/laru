@@ -26,7 +26,7 @@ interface Fixtures {
   mail: Mail;
   /** the same, for the texts the app sends */
   sms: Sms;
-  /** another screen of the same test, by name (`otherScreen('luis')`): a second person's browser, with its own video on the same clock and its own lane in the trace; `size` makes it a phone (its window and its video, 1280×720 by default) */
+  /** another screen of the same test, by name (`otherScreen('luis')`): a second person's browser, with its own video on the same clock and its own lane in the trace; `size` makes it a phone (its window and its video; by default the flow's `screen`, else 1280×720) */
   otherScreen: (name: string, size?: { width: number; height: number }) => Promise<Page>;
 }
 /** The state a flow starts from: its scenario and who its setup left able to sign in. */
@@ -200,6 +200,10 @@ function drawCaption() {
 const perFlow = JSON.parse(process.env.KS_BASE_URLS_JSON ?? '{}') as Record<string, string>;
 /** A flow's own time limit (`timeout` in its flow.md), in ms, by the name of its spec file; the runner passes them. */
 const limits = JSON.parse(process.env.KS_FLOW_TIMEOUTS_JSON ?? '{}') as Record<string, number>;
+/** A flow's browser window (`screen` in its flow.md), by the name of its spec file: the page and its video take that size, whole. */
+const screens = JSON.parse(process.env.KS_FLOW_SCREENS_JSON ?? '{}') as Record<string, { width: number; height: number }>;
+/** rrweb's recorder, mounted by the host (runnerArgs): a story without it keeps only its video */
+const RRWEB = '/ks/rrweb-record.js';
 /**
  * story and scenario declare their test in this file, so Playwright's `info.file` is flow.ts: each keeps the
  * name of the spec that called it as a `spec` annotation, read from the call's stack while the spec loads.
@@ -218,6 +222,49 @@ export const test = base.extend<Fixtures>({
   baseURL: async ({ baseURL }, use, info) => {
     await use(perFlow[specOf(info)] ?? baseURL);
   },
+  viewport: async ({ viewport }, use, info) => {
+    await use(screens[specOf(info)] ?? viewport);
+  },
+  // The test's browser, made here so a story's video is recorded at its window's size, whole: Playwright's own takes one
+  // size for every test of the worker (the config's 1280x720 would scale a larger page down and leave a smaller one in a corner).
+  // The rest of the options (base URL, locale, the window) Playwright fills in as for its own.
+  context: async ({ browser, viewport }, use, info) => {
+    const story = info.project.name === 'story';
+    const context = await browser.newContext(story ? { recordVideo: { dir: info.outputPath('screen-main'), ...(viewport ? { size: viewport } : {}) } } : {});
+    const pages: Page[] = [];
+    context.on('page', (p) => pages.push(p));
+    // The story's first page also recorded as data (rrweb): the DOM and its changes, replayed and inspected later, a
+    // video made from it on demand. A secret field's value never leaves the page; the host masks vault values after.
+    const replay: unknown[] = [];
+    if (story && existsSync(RRWEB)) {
+      await context.exposeBinding('__laruReplay', ({ page, frame }, e: unknown) => { if (page === pages[0] && frame === page.mainFrame()) replay.push(e); });
+      await context.addInitScript({ path: RRWEB });
+      await context.addInitScript(() => {
+        // the top document only: rrweb takes the page's own iframes along, and one recorder per iframe would replace the page by a 0×0 one
+        if (window !== window.top) return;
+        const secret = /pass|contrase[ñn]a|clave|token|secret|\bpin\b|otp|c[oó]digo/i;
+        const w = window as unknown as { rrwebRecord: { record(o: object): void }; __laruReplay(e: unknown): void };
+        w.rrwebRecord.record({
+          emit: (e: unknown) => w.__laruReplay(e), inlineImages: true, recordCanvas: false, sampling: { mousemove: 50, scroll: 100, input: 'last' },
+          // rrweb asks maskInputFn only about the kinds maskInputOptions names: every field is asked, and a password is always masked
+          maskInputOptions: { input: true, textarea: true },
+          maskInputFn: (text: string, el: HTMLElement) => ((el as HTMLInputElement).type === 'password' || secret.test([el.getAttribute('name'), el.getAttribute('id'), el.getAttribute('placeholder'), el.getAttribute('aria-label'), el.getAttribute('autocomplete')].join(' ')) ? '•'.repeat(text.length) : text),
+        });
+      });
+    }
+    await use(context);
+    await context.close();
+    if (replay.length) {
+      const path = info.outputPath('replay.json');
+      writeFileSync(path, JSON.stringify(replay));
+      info.attachments.push({ name: 'replay', path, contentType: 'application/json' });
+    }
+    let n = 0;
+    for (const v of pages.map((p) => p.video()).filter((v) => v !== null)) {
+      const path = info.outputPath(`video${n++ ? `-${n - 1}` : ''}.webm`);
+      if (await v.saveAs(path).then(() => true, () => false)) info.attachments.push({ name: 'video', path, contentType: 'video/webm' });
+    }
+  },
   page: async ({ page }, use, info) => {
     // The page's video starts with the page: this instant is frame 0 for the trace.
     info.annotations.push({ type: 'videoT0', description: String(Date.now()) });
@@ -229,9 +276,9 @@ export const test = base.extend<Fixtures>({
     await use(page);
     current = { n: 0 };
   },
-  otherScreen: async ({ browser, baseURL }, use, info) => {
+  otherScreen: async ({ browser, baseURL, viewport }, use, info) => {
     const made: Array<{ name: string; page: Page; context: BrowserContext; t0: number; marker?: number }> = [];
-    await use(async (name, size = { width: 1280, height: 720 }) => {
+    await use(async (name, size = viewport ?? { width: 1280, height: 720 }) => {
       if (!/^[\w-]{1,32}$/.test(name)) throw new Error(`a screen's name is letters, digits, _ and - (up to 32): ${name}`);
       const had = made.find((m) => m.name === name);
       if (had) return had.page;

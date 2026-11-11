@@ -12,7 +12,7 @@ import { IMAGE_KINDS, loadExtraction, loadGraph, WorkspaceError, type Graph, typ
 import { writeMaskFile } from '@laru/trace';
 import { closure, composeFiles, importCompose, interpolations, leftOut, renderCompose, type ComposeDoc, type RenderContext, type Service, type Target } from './compose.ts';
 import { readConfig } from './config.ts';
-import { prune } from './disk.ts';
+import { cleanDockerDetached, prune } from './disk.ts';
 import { destroyByLabel, docker, dockerAnswers, DockerError, dockerStream, envLock, hold, inspectEnv, LABEL, machineLock, recentStats, stats, withLock, workspaceKey, type ContainerState, type DestroyReport } from './docker.ts';
 import { checkShare, ENV_KEYS, envDir, envKeys, envMasker, forgetValues, isInstance, jointSpec, loadEnvSpec, projectName, readState, translateSpec, writeState, type EnvState } from './env.ts';
 import { joinComposes, jointRouting } from './join.ts';
@@ -601,7 +601,7 @@ export async function up(ws: Workspace, opts: UpOptions): Promise<UpResult> {
         emit({ kind: 'log', source: 'laru', line: `internet access ${isClosed(rendered.yaml) ? 'closed' : 'opened'}: the containers start again on the new network` });
         await dockerStream(['compose', '-p', project, '-f', composePath.replace(/compose\.yml$/, 'compose.prev.yml'), 'down', '--remove-orphans'], (l) => emit({ kind: 'log', source: 'compose', line: l }), { env }).catch(() => undefined);
       }
-      const upDone = dockerStream(['compose', '-p', project, '-f', composePath, 'up', '-d', '--no-build'], (l) => emit({ kind: 'log', source: 'compose', line: l }), { env })
+      const upDone = dockerStream(['compose', '-p', project, '-f', composePath, 'up', '-d', '--no-build', '--remove-orphans'], (l) => emit({ kind: 'log', source: 'compose', line: l }), { env })
         .then((c) => { upCode = c; });
       // the machine is free again once compose has created and started everything
       const free = release!;
@@ -697,8 +697,10 @@ export async function up(ws: Workspace, opts: UpOptions): Promise<UpResult> {
         const mem = (await stats(ours.filter((c) => c.state === 'running').map((c) => c.id))).reduce((n, x) => n + x.memBytes, 0);
         writeState(ws, opts.env, { ...state, lastReadyAt: new Date().toISOString(), lastUpAt: new Date(t0).toISOString(), composeHash: createHash('sha1').update(rendered.yaml).digest('hex').slice(0, 12), ...sourcesOf(members), built, ...(mem ? { lastMemBytes: mem } : {}) });
       }
-      // Old image tags, unused snapshots and folder shadows' loose objects go after every successful up.
-      void prune(ws, { what: ['images', 'snapshots', 'shadow'] }).catch(() => undefined);
+      // Unused snapshots and folder shadows' loose objects go after every successful up; Docker is cleaned in a process
+      // of its own, which never holds `laru up`'s exit.
+      void prune(ws, { what: ['snapshots', 'shadow'] }).catch(() => undefined);
+      cleanDockerDetached(ws.app);
       const ms = Date.now() - t0;
       emit({ kind: 'ready', ms });
       const services: ServiceStatus[] = last.map(({ k, c, health }) => ({ service: svcOf(k), compose: k, mode: k === 'ks-tap' ? 'tap' : health === 'done' ? 'job' : 'container', health, built: built[svcOf(k)], image: real(k).image, container: c }));

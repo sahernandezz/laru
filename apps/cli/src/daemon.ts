@@ -16,7 +16,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { dirname, extname, join, normalize, relative, resolve, sep } from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import { combineScreens, flowEnvDown, flowEnvStatus, flowEnvUp, instanceOf, instancesOf, prepareInstance, diskReport, dirBytes, checkDocker, dockerAnswers, dockerState, dockerSizes, envLock, heldByEnvs, prune, readConfig, readRunnerFile, runnerFile, runnerFiles, snapshotRows, recentStats, docker, withLock, workspaceKey, writeConfig, type PruneWhat } from '@laru/runtime';
+import { lastCleanup, lastRunsPrune, workspacesDisk, combineScreens, replayVideoState, startReplayVideo, flowEnvDown, flowEnvStatus, flowEnvUp, instanceOf, instancesOf, prepareInstance, diskReport, dirBytes, checkDocker, dockerAnswers, dockerState, dockerSizes, envLock, heldByEnvs, prune, readConfig, readRunnerFile, runnerFile, runnerFiles, snapshotRows, recentStats, docker, withLock, workspaceKey, writeConfig, type PruneWhat } from '@laru/runtime';
 import { mail, sqs, envFor, envProjects, flowDir, flowProjects, runDir, proposeJoint, maskJson, mockContracts, sweepOrphans, readRules, saveFaults, setFaults, setMockMode, kafka, storage, mongo, rabbit, redis, custom, cancelRun, compareRuns, failedFlows, markSession, openSessionBrowser, screenOf, sessionToFlow, sessionToScenario, approveBehavior, behaviorIn, readApproved, fidelity, applyScenario, provisionScenario, appliedOn, listScenarios, scenarioState, ScenarioConfirm, shown, sessionBrowser, sessionTrace, startSession, stopSession, listFlows, listRuns, readRun, readTrace, runsDir, startRun, connection, query as dbQuery, reset as dbReset, rows as dbRows, schema as dbSchema, snapshot as dbSnapshot, storeOf, stores as dbStores, storePassword, updateRow, updateSql, type Browse, type RowUpdate, down, envDir, envMasker, missingVars, listEnvs, loadEnvSpec, logs, revealVar, varValues, mountAll, mountedOf, rebuildText, setVar, status, unsetVar, up, varTable, importEnvFile, type Level } from '@laru/runtime';
 import { endpointMatcher, flowLast, seenIn, type EndpointMatch, type FlowLast, type Seen, type Trace, type TrafficRecord } from '@laru/trace';
 import { affected, brokersOf, doctorChecks, runEnv, screenFindings, vaultServices, writeJoint } from './env-cli.ts';
@@ -41,7 +41,7 @@ export function traceViewerDir(): string | null {
   } catch { viewerDir = null; }
   return viewerDir;
 }
-export const VERSION = '0.1.0-beta.15';
+export const VERSION = '0.1.0-beta.16';
 
 
 export interface Daemon { url: string; port: number; token: string | null; close: () => Promise<void> }
@@ -567,6 +567,9 @@ export function makeApi(root: Workspace['root']): { api: Record<string, Handler>
     'POST /api/scenarios/apply': async (_req, url, b: { name: string; env?: string; confirm?: boolean }) => shown(await asked(applyScenario(ws(), b.name, { env: envName(url, b), confirm: b.confirm === true }))),
     // every screen of a flow in one video, side by side (made the first time, kept after)
     'POST /api/run/video': async (_req, _url, b: { id: string; flow: string }) => ({ file: await combineScreens(ws(), b.id, b.flow) }),
+    // a video made from the story's rrweb recording: started here, found later as replay.mp4
+    'POST /api/run/replay-video': async (_req, _url, b: { id: string; flow: string }) => startReplayVideo(ws(), b.id, b.flow),
+    'GET /api/run/replay-video': async (_req, url) => replayVideoState(ws(), url.searchParams.get('id') ?? '', url.searchParams.get('flow') ?? ''),
     'POST /api/session/start': async (_req, url, b: { env?: string; title?: string; browser?: boolean; scenario?: string; flow?: string; front?: string; device?: string; confirm?: boolean }) => {
       const w = ws(), run = await asked(startSession(w, { env: envName(url, b), title: b.title, scenario: b.scenario, flow: b.flow, front: b.front, device: b.device === 'phone' ? 'phone' : undefined, confirm: b.confirm === true }));
       if (b.browser) openSessionBrowser(w, run.id);
@@ -758,7 +761,7 @@ export function makeApi(root: Workspace['root']): { api: Record<string, Handler>
   };
 
   // What every open page asks every 3 s: Docker as last seen, what changed from outside, and the runs not finished.
-  api['GET /api/pulse'] = async () => { follow(); return { docker: look(), changes: { n: changes, files: changedFiles }, running: listRuns(ws(), 50).filter((r) => r.phase !== 'done') }; };
+  api['GET /api/pulse'] = async () => { follow(); return { docker: look(), changes: { n: changes, files: changedFiles }, running: listRuns(ws(), 50).filter((r) => r.phase !== 'done'), cleanup: { docker: lastCleanup(), runs: lastRunsPrune(ws()) } }; };
   for (const [k, h] of Object.entries(api)) if (!k.startsWith('GET ')) api[k] = async (...a) => { writing++; try { return await h(...a); } finally { writing--; wroteAt = Date.now(); } };
   return { api, streams };
 }
@@ -779,6 +782,9 @@ export async function startDaemon(port = 4100, webDist = WEB_DIST, o: { token?: 
   const machine = machineApi(() => actual);
   const watcher = setInterval(() => void watchDocker(), 5000);
   watcher.unref();
+  // Docker is cleaned on a clock too, not only when something is built or run: what an agent built by hand gets trimmed
+  const cleaner = setInterval(() => void sweepAll(), 6 * 3600_000);
+  cleaner.unref();
 
   const server = createServer(async (req, res) => {
     try {
@@ -969,9 +975,14 @@ export async function liveDaemon(): Promise<DaemonInfo | null> {
 export async function olderLaru(port: number): Promise<boolean> {
   try { const r = await ping(port); return r.status === 401 && /Open the address printed by `laru serve`/.test(await r.text()); } catch { return false; }
 }
-/** Leftovers of finished ephemeral runs, in every registered workspace that still exists. */
+/**
+ * Leftovers of finished ephemeral runs, in every registered workspace that still exists; then the machine's Docker:
+ * Laru's images and volumes nothing uses, and the build cache down to its cap (prune's `images`, for every app at once).
+ */
 export async function sweepAll(): Promise<void> {
-  for (const x of loadRegistry()) { try { await sweepOrphans(loadWorkspace(x.root)); } catch { /* gone, or Docker is down */ } }
+  let one: Workspace | undefined;
+  for (const x of loadRegistry()) { try { const w = loadWorkspace(x.root); one ??= w; await sweepOrphans(w); } catch { /* gone, or Docker is down */ } }
+  if (one) await prune(one, { what: ['images'] }).catch(() => undefined);
 }
 
 const home = () => realRoot(homedir()); // compared with real paths, as roots are
@@ -1013,7 +1024,8 @@ function probeWorkspace(path: string) {
 function machineApi(port: () => number): Record<string, Handler> {
   return {
     'GET /api/workspaces': async () => workspaceRows(),
-    'GET /api/pulse': async () => ({ docker: look() }),
+    'GET /api/pulse': async () => ({ docker: look(), cleanup: { docker: lastCleanup() } }),
+    'GET /api/workspaces/disk': async () => workspacesDisk(),
     'GET /api/workspaces/found': async () => {
       // ~/laru, and the folder where the workspaces made before the rename live
       const known = new Set(loadRegistry().map((x) => x.root));

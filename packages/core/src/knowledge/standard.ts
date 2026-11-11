@@ -298,6 +298,7 @@ export const STANDARD: Record<PieceType, PieceStandard> = {
       { name: 'needs', ref: ['svc:', 'ds:', 'ext:'], list: true, hint: 'What must be running for it: services, stores and externals.' },
       { name: 'scenario', ref: ['scn:'], hint: 'The state it starts from: applied before it is played, once for every flow of a run that names it.' },
       { name: 'timeout', hint: 'How long it may run before it is cut: 30s, 2m, 1h (1 s to 2 h). Without it the runner\'s 5 minutes apply.' },
+      { name: 'screen', hint: 'The size of its browser window, width x height in pixels: 1920x1080, 1366x768, 390x844 for a phone. The video is recorded at that size, whole. Without it, 1280x720. Set it when the app needs more room or is used on a phone, never with page.setViewportSize() in the spec (the video would stay 1280x720 and come out cut).' },
     ],
     fields: [
       { name: 'goal', label: L('Goal', 'Objetivo'), type: 'markdown', required: true, max: 800, hint: 'What the journey proves.' },

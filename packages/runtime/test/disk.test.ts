@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import type { Workspace } from '@laru/core';
-import { applyPrune, CONFIG_DEFAULTS, dirBytes, planPrune, prune, readConfig, runRows, staleImages, writeConfig, type RunRow } from '../src/index.ts';
+import { applyPrune, CONFIG_DEFAULTS, dirBytes, planPrune, prune, readConfig, runRows, staleImages, writeConfig, RUNNER_IMAGE, type RunRow } from '../src/index.ts';
 
 const NOW = Date.parse('2026-10-23T12:00:00Z');
 const ago = (days: number) => new Date(NOW - days * 86_400_000).toISOString();
@@ -112,19 +112,22 @@ test('prune: a dry run lists exactly what an execution removes; paths outside a 
   assert.ok(n >= 100 * 1024 && n < 300 * 1024, `${n}`);
 });
 
-test('images: beyond the 3 newest of each service, never one a container uses, by tag or by id', () => {
+test('images: beyond the newest of each service, never one a container uses, by tag or by id; an unknown app\'s and an old runner all go', () => {
   const img = (tag: string, day: number, repo = 'ks-shop-api') => ({ Repository: repo, Tag: tag, ID: `${tag}0000000000`.slice(0, 12), CreatedAt: `2026-10-${String(day).padStart(2, '0')} 10:00:00 -0500 -05`, Size: '10MB' });
   const rows = [img('t1', 1), img('t2', 2), img('t3', 3), img('t4', 4), img('t5', 5), img('t6', 6), img('w1', 1, 'ks-shop-web')];
-  // t6, t5, t4 are the newest; t3 runs by its tag, t2 by its id; t1 goes; the web has one image
-  assert.deepEqual(staleImages(rows, ['ks-shop-api:t3', `sha256:${img('t2', 2).ID}ffffffffffff`, 'postgres:16']), [{ ref: 'ks-shop-api:t1', bytes: 10_000_000 }]);
-  assert.deepEqual(staleImages(rows, []).map((x) => x.ref), ['ks-shop-api:t3', 'ks-shop-api:t2', 'ks-shop-api:t1']);
+  // t6 is the newest; t3 runs by its tag, t2 by its id; t5, t4, t1 go; the web has one image
+  assert.deepEqual(staleImages(rows, ['ks-shop-api:t3', `sha256:${img('t2', 2).ID}ffffffffffff`, 'postgres:16']).map((x) => x.ref), ['ks-shop-api:t5', 'ks-shop-api:t4', 'ks-shop-api:t1']);
+  assert.deepEqual(staleImages(rows, []).map((x) => x.ref), ['ks-shop-api:t5', 'ks-shop-api:t4', 'ks-shop-api:t3', 'ks-shop-api:t2', 'ks-shop-api:t1']);
+  // with the apps that have a workspace here: «shop» keeps its newest, «gone» keeps only what a container uses, the runner only the current one
+  const two = [img('a1', 1, 'ks-shop/api'), img('a2', 2, 'ks-shop/api'), img('o1', 1, 'ks-gone/api'), img('o2', 2, 'ks-gone/api'), img('1.0', 1, 'keelson/runner'), img('0.9', 1, 'laru/runner'), img(RUNNER_IMAGE.split(':')[1], 2, 'laru/runner')];
+  assert.deepEqual(staleImages(two, ['ks-gone/api:o1'], new Set(['shop'])).map((x) => x.ref).sort(), ['keelson/runner:1.0', 'ks-gone/api:o2', 'ks-shop/api:a1', 'laru/runner:0.9']);
 });
 
 test('config.yaml: defaults when absent; a write keeps the other keys and the comments', (t) => {
   const saved = process.env.LARU_HOME;
   process.env.LARU_HOME = mkdtempSync(join(tmpdir(), 'laru-config-'));
   t.after(() => { if (saved === undefined) delete process.env.LARU_HOME; else process.env.LARU_HOME = saved; });
-  assert.deepEqual(readConfig(), { maxEnvs: 0, videoOffsetMs: 0, retention: { videoDays: 7, runDays: 30, maxGB: 5 }, workers: 0, stepHoldMs: 0, mask: false });
+  assert.deepEqual(readConfig(), { maxEnvs: 0, videoOffsetMs: 0, retention: { videoDays: 7, runDays: 30, maxGB: 5 }, workers: 0, stepHoldMs: 0, mask: false, buildCacheGB: 20 });
   writeFileSync(join(process.env.LARU_HOME, 'config.yaml'), 'stepHoldMs: -5\n');
   assert.equal(readConfig().stepHoldMs, 0, 'a negative hold is no hold');
   writeFileSync(join(process.env.LARU_HOME, 'config.yaml'), 'stepHoldMs: 1500\n');
@@ -134,7 +137,7 @@ test('config.yaml: defaults when absent; a write keeps the other keys and the co
   writeConfig({ retention: { videoDays: 3 } });
   const text = readFileSync(join(process.env.LARU_HOME, 'config.yaml'), 'utf8');
   assert.match(text, /^# measured by laru calibrate\nvideoOffsetMs: -10\nmaxEnvs: 2\nretention:\n  videoDays: 3\n$/);
-  assert.deepEqual(readConfig(), { maxEnvs: 2, videoOffsetMs: -10, retention: { videoDays: 3, runDays: 30, maxGB: 5 }, workers: 0, stepHoldMs: 0, mask: false });
+  assert.deepEqual(readConfig(), { maxEnvs: 2, videoOffsetMs: -10, retention: { videoDays: 3, runDays: 30, maxGB: 5 }, workers: 0, stepHoldMs: 0, mask: false, buildCacheGB: 20 });
 });
 
 test('retention counts the raw media the runner left, in out/results and out/results-<n>, and nothing a link of the runner points at', async (t) => {

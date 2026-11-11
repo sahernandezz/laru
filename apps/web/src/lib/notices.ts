@@ -4,7 +4,7 @@
  */
 import type { DotState } from '../components/ui.tsx';
 
-export type NoticeKind = 'docker' | 'change' | 'run';
+export type NoticeKind = 'docker' | 'change' | 'run' | 'cleanup';
 /** `id`: its own, never its time: two notices of one pulse share the millisecond. */
 export interface Notice { id: number; at: number; kind: NoticeKind; title: string; detail?: string; files?: string[]; state: DotState; to?: string }
 export type Level = 'alert' | 'info' | 'quiet';

@@ -6,6 +6,29 @@ Todos los cambios de Laru que importan a quien lo usa quedan aquí. El formato s
 
 ## [Sin publicar]
 
+## [0.1.0-beta.16] - 2026-11-10
+
+### Añadido
+
+- **Cada flujo elige el tamaño de su pantalla.** `screen: 1920x1080` (o `390x844` para un móvil) en el flow.md abre el navegador a ese tamaño y graba el vídeo entero a ese tamaño; sin él sigue en 1280x720. El agente lo sabe por su guía y Laru avisa si el valor no es válido. Las otras pantallas del flujo toman ese tamaño salvo que pidan otro.
+- **Réplica de la página (prueba de concepto).** Además del vídeo, la historia de cada flujo graba la página como datos con [rrweb](https://www.rrweb.io/): el HTML y cada cambio, no una imagen. En el reproductor, el botón de pantalla cambia el vídeo por la réplica, que sigue el mismo reloj, se ve nítida a cualquier tamaño y pesa bastante menos que el vídeo. Lo escrito en campos de contraseña, clave o código se enmascara en el propio navegador, y los valores del almacén de secretos se enmascaran antes de guardarse. Por ahora solo graba la primera pantalla de la historia, y las imágenes y fuentes que no van incrustadas se cargan desde el entorno, que tiene que seguir levantado.
+- **Vídeo hecho desde la réplica, cuando lo pides:** el botón de película genera un MP4 (H.264, se abre en QuickTime y en cualquier reproductor) reproduciendo la réplica en Chrome al tamaño con que se grabó, y lo descarga. Usa el Chrome del equipo y el ffmpeg de Laru, como las sesiones en vivo.
+
+### Cambiado
+
+- **Docker ocupa menos.** Tras cada `up` (y con `laru prune images`), Laru quita sus imágenes que ningún contenedor usa: de cada servicio conserva solo la más nueva, así un entorno parado vuelve a levantarse sin construir; las de apps sin espacio de trabajo en esta máquina (restos de pruebas) se van todas, igual que sus volúmenes, y también el runner de una versión anterior o con el nombre antiguo. El `compose.yml` de cada entorno se queda: es su memoria. `up` además quita los contenedores que el compose ya no declara. Solo se toca lo que lleva la etiqueta de Laru; la caché de build de Docker es de toda la máquina y no se vacía, solo se recorta (abajo).
+- **La caché de compilación de Docker tiene tope: 20 GB.** Cada compilación del Dockerfile de un proyecto deja sus capas (un `npm ci` entero por cada cambio del código) y Docker no las recorta por su cuenta: en una PC con WSL llegó a 182 GB. Por encima del tope, Laru borra primero lo menos usado y mide el resultado; si Docker la deja por encima (con el almacén de imágenes de containerd ignora ese límite), borra toda la caché que ninguna compilación está usando. No se pierden datos ni imágenes: la siguiente compilación de cada imagen empieza de cero. El informe da los tamaños medidos antes y después, o el motivo si falló. Es la caché de toda la máquina, no lleva etiqueta: el tope se cambia con `buildCacheGB` en `~/.laru/config.yaml` y con `0` Laru no la toca.
+- **Limpieza de Docker como política, no solo al construir.** Se aplica tras cada levantamiento, tras cada run, al arrancar el servicio y cada 6 horas, así lo que un agente construyó a mano también se recorta. Quita además las imágenes de Laru que se quedaron sin nombre al reconstruir una etiqueta (el runner incluido, que ahora lleva la etiqueta de Laru). «Archivos locales» y `laru where` muestran la política, el tamaño de la caché de compilación y la última limpieza, con el motivo si la caché no se pudo recortar.
+- **Lo que pesa cada workspace, en el inicio.** Una sección nueva lista cada workspace de la máquina, del más pesado al más ligero, parte por parte: su carpeta, los runs, los entornos, el resto del estado, las instantáneas y las imágenes de Docker de su app; debajo, la carpeta de Laru y la caché de compilación de Docker con su tope, y el total, donde las imágenes e instantáneas de una app cuentan una vez.
+- **Un aviso cada vez que Laru limpia.** Cuando la limpieza de Docker borra algo (imágenes, volúmenes, caché de compilación) o la retención borra o aligera runs, sale un aviso con lo que liberó, en el inicio y dentro de cada workspace, y queda en la campana. Si la caché no se pudo recortar, el aviso es una alerta con el motivo y se queda hasta cerrarlo. Una limpieza que no encontró nada que borrar no avisa.
+- **La limpieza no confunde las apps de la máquina con restos.** Un Laru con otra carpeta (`LARU_HOME`, como un banco de pruebas) también tiene en cuenta los workspaces registrados en la carpeta de Laru de la máquina, así que nunca borra sus imágenes ni sus volúmenes por creerlos de una app que ya no existe. Varios levantamientos o runs seguidos lanzan una sola limpieza (como mucho una cada 2 minutos), y `LARU_DOCKER_CLEANUP=0` apaga la limpieza automática tras levantar y tras cada run.
+- **El agente ya no reconstruye sin caché para recoger código.** Su guía y la herramienta `env_up` le dicen que un `up` normal ya construye lo que cambió y que `rebuild` (sin caché) es solo para cuando cambió una dependencia que se descarga al construir; nunca `docker build` ni `--no-cache` a mano. Cada reconstrucción sin caché dejaba una copia entera de `node_modules`: de ahí los 104 `npm ci` guardados en la PC con WSL.
+- **El reproductor se adapta al vídeo:** el recuadro toma la forma de la grabación (un móvil de pie, una pantalla ancha tumbada) y cabe en la ventana, sin cortes ni franjas de más. La ventana flotante del vídeo se abre también con su forma.
+
+### Arreglado
+
+- **El vídeo de un flujo ya no se detiene cuando Laru se actualiza solo.** Cada refresco automático (un agente que cambia algo) pausaba y volvía a arrancar el vídeo que estabas viendo; a veces la barra seguía avanzando y la imagen se quedaba quieta. Ahora un refresco de los datos no toca el vídeo.
+
 ## [0.1.0-beta.15] - 2026-11-03
 
 ### Arreglado
@@ -283,7 +306,8 @@ Primera beta pública.
   - `CLAUDE.md` y `AGENTS.md` generados.
   - Hooks para Claude Code.
 
-[Sin publicar]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.15...HEAD
+[Sin publicar]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.16...HEAD
+[0.1.0-beta.16]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.15...v0.1.0-beta.16
 [0.1.0-beta.15]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.14...v0.1.0-beta.15
 [0.1.0-beta.14]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.13...v0.1.0-beta.14
 [0.1.0-beta.13]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.12...v0.1.0-beta.13

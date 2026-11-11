@@ -3,13 +3,16 @@
  * remove. Sizes are disk blocks, as `du` counts them, and a walk never follows a symlink. Nothing here touches a
  * project's repo or folder: runs, snapshots, images and shadow git dirs are Laru's own.
  */
-import { execFile } from 'node:child_process';
-import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { execFile, spawn } from 'node:child_process';
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { parse } from 'yaml';
 import { promisify } from 'node:util';
 import { appHome, appOf, laruHome, loadRegistry, loadWorkspace, shadowDir, stateDir, withLock, type Workspace } from '@laru/core';
 import { readConfig, type Retention } from './config.ts';
-import { docker, LABEL, sizeBytes } from './docker.ts';
+import { docker, DOCKER_READ, LABEL, sizeBytes } from './docker.ts';
+import { RUNNER_IMAGE } from './runs.ts';
 import { envDir, listEnvs, readState } from './env.ts';
 import { RESULTS, runnerFiles } from './runner-file.ts';
 import { keyStore } from './vault.ts';
@@ -66,7 +69,7 @@ export interface RunRow {
   id: string; env: string; status: string; startedAt: string; flows: number; running: boolean; bytes: number;
   /** out/results/**.webm|png, relative to the run's folder: the runner's own copies, never served */
   raw: Array<{ path: string; bytes: number }>;
-  /** flows/<slug>/video.webm and s<n>.png: the evidence's video and screenshots */
+  /** flows/<slug>/video.webm, replay.json|mp4 and s<n>.png: the evidence's video, its rrweb recording and screenshots */
   media: Array<{ path: string; bytes: number }>;
   results: Record<string, { status: string; cachedFrom?: string }>;
   pruned?: { at: string; what: string };
@@ -82,7 +85,7 @@ export function runRows(ws: Pick<Workspace, 'root'>): RunRow[] {
     try { r = JSON.parse(readFileSync(f, 'utf8')); } catch { return []; }
     return [{
       id, env: r.env, status: r.status, startedAt: r.startedAt, flows: (r.flows ?? []).length, running: r.status === 'running' && alive(r.pid), bytes: dirBytes(join(dir, id)),
-      raw: rawMedia(join(dir, id)), media: files(join(dir, id), 'flows', /^(video\.webm|s\d+\.png|trace(-\d+)?\.zip)$/),
+      raw: rawMedia(join(dir, id)), media: files(join(dir, id), 'flows', /^(video\.webm|replay\.(json|mp4)|s\d+\.png|trace(-\d+)?\.zip)$/),
       results: r.results ?? {}, ...(r.pruned ? { pruned: r.pruned } : {}),
     }];
   });
@@ -164,7 +167,7 @@ function forgetMedia(dir: string): void {
     try { v = JSON.parse(readFileSync(f, 'utf8')); } catch { return; }
     writeFileSync(f, change(v));
   };
-  const bare = ({ video: _v, pwTrace: _p, ...t }: any) => ({ ...t, ...(Array.isArray(t.steps) ? { steps: t.steps.map(({ screenshot: _s, ...st }: any) => st) } : {}) });
+  const bare = ({ video: _v, pwTrace: _p, replay: _r, ...t }: any) => ({ ...t, ...(Array.isArray(t.steps) ? { steps: t.steps.map(({ screenshot: _s, ...st }: any) => st) } : {}) });
   const flows = join(dir, 'flows');
   for (const slug of existsSync(flows) ? readdirSync(flows) : []) {
     rewrite(join(flows, slug, 'trace.json'), (t) => JSON.stringify(bare(t)));
@@ -185,6 +188,9 @@ export interface PruneReport {
   runs: PruneAction[];
   snapshots: Array<{ path: string; bytes: number }>;
   images: Array<{ ref: string; bytes: number }>;
+  volumes: string[];
+  /** Docker's build cache: the cap applied (gb 0: left alone), and why it could not be trimmed */
+  buildCache?: { gb: number; trimmed: boolean; before?: number; after?: number; error?: string };
   shadow: string[];
   bytes: number;
 }
@@ -220,29 +226,92 @@ export interface ImageRow { Repository: string; Tag: string; ID: string; Created
 const imageRows = async (app: string): Promise<ImageRow[]> => (await docker(['image', 'ls', '--filter', `label=${LABEL.app}=${app}`, '--format', '{{json .}}'])).split('\n').filter(Boolean).map((l) => JSON.parse(l));
 
 /**
- * Images beyond the 3 newest of each service, skipping any a container (running or not) uses: `inUse` is each
- * container's image as it was named (repo:tag), or its id when it was created from one.
+ * Laru's images no container (running or not) uses: of an app with a workspace on this machine, all but the newest of
+ * each service (an env that is down comes back without a build); of an app without one (a test's, a deleted
+ * workspace's), all; and the runner of an older Playwright or of the old name. `inUse` is each container's image as
+ * it was named (repo:tag), or its id when it was created from one.
  */
-export function staleImages(rows: ImageRow[], inUse: string[]): Array<{ ref: string; bytes: number }> {
+export function staleImages(rows: ImageRow[], inUse: string[], known?: Set<string>): Array<{ ref: string; bytes: number }> {
   const byRepo = new Map<string, ImageRow[]>();
   for (const r of rows) (byRepo.get(r.Repository) ?? byRepo.set(r.Repository, []).get(r.Repository)!).push(r);
-  return [...byRepo.values()].flatMap((list) => list.sort((a, b) => b.CreatedAt.localeCompare(a.CreatedAt)).slice(3))
+  const keep = (repo: string) => (/^(laru|keelson)\/runner$/.test(repo) ? 0 : !known || known.has(repo.slice(3, repo.indexOf('/'))) ? 1 : 0);
+  return [...byRepo.entries()].flatMap(([repo, list]) => list.sort((a, b) => b.CreatedAt.localeCompare(a.CreatedAt)).slice(keep(repo)))
+    .filter((r) => `${r.Repository}:${r.Tag}` !== RUNNER_IMAGE)
     .filter((r) => !inUse.includes(`${r.Repository}:${r.Tag}`) && !inUse.some((u) => u.replace(/^sha256:/, '').startsWith(r.ID)))
     .map((r) => ({ ref: `${r.Repository}:${r.Tag}`, bytes: sizeBytes(r.Size) }));
 }
-const oldImages = async (app: string) => staleImages(await imageRows(app), (await docker(['ps', '-a', '--format', '{{.Image}}'])).split('\n').filter(Boolean));
+/** the apps of the workspaces registered on this machine, and this one's */
+/**
+ * The apps of the workspaces registered in this Laru home and in the machine's own (~/.laru, or the older ~/.keelson):
+ * a Laru run with another LARU_HOME (a test bench, a test) knows only its own workspaces, and would take the machine's
+ * apps for leftovers.
+ */
+const knownApps = (app: string) => {
+  const machine = [join(homedir(), '.laru'), join(homedir(), '.keelson')].flatMap((h) => { // legacy-name
+    try { return (parse(readFileSync(join(h, 'workspaces.yaml'), 'utf8')) as Array<{ root?: unknown }>).map((x) => String(x?.root ?? '')); } catch { return []; }
+  });
+  return new Set([app, ...[...loadRegistry().map((x) => x.root), ...machine].map((r) => appOf(r)).filter((a): a is string => Boolean(a))]);
+};
+const oldImages = async (app: string) => {
+  const rows = (await docker(['image', 'ls', '--format', '{{json .}}'])).split('\n').filter(Boolean).map((l) => JSON.parse(l) as ImageRow)
+    .filter((r) => /^ks-[^/]+\//.test(r.Repository) || /^(laru|keelson)\/runner$/.test(r.Repository));
+  return staleImages(rows, (await docker(['ps', '-a', '--format', '{{.Image}}'])).split('\n').filter(Boolean), knownApps(app));
+};
+/**
+ * Docker's build cache down to `gb` (0: left alone), measured before and after: Docker's own answer is not trusted.
+ * Each build of a project's Dockerfile leaves its layers (an `npm ci` per change of the code) and Docker does not trim
+ * them on its own. First the least recently used go (`--max-used-space`; `--keep-storage` on an older Docker); a Docker
+ * that leaves it above the cap anyway (the containerd image store ignores those limits) loses all the cache no build is
+ * using: the next build of each image starts from scratch, nothing else is lost (an image keeps its own layers).
+ */
+async function trimBuildCache(gb: number): Promise<{ before: number; after: number }> {
+  const cap = gb * 1e9, before = await buildCacheBytes();
+  if (before <= cap) return { before, after: before };
+  const args = ['builder', 'prune', '--all', '--force'], o = { timeoutMs: 600_000 }; // a hung Docker never holds the cleanup
+  await docker([...args, '--max-used-space', `${gb}gb`], o).catch((e: Error) => {
+    if (!/unknown flag/i.test(e.message)) throw e;
+    return docker([...args, '--keep-storage', `${gb}gb`], o);
+  });
+  if (await buildCacheBytes() > cap) await docker(args, o);
+  return { before, after: await buildCacheBytes() };
+}
+/**
+ * Docker's cleanup in a detached process (clean-docker.ts): it outlives the command that started it and never holds it.
+ * `LARU_DOCKER_CLEANUP=0` turns it off (the test suite does: its fake Dockers answer one call at a time).
+ */
+export function cleanDockerDetached(app: string): void {
+  if (process.env.LARU_DOCKER_CLEANUP === '0') return;
+  // several ups and runs in a row start one cleanup, not one each: none if one started in the last 2 minutes
+  const started = join(laruHome(), 'docker-cleanup.started');
+  try { if (Date.now() - statSync(started).mtimeMs < 120_000) return; } catch { /* never started */ }
+  try { mkdirSync(laruHome(), { recursive: true }); writeFileSync(started, new Date().toISOString()); } catch { /* it runs all the same */ }
+  spawn(process.execPath, [join(import.meta.dirname, 'clean-docker.ts'), app], { detached: true, stdio: 'ignore' }).unref();
+}
+/** When Laru last cleaned Docker (the machine's: images, volumes, build cache) and what it removed. */
+const cleanupFile = () => join(laruHome(), 'docker-cleanup.json');
+export type DockerCleanup = { at: string; images: number; imagesBytes?: number; volumes: number; buildCache?: PruneReport['buildCache'] };
+export const lastCleanup = (): DockerCleanup | undefined => { try { return JSON.parse(readFileSync(cleanupFile(), 'utf8')); } catch { return undefined; } };
+/** Docker's build cache as `docker system df` counts it */
+const buildCacheBytes = async () => sizeBytes(JSON.parse((await docker(['system', 'df', '--format', '{{json .}}'], { timeoutMs: DOCKER_READ.ms })).split('\n').filter(Boolean).find((l) => l.includes('"Build Cache"')) ?? '{"Size":"0B"}').Size);
+
+/** Laru's volumes no container uses, of an app without a workspace on this machine (a registered app's caches stay). */
+const oldVolumes = async (app: string) => {
+  const known = knownApps(app);
+  return (await docker(['volume', 'ls', '--filter', 'dangling=true', '--filter', `label=${LABEL.app}`, '--format', `{{.Name}}|{{.Label "${LABEL.app}"}}`]))
+    .split('\n').filter(Boolean).map((l) => l.split('|')).filter(([, a]) => !known.has(a)).map(([name]) => name);
+};
 
 const run = promisify(execFile);
 
 /**
  * Retention and cleanup. `runs` as planPrune says; `snapshots`: commit and folder snapshots no env of any registered
  * workspace of this app started from, keeping the 2 newest per project (working copies: the last 3); `images`: see
- * oldImages, removed by tag without -f; `shadow`: `git gc` in each folder project's shadow. A dry run returns the
+ * staleImages, removed by tag without -f, oldVolumes, and Docker's build cache capped (trimBuildCache); `shadow`: `git gc` in each folder project's shadow. A dry run returns the
  * same report without removing anything.
  */
 export async function prune(ws: Workspace, o: { dryRun?: boolean; what?: PruneWhat[] } = {}): Promise<PruneReport> {
   const what = new Set<PruneWhat>(o.what?.length ? o.what : ['runs', 'snapshots', 'images', 'shadow']);
-  const report: PruneReport = { runs: [], snapshots: [], images: [], shadow: [], bytes: 0 };
+  const report: PruneReport = { runs: [], snapshots: [], images: [], volumes: [], shadow: [], bytes: 0 };
   if (what.has('runs') && existsSync(runsOf(ws))) {
     report.runs = planPrune(runRows(ws), indexOf(ws), readConfig().retention, Date.now());
     if (!o.dryRun) {
@@ -262,7 +331,15 @@ export async function prune(ws: Workspace, o: { dryRun?: boolean; what?: PruneWh
   }
   if (what.has('images')) {
     report.images = await oldImages(ws.app).catch(() => []);
-    if (!o.dryRun) for (const i of report.images) await docker(['image', 'rm', i.ref]).catch(() => undefined);
+    report.volumes = await oldVolumes(ws.app).catch(() => []);
+    if (!o.dryRun) for (const i of report.images) await docker(['image', 'rm', i.ref], { timeoutMs: 120_000 }).catch(() => undefined);
+    if (!o.dryRun) for (const v of report.volumes) await docker(['volume', 'rm', v], { timeoutMs: 120_000 }).catch(() => undefined);
+    // a tag built again leaves the image it pointed at without a name: Laru's (an app's, the runner's) go too
+    if (!o.dryRun) for (const l of [LABEL.app, LABEL.tool]) await docker(['image', 'prune', '--force', '--filter', `label=${l}`], { timeoutMs: 120_000 }).catch(() => undefined);
+    const gb = readConfig().buildCacheGB;
+    report.buildCache = o.dryRun || !gb ? { gb, trimmed: false } : await trimBuildCache(gb).then((x) => ({ gb, trimmed: x.after < x.before, ...x }), (e: Error) => ({ gb, trimmed: false, error: e.message }));
+    if (!o.dryRun) mkdirSync(laruHome(), { recursive: true });
+    if (!o.dryRun) writeFileSync(cleanupFile(), JSON.stringify({ at: new Date().toISOString(), images: report.images.length, imagesBytes: sum(report.images), volumes: report.volumes.length, buildCache: report.buildCache }, null, 2));
   }
   if (what.has('shadow')) {
     report.shadow = ws.repos.filter((r) => r.source === 'folder' && existsSync(shadowDir(ws, r.name))).map((r) => shadowDir(ws, r.name));
@@ -307,6 +384,7 @@ export async function diskReport(ws: Workspace) {
     vaultKey: { store: keyStore(), service: 'laru-vault', account: ws.app },
     machine: { path: laruHome(), files: existsSync(laruHome()) ? readdirSync(laruHome()).filter((f) => !f.startsWith('.')).sort() : [] },
     images,
+    docker: { buildCacheBytes: await buildCacheBytes().catch(() => null), buildCacheGB: readConfig().buildCacheGB, lastCleanup: lastCleanup() },
   };
 }
 export type DiskReport = Awaited<ReturnType<typeof diskReport>>;
@@ -322,3 +400,38 @@ export async function dockerSizes(app: string): Promise<{ volumes: Array<{ name:
     imagesBytes: shared + mine.reduce((n, i) => n + sizeBytes(i.UniqueSize), 0),
   };
 }
+
+/** The last retention of a workspace's runs (runs/prune.json), when there was one. */
+export const lastRunsPrune = (ws: Pick<Workspace, 'root'>): { at: string; removed: { media: number; runs: number; bytes: number } } | undefined => {
+  try { return JSON.parse(readFileSync(join(runsOf(ws), 'prune.json'), 'utf8')); } catch { return undefined; }
+};
+
+/**
+ * What each registered workspace weighs on this machine, part by part: its own folder (without its state), the runs,
+ * the envs, the rest of its state, the snapshots of its app (shared by the workspaces of one app) and its app's Docker
+ * images (before Docker shares layers); then Laru's home without the snapshots (they live in it), Docker's build cache,
+ * and the whole, where an app's snapshots and images count once. Folder sizes are kept a minute.
+ */
+export async function workspacesDisk() {
+  const images = new Map<string, number>();
+  const rows = await docker(['image', 'ls', '--format', '{{json .}}']).then((o) => o.split('\n').filter(Boolean).map((l) => JSON.parse(l) as ImageRow), () => null);
+  for (const r of rows ?? []) { const m = /^ks-([^/]+)\//.exec(r.Repository); if (m) images.set(m[1], (images.get(m[1]) ?? 0) + sizeBytes(r.Size)); }
+  const workspaces = loadRegistry().flatMap((x) => {
+    let w: Workspace;
+    try { w = loadWorkspace(x.root); } catch { return []; }
+    const state = stateDir(w), runs = runsOf(w);
+    const stateBytes = existsSync(state) ? dirBytes(state) : 0, runsBytes = existsSync(runs) ? dirBytes(runs) : 0;
+    const envsBytes = listEnvs(w).reduce((n, e) => n + (existsSync(envDir(w, e)) ? dirBytes(envDir(w, e)) : 0), 0);
+    const bytes = { workspace: dirBytes(w.root, state), runs: runsBytes, envs: envsBytes, state: Math.max(0, stateBytes - runsBytes - envsBytes), snapshots: snapshotRows(w).reduce((n, s) => n + s.bytes, 0), images: rows ? images.get(w.app) ?? 0 : null };
+    return [{ root: w.root, app: w.app, title: w.title, bytes, total: bytes.workspace + stateBytes + bytes.snapshots + (bytes.images ?? 0) }];
+  });
+  const buildCache = { bytes: await buildCacheBytes().catch(() => null), gb: readConfig().buildCacheGB };
+  // an app's snapshots and images count once, however many of its workspaces there are; the snapshots live in Laru's
+  // home (<home>/<app>/snapshots), which is counted without them
+  const perApp = new Map(workspaces.map((w) => [w.app, { snapshots: w.bytes.snapshots, images: w.bytes.images ?? 0 }]));
+  const snapshots = [...perApp.values()].reduce((n, a) => n + a.snapshots, 0);
+  const home = { path: laruHome(), bytes: Math.max(0, (existsSync(laruHome()) ? dirBytes(laruHome()) : 0) - snapshots) };
+  const total = workspaces.reduce((n, w) => n + w.total - w.bytes.snapshots - (w.bytes.images ?? 0), 0) + snapshots + [...perApp.values()].reduce((n, a) => n + a.images, 0) + home.bytes + (buildCache.bytes ?? 0);
+  return { workspaces: workspaces.sort((a, b) => b.total - a.total), home, buildCache, total, lastCleanup: lastCleanup() };
+}
+export type WorkspacesDisk = Awaited<ReturnType<typeof workspacesDisk>>;

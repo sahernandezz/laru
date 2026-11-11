@@ -363,7 +363,7 @@ export function assemble(input: AssembleInput): { traces: Trace[]; observed: Obs
     } : undefined;
     traces.push({
       v: 1, run: input.run, flow: input.flow, test: b.title, story: b.story, env: input.env, t0: v0, durationMs: Math.max(0, rel(end?.t ?? b.t)), status, stepsTotal: input.stepsTotal,
-      participants, steps, exchanges: collapsed, logs, failure, ...(foreign ? { foreign } : {}), ...(end?.screens?.length ? { screens: end.screens.map((s) => { const off = input.screenOffsets?.[`${b.test}|${s.name}`]; return { name: s.name, video: s.video, offsetMs: off, startMs: s.t0 !== undefined ? Math.round(s.t0 + (off ?? offset) - v0) : undefined }; }) } : {}), ...(input.concurrent ? { concurrent: true } : {}), video: end?.video, ...(end?.pwTrace ? { pwTrace: end.pwTrace } : {}), ...(actions.length ? { actions } : {}),
+      participants, steps, exchanges: collapsed, logs, failure, ...(foreign ? { foreign } : {}), ...(end?.screens?.length ? { screens: end.screens.map((s) => { const off = input.screenOffsets?.[`${b.test}|${s.name}`]; return { name: s.name, video: s.video, offsetMs: off, startMs: s.t0 !== undefined ? Math.round(s.t0 + (off ?? offset) - v0) : undefined }; }) } : {}), ...(input.concurrent ? { concurrent: true } : {}), video: end?.video, ...(end?.pwTrace ? { pwTrace: end.pwTrace } : {}), ...(end?.replay ? { replay: end.replay } : {}), ...(actions.length ? { actions } : {}),
     });
   });
   return { traces, observed: [...observed.values()] };

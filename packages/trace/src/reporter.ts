@@ -89,13 +89,14 @@ export default class LaruReporter implements Reporter {
     if (marker) write({ e: 'marker', t: Number(marker), test: test.id });
     const video = result.attachments.find((a) => a.name === 'video')?.path;
     const pwTrace = result.attachments.find((a) => a.name === 'trace')?.path;
+    const replay = result.attachments.find((a) => a.name === 'replay')?.path;
     // the test's other screens: each with the instant its video began, the marker it drew and the video it left
     const screens = [...new Map([...result.annotations, ...test.annotations].filter((a) => a.type === 'screen').flatMap((a) => { try { const s = JSON.parse(a.description ?? '') as { name: string; t0?: number; marker?: number }; return [[s.name, { ...s, video: result.attachments.find((x) => x.name === `video:${s.name}`)?.path }] as const]; } catch { return []; } })).values()];
     const errors = result.errors.map((e) => firstLine(e.message)).filter((x): x is string => Boolean(x));
     // a cut test (timeout, interrupted) is never a deviation, whatever line it was cut on
     const cut = result.status === 'timedOut' || result.status === 'interrupted';
     const known = cut ? 0 : result.errors.filter((e) => onKnownDeviation(e)).length;
-    write({ e: 'test-end', t: Date.now(), test: test.id, status: result.status, error: result.status === 'timedOut' ? this.cut(test) : firstLine(result.error?.message), errors: errors.length > 1 ? errors : undefined, ...(screens.length ? { screens } : {}), ...(result.status === 'passed' ? {} : { known, unexpected: Math.max(cut ? 1 : 0, result.errors.length - known) }), video, pwTrace, durationMs: result.duration });
+    write({ e: 'test-end', t: Date.now(), test: test.id, status: result.status, error: result.status === 'timedOut' ? this.cut(test) : firstLine(result.error?.message), errors: errors.length > 1 ? errors : undefined, ...(screens.length ? { screens } : {}), ...(result.status === 'passed' ? {} : { known, unexpected: Math.max(cut ? 1 : 0, result.errors.length - known) }), video, pwTrace, replay, durationMs: result.duration });
   }
 
   onEnd(result: FullResult) {

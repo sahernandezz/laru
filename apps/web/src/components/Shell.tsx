@@ -10,7 +10,7 @@ import { ago, plural, RUN_PHASE } from '../lib/es.ts';
 import { inProgress, isOffline, nextMisses } from '../lib/service.ts';
 import type { Menu, ScopeMenu as Scoped, Section } from '../lib/menu.ts';
 import { Dot, Logo, tilde } from './ui.tsx';
-import { LiveNotices, Notices, notify, type DockerSeen } from './Notices.tsx';
+import { LiveNotices, noticeCleanups, Notices, notify, type Cleanups, type DockerSeen } from './Notices.tsx';
 import { RunningDock } from './RunningDock.tsx';
 
 /** The «add a workspace» dialog lives with the machine's home page: fetched when it is opened. */
@@ -73,7 +73,7 @@ function remember(j: Jump) {
  * or coming back, a refresh and a run that ended become notices.
  */
 const RUN_END: Record<string, string> = { passed: 'pasó', failed: 'falló', error: 'no pudo correr', cancelled: 'se canceló', interrupted: 'se interrumpió' };
-interface Pulse { docker: DockerSeen; changes?: { n: number; files: string[] }; running?: RunInfo[] }
+interface Pulse { docker: DockerSeen; changes?: { n: number; files: string[] }; running?: RunInfo[]; cleanup?: Cleanups }
 function useService() {
   const [offline, setOffline] = useState(false);
   const [running, setRunning] = useState<RunInfo[]>([]);
@@ -102,6 +102,7 @@ function useService() {
           const files = p.changes.files;
           notify({ kind: 'change', title: 'Actualizado', detail: 'Algo cambió el workspace y la pantalla se actualizó', files, state: 'run' });
         }
+        noticeCleanups(last.cleanup, p.cleanup, href('files'));
         // a run that ended: how it ended is read from the run itself
         for (const r of last.running ?? []) if (!p.running?.some((x) => x.id === r.id)) {
           const what = r.kind === 'session' ? `Sesión #${r.id}` : `Run #${r.id}`, to = r.kind === 'session' ? liveHref(r) : href('runs', r.id);

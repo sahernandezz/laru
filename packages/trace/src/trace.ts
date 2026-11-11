@@ -144,6 +144,8 @@ export interface Trace {
   video?: string;
   /** Playwright's own trace of this test (a zip, kept beside the video), when the run asked for it: it holds the page and the network UNMASKED */
   pwTrace?: string;
+  /** the story's page recorded as data (rrweb events, JSON, masked): replayed in the player, a video made from it on demand */
+  replay?: string;
   /** the person's actions, when the reporter recorded them */
   actions?: Action[];
 }
@@ -156,7 +158,7 @@ export type RunnerEvent =
   | { e: 'step-begin'; t: number; test: string; title: string }
   | { e: 'step-end'; t: number; test: string; title: string; t0: number; status: StepStatus; error?: string }
   | { e: 'action'; t: number; test: string; t0: number; ms: number; kind: ActionKind; target?: string; key?: string; path?: string }
-  | { e: 'test-end'; t: number; test: string; /** the other screens of the test, each with its own video */ screens?: Array<{ name: string; t0?: number; marker?: number; video?: string }>; status: 'passed' | 'failed' | 'skipped' | 'timedOut' | 'interrupted'; error?: string; errors?: string[]; /** how many of the errors sit on a line the app is known to deviate on (`// app:`), and how many do not */ known?: number; unexpected?: number; video?: string; /** Playwright's trace.zip of this test, when the run asked for it */ pwTrace?: string; durationMs: number }
+  | { e: 'test-end'; t: number; test: string; /** the other screens of the test, each with its own video */ screens?: Array<{ name: string; t0?: number; marker?: number; video?: string }>; status: 'passed' | 'failed' | 'skipped' | 'timedOut' | 'interrupted'; error?: string; errors?: string[]; /** how many of the errors sit on a line the app is known to deviate on (`// app:`), and how many do not */ known?: number; unexpected?: number; video?: string; /** Playwright's trace.zip of this test, when the run asked for it */ pwTrace?: string; /** its rrweb recording */ replay?: string; durationMs: number }
   | { e: 'end'; t: number; status: string };
 
 export interface RunInfo {

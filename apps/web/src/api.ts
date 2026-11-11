@@ -3,12 +3,12 @@ import { useCallback, useEffect, useReducer } from 'react';
 import { toast } from './components/ui.tsx';
 import { apiUrlFor, wsOf } from './lib/route.ts';
 import type { Impact, TopicContract, LiveData, OwedItem, SheetNote, DocNote, ConventionResult, Fact, FileIssue, Finding, FindingType, Freshness, Issue, knowledgeShape, Loaded, MapNode, PieceType, RepoConfig, RepoStatus, StageCoverage, SystemMap, WriteInput, WriteResult } from '@laru/core';
-import type { Mounted, Fidelity, Applied, Scenario, ScenarioState, Shown, Address, Admission, Browse, Column, Connection, DestroyReport, DiskReport, EnvEvent, EnvSpec, PruneReport, EnvStatus, FaultRule, Filter, FlowSpec, kafka, Level, MockContract, MockOperation, MockSpec, mongo, rabbit, redis, RowUpdate, ServiceStatus, storage, Store, Table, TapRoute, TapRules, TrafficRecord, VarIssue, VarRow } from '@laru/runtime';
+import type { Mounted, Fidelity, Applied, Scenario, ScenarioState, Shown, Address, Admission, Browse, Column, Connection, DestroyReport, DiskReport, EnvEvent, EnvSpec, PruneReport, EnvStatus, FaultRule, Filter, FlowSpec, kafka, Level, MockContract, MockOperation, MockSpec, mongo, rabbit, redis, RowUpdate, ServiceStatus, storage, Store, Table, TapRoute, TapRules, TrafficRecord, VarIssue, VarRow, WorkspacesDisk } from '@laru/runtime';
 import type { Exchange, FlowLast, KafkaLine, LogLine, RunInfo, RunnerEvent, Sample, Seen, SeenEndpoint, SeenTopic, Step, Trace } from '@laru/trace';
 type S3Entry = storage.S3Entry;
 
 export type { Impact, TopicContract, Fact, Finding, FindingType, Issue, MapNode, PieceType, RepoStatus, StageCoverage, SystemMap, WriteInput, WriteResult };
-export type { Mounted, Address, Admission, Browse, Column, DestroyReport, DiskReport, EnvEvent, PruneReport, FaultRule, Filter, Level, MockSpec, RowUpdate, ServiceStatus, Table, TapRoute, TrafficRecord, VarIssue, VarRow };
+export type { Mounted, Address, Admission, Browse, Column, DestroyReport, DiskReport, EnvEvent, PruneReport, FaultRule, Filter, Level, MockSpec, RowUpdate, ServiceStatus, Table, TapRoute, TrafficRecord, VarIssue, VarRow, WorkspacesDisk };
 export type { Exchange, FlowLast, KafkaLine, LogLine, RunInfo, RunnerEvent, S3Entry, Sample, Seen, SeenEndpoint, SeenTopic, Step, Trace };
 export type { MockContract, MockOperation };
 export type { Fidelity, Scenario, ScenarioState };

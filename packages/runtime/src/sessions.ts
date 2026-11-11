@@ -350,7 +350,7 @@ export function screenOf(ws: Workspace, id: string): { port: number; token: stri
  * so the video's frame n is `t0 + n × 100 ms`: a person's pace, at a ninth of the CPU of 25 per second (0.8 s for 10 s
  * of video against 7.2 s, measured on a still frame; a session of 51 minutes held four cores at 25).
  */
-async function screencast(page: import('playwright-core').Page, file: string) {
+export async function screencast(page: import('playwright-core').Page, file: string, size: { width: number; height: number } = SCREEN) {
   const ff = spawn(FFMPEG, ['-loglevel', 'error', '-y', '-f', 'image2pipe', '-framerate', String(FPS), '-c:v', 'mjpeg', '-i', 'pipe:0',
     '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2', '-c:v', 'libvpx', '-b:v', '600k', '-deadline', 'realtime', '-cpu-used', '16', '-threads', '2', '-pix_fmt', 'yuv420p', file], { stdio: ['pipe', 'ignore', 'inherit'] });
   const exited = new Promise<number | null>((res) => { ff.on('exit', res); ff.on('error', () => res(null)); });
@@ -369,7 +369,7 @@ async function screencast(page: import('playwright-core').Page, file: string) {
       for (const w of watchers) w(last);
       next.send('Page.screencastFrameAck', { sessionId: f.sessionId }).catch(() => undefined);
     });
-    await next.send('Page.startScreencast', { format: 'jpeg', quality: 80, maxWidth: SCREEN.width, maxHeight: SCREEN.height });
+    await next.send('Page.startScreencast', { format: 'jpeg', quality: 80, maxWidth: size.width, maxHeight: size.height });
     cdp = next;
   };
   await follow(page);

@@ -9,13 +9,13 @@ import { createHash } from 'node:crypto';
 import { appendFileSync, closeSync, existsSync, fstatSync, mkdirSync, openSync, readdirSync, readSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { basename, dirname, join, relative } from 'node:path';
-import { loadGraph, loadKnowledge, parseLimit, shareEvidence, stateDir, type Row, type Workspace } from '@laru/core';
+import { loadGraph, loadKnowledge, parseLimit, parseScreen, shareEvidence, stateDir, type Row, type Workspace } from '@laru/core';
 import { parse } from 'yaml';
 import { interpolations } from './compose.ts';
 import { ksVar, type TrafficRecord } from './types.ts';
 import { assemble, isGreen, MASK_KEYS, parseKafkaDump, parsePgLog, type KafkaLine, type Masker, type RunInfo, type RunnerEvent, type ServiceLog, type SqlLine, type Trace } from '@laru/trace';
 import { readConfig } from './config.ts';
-import { prune } from './disk.ts';
+import { cleanDockerDetached, prune } from './disk.ts';
 import { byLabel, destroyByLabel, docker, dockerJson, dockerStream, envLock, inspectEnv, LABEL, stats, withLock, workspaceKey, type ContainerState } from './docker.ts';
 import { envDir, envMasker, envProjects, flowProjects, forgetValues, isInstance, loadEnvSpec, projectName, readState } from './env.ts';
 import { appendRunnerFile, readRunnerFile, RESULTS, runnerFile, runnerFiles } from './runner-file.ts';
@@ -25,6 +25,8 @@ import { status, up } from './up.ts';
 import { flowsVars, injection } from './vault.ts';
 
 export const RUNNER_IMAGE = 'laru/runner:1.64.1';
+/** rrweb's recorder as one script (its UMD build), for the runner's story page; none when the package is missing */
+const RRWEB_RECORD = (() => { try { const p = join(dirname(createRequire(import.meta.url).resolve('@rrweb/record')), 'record.umd.min.cjs'); return existsSync(p) ? p : undefined; } catch { return undefined; } })();
 export const runsDir = (ws: Workspace) => join(stateDir(ws), 'runs');
 /** A run and a flow are names, never paths: an id with a `/` or a `..` reached folders the runner writes (out/). */
 const NAME = /^[\w-]+$/;
@@ -32,7 +34,7 @@ export const runDir = (ws: Workspace, id: string) => { if (!NAME.test(id)) throw
 /** Where a run keeps one flow's evidence. */
 export const flowDir = (ws: Workspace, id: string, slug: string) => { if (!NAME.test(slug)) throw new Error(`no flow ${JSON.stringify(slug)}`); return join(runDir(ws, id), 'flows', slug); };
 
-export interface FlowSpec { slug: string; id: string; title: string; spec: string; dir: string; exists: boolean; steps: Row[]; needs: string[]; /** the scenario it starts from */ scenario?: string; /** its time limit (`timeout` in flow.md), in ms */ timeoutMs?: number }
+export interface FlowSpec { slug: string; id: string; title: string; spec: string; dir: string; exists: boolean; steps: Row[]; needs: string[]; /** the scenario it starts from */ scenario?: string; /** its time limit (`timeout` in flow.md), in ms */ timeoutMs?: number; /** its browser window (`screen` in flow.md) */ screen?: { width: number; height: number } }
 
 /** Every flow of the documentation with the spec that plays it (`<flow dir>/<slug>.spec.ts`). */
 export function listFlows(ws: Workspace): FlowSpec[] {
@@ -41,8 +43,8 @@ export function listFlows(ws: Workspace): FlowSpec[] {
     const spec = join(p.dir, `${slug}.spec.ts`);
     const needs = p.meta?.needs;
     const scenario = p.meta?.scenario;
-    const limit = parseLimit(p.meta?.timeout);
-    return { slug, id: p.id, title: p.title, spec, dir: p.dir, exists: existsSync(join(ws.root, spec)), steps: (p.fields.steps ?? []) as Row[], needs: Array.isArray(needs) ? needs : needs ? [needs] : [], ...(scenario ? { scenario: String(Array.isArray(scenario) ? scenario[0] : scenario) } : {}), ...(limit ? { timeoutMs: limit } : {}) };
+    const limit = parseLimit(p.meta?.timeout), screen = parseScreen(p.meta?.screen);
+    return { slug, id: p.id, title: p.title, spec, dir: p.dir, exists: existsSync(join(ws.root, spec)), steps: (p.fields.steps ?? []) as Row[], needs: Array.isArray(needs) ? needs : needs ? [needs] : [], ...(scenario ? { scenario: String(Array.isArray(scenario) ? scenario[0] : scenario) } : {}), ...(limit ? { timeoutMs: limit } : {}), ...(screen ? { screen } : {}) };
   }).sort((a, b) => a.slug.localeCompare(b.slug));
 }
 
@@ -138,7 +140,7 @@ export async function ensureRunner(onLine?: (l: string) => void): Promise<void> 
   const have = await docker(['image', 'inspect', RUNNER_IMAGE]).then(() => true, () => false);
   if (have) return;
   const dir = join(import.meta.dirname, '..', 'runner');
-  const code = await dockerStream(['build', '-t', RUNNER_IMAGE, dir], onLine ?? (() => undefined));
+  const code = await dockerStream(['build', '--label', `${LABEL.tool}=runner`, '-t', RUNNER_IMAGE, dir], onLine ?? (() => undefined));
   if (code !== 0) throw new Error(`could not build ${RUNNER_IMAGE}`);
 }
 
@@ -316,7 +318,14 @@ export function maskOutput(out: string, masker: Masker): void {
   const events = readRunnerFile(out, 'events.jsonl');
   if (events !== undefined) writeFileSync(join(out, 'events.jsonl'), events.split('\n').filter(Boolean).map((l) => { try { return JSON.stringify(maskJson(JSON.parse(l), m)); } catch { return m.text(l); } }).join('\n') + '\n');
   for (const n of readdirSync(out).filter((x) => RESULTS.test(x))) {
-    for (const p of runnerFiles(out, n)) if (/\.(md|txt|log|json|jsonl|html|xml|ya?ml|csv)$/i.test(p)) writeFileSync(join(out, p), m.text(readRunnerFile(out, p) ?? ''));
+    for (const p of runnerFiles(out, n)) {
+      if (!/\.(md|txt|log|json|jsonl|html|xml|ya?ml|csv)$/i.test(p)) continue;
+      const text = readRunnerFile(out, p) ?? '';
+      // a JSON file (the story's rrweb recording) is masked value by value: a secret JSON escapes (a quote, a backslash) would not match as text
+      let json: unknown;
+      try { json = p.endsWith('.json') ? JSON.parse(text) : undefined; } catch { json = undefined; }
+      writeFileSync(join(out, p), json === undefined ? m.text(text) : JSON.stringify(maskJson(json, m)));
+    }
   }
 }
 
@@ -349,6 +358,8 @@ export function runnerArgs(ws: Workspace, env: string, runLabel: string | undefi
     // holds the env's mask.json (every secret value) and the scenarios' states. An empty tmpfs hides it; `out` and the
     // tap files are mounted on their own, above.
     '--tmpfs', `/ks/ws/${basename(stateDir(ws))}:size=1m`,
+    // rrweb's recorder for the story's page: a file of the host's own install, never the workspace's
+    ...(RRWEB_RECORD ? ['-v', `${RRWEB_RECORD}:/ks/rrweb-record.js:ro`] : []),
     '-v', `${join(tap, 'traffic.jsonl')}:/ks/tap/traffic.jsonl:ro`, '-v', `${join(tap, 'rules.json')}:/ks/tap/rules.json:ro`,
     // the env's mailbox, for the `mail` and `sms` fixtures: a file only an env with a sink has (the codes in it are the ones a test needs)
     ...(existsSync(join(tap, 'mail', 'messages.jsonl')) ? ['-v', `${join(tap, 'mail', 'messages.jsonl')}:/ks/tap/messages.jsonl:ro`] : []),
@@ -477,6 +488,7 @@ export async function runFlows(ws: Workspace, o: RunOptions): Promise<RunInfo> {
       const perFlow = loadEnvSpec(ws, o.env).join ? baseUrls(ws, o.env, runLabel, toRun, graph?.map ?? null) : {};
       // each flow's own limit (`timeout` in flow.md), keyed by its spec file's name; a flow with none keeps KS_TIMEOUT_MS
       const limits = Object.fromEntries(toRun.filter((f) => f.timeoutMs).map((f) => [f.slug, f.timeoutMs]));
+      const screens = Object.fromEntries(toRun.filter((f) => f.screen).map((f) => [f.slug, f.screen]));
       let masker = withFields(envMasker(ws, o.env, runLabel));
       // the runner can swap these two for links while it plays: they are only ever appended to through appendRunnerFile
       const out = join(dir, 'out');
@@ -515,7 +527,7 @@ export async function runFlows(ws: Workspace, o: RunOptions): Promise<RunInfo> {
           const a = await applyScenario(ws, u.scn, { env: o.env, confirm: true }); // said yes in `confirmRun`, or the env keeps nothing
           given = `KS_SCENARIO_JSON=${JSON.stringify({ scenario: u.scn, identities: a.identities })}\n`;
         }
-        const runner = await startRunner(ws, o.env, runLabel, id, out, join(dir, `.runner-${i}.env`), `KS_RUN=${id}\nKS_BASE_URL=${baseUrl(ws, o.env, runLabel)}\n${Object.keys(perFlow).length ? `KS_BASE_URLS_JSON=${JSON.stringify(perFlow)}\n` : ''}${Object.keys(limits).length ? `KS_FLOW_TIMEOUTS_JSON=${JSON.stringify(limits)}\n` : ''}KS_FLOW_VARS_JSON=${JSON.stringify(await flowsVars(ws))}\nKS_RETRIES=${o.retries ?? 0}\n${hold ? `KS_STEP_HOLD_MS=${hold}\n` : ''}${o.pwTrace ? 'KS_PW_TRACE=1\n' : ''}KS_EVENTS=/ks/out/events-${i}.jsonl\n${i ? `KS_RESULTS=/ks/out/results-${i}\nKS_SHARD=${i}\n` : ''}${given}`, u.flows.map((f) => f.spec));
+        const runner = await startRunner(ws, o.env, runLabel, id, out, join(dir, `.runner-${i}.env`), `KS_RUN=${id}\nKS_BASE_URL=${baseUrl(ws, o.env, runLabel)}\n${Object.keys(perFlow).length ? `KS_BASE_URLS_JSON=${JSON.stringify(perFlow)}\n` : ''}${Object.keys(limits).length ? `KS_FLOW_TIMEOUTS_JSON=${JSON.stringify(limits)}\n` : ''}${Object.keys(screens).length ? `KS_FLOW_SCREENS_JSON=${JSON.stringify(screens)}\n` : ''}KS_FLOW_VARS_JSON=${JSON.stringify(await flowsVars(ws))}\nKS_RETRIES=${o.retries ?? 0}\n${hold ? `KS_STEP_HOLD_MS=${hold}\n` : ''}${o.pwTrace ? 'KS_PW_TRACE=1\n' : ''}KS_EVENTS=/ks/out/events-${i}.jsonl\n${i ? `KS_RESULTS=/ks/out/results-${i}\nKS_SHARD=${i}\n` : ''}${given}`, u.flows.map((f) => f.spec));
         runners.add(runner);
         const [raw] = await dockerJson<any[]>(['inspect', runner]);
         runnerIps[i] = Object.values(raw.NetworkSettings?.Networks ?? {}).map((n: any) => n.IPAddress).find(Boolean) ?? '';
@@ -616,8 +628,10 @@ export async function runFlows(ws: Workspace, o: RunOptions): Promise<RunInfo> {
   }
   // Each flow that passed becomes its shared evidence (evidence/<flow>/), the one git carries to the team.
   for (const [slug, r] of Object.entries(run.results)) if (r.status === 'passed') try { shareEvidence(ws, id, slug); } catch { /* the run stands without it */ }
-  // Retention runs after every run; this one is the newest of its flows, so it stays.
+  // Retention runs after every run (this one is the newest of its flows, so it stays); Docker is cleaned in a process of
+  // its own, what the run's instance held is free now, without holding the run's end or `laru test`'s exit.
   await prune(ws, { what: ['runs'] }).catch(() => undefined);
+  cleanDockerDetached(ws.app);
   return run;
 }
 
@@ -637,6 +651,11 @@ export function keepEvidence(dir: string, slug: string, traces: Trace[], story: 
   for (const t of traces) for (const sc of t.screens ?? []) {
     const host = t === story && sc.video ? runnerFile(from, relative('/ks/out', sc.video)) : undefined;
     if (host) { renameSync(host, join(out, `video-${sc.name}.webm`)); sc.video = `video-${sc.name}.webm`; } else sc.video = undefined;
+  }
+  // The story's rrweb recording, the same way: replay.json, already masked with the rest of out/ (maskOutput).
+  if (story?.replay) {
+    const host = runnerFile(from, relative('/ks/out', story.replay));
+    if (host) { renameSync(host, join(out, 'replay.json')); story.replay = 'replay.json'; } else story.replay = undefined;
   }
   let left = runnerFiles(from);
   // Playwright's own trace (only when the run asked): the story's is trace.zip, the cases' trace-<n>.zip. It is not masked.
