@@ -183,6 +183,11 @@ const indexOf = (ws: Pick<Workspace, 'root'>) => {
   return existsSync(f) ? readFileSync(f, 'utf8').split('\n').filter(Boolean).flatMap((l) => { try { return [JSON.parse(l)]; } catch { return []; } }) : [];
 };
 
+/** Unused snapshots kept per project, the newest first: of a commit, of a folder, of a working copy. */
+export const SNAPSHOTS_KEPT = { worktree: 3, commit: 2, folder: 2 };
+/** How often the service cleans Docker by itself, and the least time between two cleanups started by ups and runs. */
+export const CLEANUP_EVERY_MS = 6 * 3600_000, CLEANUP_GAP_MS = 120_000;
+
 export type PruneWhat = 'runs' | 'snapshots' | 'images' | 'shadow';
 export interface PruneReport {
   runs: PruneAction[];
@@ -283,7 +288,7 @@ export function cleanDockerDetached(app: string): void {
   if (process.env.LARU_DOCKER_CLEANUP === '0') return;
   // several ups and runs in a row start one cleanup, not one each: none if one started in the last 2 minutes
   const started = join(laruHome(), 'docker-cleanup.started');
-  try { if (Date.now() - statSync(started).mtimeMs < 120_000) return; } catch { /* never started */ }
+  try { if (Date.now() - statSync(started).mtimeMs < CLEANUP_GAP_MS) return; } catch { /* never started */ }
   try { mkdirSync(laruHome(), { recursive: true }); writeFileSync(started, new Date().toISOString()); } catch { /* it runs all the same */ }
   spawn(process.execPath, [join(import.meta.dirname, 'clean-docker.ts'), app], { detached: true, stdio: 'ignore' }).unref();
 }
@@ -322,7 +327,7 @@ export async function prune(ws: Workspace, o: { dryRun?: boolean; what?: PruneWh
   if (what.has('snapshots')) {
     const rows = snapshotRows(ws);
     for (const repo of new Set(rows.map((r) => r.repo))) {
-      for (const [kind, n] of [['worktree', 3], ['commit', 2], ['folder', 2]] as const) {
+      for (const [kind, n] of Object.entries(SNAPSHOTS_KEPT) as Array<[keyof typeof SNAPSHOTS_KEPT, number]>) {
         const mine = rows.filter((r) => r.repo === repo && r.kind === kind).sort((a, b) => b.mtime - a.mtime);
         report.snapshots.push(...mine.slice(n).filter((r) => !r.usedBy.length).map((r) => ({ path: r.path, bytes: r.bytes })));
       }

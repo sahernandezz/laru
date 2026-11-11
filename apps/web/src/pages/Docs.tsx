@@ -411,6 +411,8 @@ export function owedText(k: KnowledgeData, p: DocPiece, o: DocNote['owed'][numbe
   if (o.key === 'min-words') return `«${heading}» necesita al menos ${o.params?.min} palabras.`;
   if (o.key === 'summary-short') return `El resumen debe decir algo: al menos ${o.params?.min} caracteres.`;
   if (o.key === 'relation-expected') return `Declara la relación ${o.params?.relation}.`;
+  if (o.key === 'vague') return `Dilo en concreto: ${String(o.params?.words ?? '').split(', ').map((w) => `«${w}»`).join(', ')}.`;
+  if (o.key === 'unknown-endpoint') return `Nombra endpoints que el código no tiene: ${o.params?.endpoints}.`;
   return o.at;
 }
 /** One thing a container still owes, in words. */

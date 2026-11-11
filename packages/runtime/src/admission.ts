@@ -16,6 +16,8 @@ export interface Decision {
 
 /** How long after it starts an env is still growing: its reading undercounts what it will hold. */
 export const SETTLING_MS = 5 * 60_000;
+/** The share of Docker's memory that what runs plus what starts may take; the rest is the machine's margin. */
+export const ADMIT_SHARE = 0.9;
 
 export function decide(o: {
   total: number; need: number;
@@ -38,12 +40,12 @@ export function decide(o: {
   // what is not Laru's counts as held, and so does the growth still to come of what is
   const foreignBytes = Math.max(0, o.allBytes - laruNow);
   const used = foreignBytes + counted.reduce((n, h) => n + h.memBytes, 0);
-  const fits = !o.total || used + o.need <= 0.9 * o.total;
+  const fits = !o.total || used + o.need <= ADMIT_SHARE * o.total;
   const d: Decision = { fits, totalBytes: o.total, needBytes: o.need, usedBytes: used, foreignBytes, others: counted.sort((a, b) => b.memBytes - a.memBytes) };
   if (!fits) {
     const own = counted.filter((h) => h.key === o.mine.key && !h.run).sort((a, b) => b.memBytes - a.memBytes);
     // the smallest stop that is enough
-    const enough = own.filter((h) => used - h.memBytes + o.need <= 0.9 * o.total).sort((a, b) => a.memBytes - b.memBytes)[0];
+    const enough = own.filter((h) => used - h.memBytes + o.need <= ADMIT_SHARE * o.total).sort((a, b) => a.memBytes - b.memBytes)[0];
     if (enough) d.offer = { app: enough.app, env: enough.env, memBytes: enough.memBytes };
   }
   return d;

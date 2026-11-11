@@ -10,11 +10,11 @@ type P = Record<string, string | number> | undefined;
 const PIECE: Record<string, string> = {
   application: 'Aplicativo', module: 'Módulo', process: 'Proceso', repository: 'Repositorio', service: 'Servicio', datastore: 'Almacén', external: 'Sistema externo',
   agreement: 'Forma de trabajo', plan: 'Plan', decision: 'Decisión', contract: 'Contrato', 'data-model': 'Modelo de datos', convention: 'Convención', guide: 'Guía', 'test-plan': 'Plan de pruebas',
-  flow: 'Flujo', scenario: 'Escenario', artifact: 'Artefacto', runbook: 'Runbook', architecture: 'Arquitectura', versioning: 'Versionamiento', stack: 'Stack', infrastructure: 'Infraestructura', secrets: 'Secretos', glossary: 'Glosario', term: 'Término', note: 'Nota',
+  flow: 'Flujo', scenario: 'Escenario', artifact: 'Artefacto', architecture: 'Arquitectura', versioning: 'Versionamiento', stack: 'Stack', infrastructure: 'Infraestructura', secrets: 'Secretos', glossary: 'Glosario',
 };
 const PIECES: Record<string, string> = {
   agreement: 'Formas de trabajo', plan: 'Planes', decision: 'Decisiones', contract: 'Contratos', 'data-model': 'Modelos de datos', convention: 'Convenciones', guide: 'Guías', 'test-plan': 'Planes de pruebas',
-  flow: 'Flujos', scenario: 'Escenarios', artifact: 'Artefactos', runbook: 'Runbooks', architecture: 'Arquitecturas', versioning: 'Versionamientos', stack: 'Stacks', infrastructure: 'Infraestructuras', secrets: 'Secretos', glossary: 'Glosarios', term: 'Términos', note: 'Notas',
+  flow: 'Flujos', scenario: 'Escenarios', artifact: 'Artefactos', architecture: 'Arquitecturas', versioning: 'Versionamientos', stack: 'Stacks', infrastructure: 'Infraestructuras', secrets: 'Secretos', glossary: 'Glosarios',
 };
 export const pieceLabel = (t: string) => PIECE[t] ?? t;
 export const piecesLabel = (t: string) => PIECES[t] ?? t;
@@ -54,8 +54,8 @@ const REASON: Record<string, (p: P) => string> = {
   'not-in-env': (p) => `${p?.name} no está en ningún entorno.`,
   'env-not-ready': (p) => `${p?.envs} no ha llegado a estar listo.`,
   'env-ready': (p) => `Listo en ${p?.env} el ${p?.at} UTC.`,
-  'runbooks-missing': (p) => `Sin runbook: ${p?.list}.`,
-  'runbooks-ok': (p) => (p?.count === 1 ? 'Tiene su runbook.' : `${p?.count} runbooks.`),
+  'operate-guide-missing': (p) => `Sin guía de operación: ${p?.list}.`,
+  'operate-guides-ok': (p) => (p?.count === 1 ? 'Tiene su guía de operación.' : `${p?.count} guías de operación.`),
 };
 export const reasonText = (r: { key: string; params?: P; text: string }) => REASON[r.key]?.(r.params) ?? r.text;
 
@@ -67,7 +67,9 @@ const ISSUE: Record<string, (p: P) => string> = {
   'duplicate-number': (p) => `${p?.number} ya es de otra decisión.`,
   'bad-number': () => 'DEC- y al menos cuatro cifras: DEC-0001.',
   'too-long': (p) => `Como mucho ${p?.max} caracteres${p?.length ? ` (lleva ${p.length})` : ''}.`,
-  'too-many': (p) => `Como mucho ${p?.max} elementos.`,
+  vague: (p) => `Dilo en concreto, o compruébalo y quita la duda: ${String(p?.words ?? '').split(', ').map((w) => `«${w}»`).join(', ')}.`,
+  'repeats-summary': () => 'Repite el título o el resumen: di lo que ellos no dicen.',
+  'unknown-endpoint': (p) => `Dice \`${p?.endpoint}\`, pero el código no tiene ese endpoint.`,
   'bad-enum': (p) => `Uno de: ${p?.options}.`,
   'bad-date': () => 'Una fecha AAAA-MM-DD.',
   'unknown-ref': (p) => `«${p?.id}» no existe${p?.suggestion ? `; ¿quisiste decir ${p.suggestion}?` : '.'}`,

@@ -13,7 +13,7 @@ import { resolveRef } from './repos.ts';
 import { appHome, plainPath, sharedFolder, workspaceKey, WorkspaceError, type RepoConfig, type Workspace } from './workspace.ts';
 
 export const DEFAULT_IGNORE = ['node_modules/', 'target/', 'build/', 'dist/', 'out/', '.gradle/', '.idea/', '.vscode/', '__pycache__/', '.venv/', 'coverage/', '.DS_Store', '*.log', '.env', '.env.*', '!.env.example', '!.env.sample', '!.env.template'];
-const BIG = 50 * 1024 * 1024;
+export const BIG = 50 * 1024 * 1024;
 const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
 /** A `.env` that is not an example: never hashed, archived or extracted, whatever the folder's own .gitignore says. */
 const SECRET_FILE = /(^|\/)\.env(\.(?!example$|sample$|template$)[^/]+)?$/;

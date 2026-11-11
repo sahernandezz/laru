@@ -9,8 +9,8 @@ import { saveLock, type Workspace } from './workspace.ts';
 export * from './model.ts';
 export * from './workspace.ts';
 export { addRepo, linkRepo, repoStatus, syncRepos, type RepoStatus } from './repos.ts';
-export { loadExtraction, type ExtractStats } from './extract.ts';
-export { Graph, loadGraph, loadObserved, mapFile, observedFile } from './graph.ts';
+export { loadExtraction, MAX_BYTES as EXTRACT_MAX_BYTES, type ExtractStats } from './extract.ts';
+export { Graph, loadGraph, loadObserved, mapFile, OBSERVED_DAYS, observedFile } from './graph.ts';
 export { ask, context, docsTree, estimateTokens, path, render, resolveTarget, tree } from './query.ts';
 export { IMAGE_KINDS, targetsIn, type Target } from './build.ts';
 export { agentGuide, initWorkspace, outsideNote, writeAgentFiles } from './init.ts';
@@ -19,7 +19,7 @@ export { git } from './git.ts';
 export { evidenceDir, importEvidence, shareEvidence, withEvidence } from './evidence.ts';
 export { withLock } from './lock.ts';
 export { agentRoot, appOf, byCwd, idOf, lastOpened, loadRegistry, realRoot, register, resolveId, resolveRoot, touch, unregister, type Registered } from './registry.ts';
-export { DEFAULT_IGNORE, gitOf, keepTree, refOf, scanFolder, shadowDir, shareFolder, shadowEnv, treeNow, type FolderScan } from './folder.ts';
+export { BIG as FOLDER_BIG, DEFAULT_IGNORE, gitOf, keepTree, refOf, scanFolder, shadowDir, shareFolder, shadowEnv, treeNow, type FolderScan } from './folder.ts';
 
 /** Reads every repo at its reference branch and rebuilds the map. Unchanged files are not read again. */
 export async function refreshMap(ws: Workspace): Promise<{ map: SystemMap; stats: ExtractStats[]; ms: number }> {
@@ -52,10 +52,10 @@ export { deriveDiagram, derivedList, protocolOf, relationsOf, type DerivedInfo, 
 export { liveOf, serviceTests, testFolders, SECRET_NAME, type LiveData, type LiveEndpoint, type LiveTest } from './knowledge/live.ts';
 export { sheetNote, acceptKey, owedLine, type SheetNote, type OwedItem } from './knowledge/sheet.ts';
 export { migrateWorkspace, type MigrationReport } from './knowledge/migrate.ts';
-export { documentNote, type DocNote, type NoteItem } from './knowledge/lint.ts';
+export { documentNote, endpointIn, type DocNote, type NoteItem } from './knowledge/lint.ts';
 export { loadKnowledge, ancestors, childrenOf, anchorResolver, fingerprint, freshness, type Knowledge, type Loaded, type Freshness, type FileIssue } from './knowledge/store.ts';
 export { coverage, evaluateConventions, conventionsFor, scopeFiles, type StageCoverage, type CovState, type Reason, type ConventionResult } from './knowledge/coverage.ts';
-export { knowledgeShape, knowledgeWrite, writeFlowGuide, verifyPiece, checkWorkspace, docsLang, slugify, type WriteInput, type WriteResult, type CheckResult } from './knowledge/write.ts';
+export { diagramShape, knowledgeShape, knowledgeWrite, writeFlowGuide, verifyPiece, checkWorkspace, docsLang, slugify, type WriteInput, type WriteResult, type CheckResult } from './knowledge/write.ts';
 export { scaffoldSpec, specSteps, checkFlowSpec, lintSpec, provesOnScreen, holdsValidations, codeOnly, specPath, type FlowCheck, type FlowCheckKey } from './flows.ts';
 export { E2E_GUIDE, E2E_RULES } from './knowledge/e2e.ts';
 export { changesFromWorktrees, impact, renderImpact, workspaceChanges, type Change, type Impact } from './impact.ts';

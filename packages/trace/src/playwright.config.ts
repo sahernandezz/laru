@@ -3,6 +3,7 @@
  * only (the story project), Playwright's own trace off unless asked (it would hold unmasked bodies).
  */
 import { defineConfig } from '@playwright/test';
+import { RUNNER_DEFAULTS as D } from './runner-defaults.ts';
 
 export default defineConfig({
   testDir: '/ks/ws',
@@ -14,18 +15,18 @@ export default defineConfig({
   tsconfig: '/ks/packages/runtime/runner/tsconfig.json',
   workers: 1,
   fullyParallel: false,
-  retries: Number(process.env.KS_RETRIES ?? 0),
-  timeout: Number(process.env.KS_TIMEOUT_MS ?? 300_000),
+  retries: Number(process.env.KS_RETRIES ?? D.retries),
+  timeout: Number(process.env.KS_TIMEOUT_MS ?? D.timeoutMs),
   reporter: [['/ks/packages/trace/src/reporter.ts'], ['list']],
   use: {
     baseURL: process.env.KS_BASE_URL ?? 'http://frontend',
-    locale: 'es-ES',
-    timezoneId: 'Europe/Madrid',
-    viewport: { width: 1280, height: 720 },
+    locale: D.locale,
+    timezoneId: D.timezoneId,
+    viewport: D.viewport,
     video: 'off',
     trace: process.env.KS_PW_TRACE === '1' ? 'on' : 'off',
     screenshot: 'only-on-failure',
-    actionTimeout: 15_000,
+    actionTimeout: D.actionTimeoutMs,
   },
   // Stories are recorded; scenario setups are not. One worker plays both projects in turn.
   projects: [

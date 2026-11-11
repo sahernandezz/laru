@@ -192,8 +192,8 @@ export function coverage(ws: Workspace, k: Knowledge, g: Graph | null, p: Loaded
         const named = (t: string) => k.pieces.some((x) => x.type === 'guide' && JSON.stringify(x.fields).includes(`[[${t}]]`));
         const covered = targets.filter(named);
         const missing = targets.filter((t) => !covered.includes(t));
-        if (!covered.length) return done('miss', [R('runbooks-missing', `No operating guide for ${missing.join(', ')}`, { list: missing.join(', ') })]);
-        return missing.length ? done('part', [R('runbooks-missing', `No operating guide for ${missing.join(', ')}`, { list: missing.join(', ') })]) : done('full', [R('runbooks-ok', `${covered.length} operating guides`, { count: covered.length })]);
+        if (!covered.length) return done('miss', [R('operate-guide-missing', `No operating guide for ${missing.join(', ')}`, { list: missing.join(', ') })]);
+        return missing.length ? done('part', [R('operate-guide-missing', `No operating guide for ${missing.join(', ')}`, { list: missing.join(', ') })]) : done('full', [R('operate-guides-ok', `${covered.length} operating guides`, { count: covered.length })]);
       }
     }
   };

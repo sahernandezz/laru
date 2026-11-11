@@ -103,7 +103,7 @@ test('the documentation model over a real workspace', async (t) => {
     assert.deepEqual(readdirSync(join(ws.root, 'docs', 'modules', 'pagos', 'modules', 'devoluciones')), before);
     const said = (x: ReturnType<typeof w>) => x.issues.filter((i) => i.level === 'warning').map((i) => i.key);
     assert.ok(said(w({ type: 'infrastructure', in: 'mod:devoluciones', title: 'R', summary: '', fields: { envs: [{ env: 'local', purpose: 'p' }] } })).includes('wrong-parent'));
-    assert.ok(said(w({ type: 'note', in: 'mod:pagos', title: 'N', summary: '', anchors: ['billing:nothing/here/**'], fields: { body: 'x' } })).includes('anchor-empty'), 'code not on the reference branch yet');
+    assert.ok(said(w({ type: 'convention', in: 'mod:pagos', title: 'N', summary: '', anchors: ['billing:nothing/here/**'], fields: {} })).includes('anchor-empty'), 'code not on the reference branch yet');
   });
 
   await t.test('a contract is contrasted with the extracted endpoints, in both directions', () => {

@@ -2,7 +2,7 @@
  * Fidelity: how much an env looks like production, measured and never assumed. What runs comes from the
  * env's rendered compose, its state, the tap's rules and its last run; what production does comes from the repos at
  * the commit the env ran (production profiles, Kubernetes manifests, Helm values, a production compose) or from what
- * an external or a runbook declares. Laru never connects to production. Whatever no source says is left without
+ * an external declares. Laru never connects to production. Whatever no source says is left without
  * a reference, never taken as equal.
  *
  * It is read as a contrast: each aspect that `infrastructure` declares of production against every env, with a verdict —
@@ -138,9 +138,9 @@ export function prodRefs(root: string, label: string, dirs: Record<string, strin
   return out;
 }
 
-/** What the infrastructure declares about production (`production` rows; older externals and runbooks carried them too), for what no file of the repos says. */
+/** What the infrastructure declares about production (`production` rows; older externals carried them too), for what no file of the repos says. */
 export function declaredRefs(ws: Workspace): ProdRef[] {
-  return loadKnowledge(ws).pieces.filter((p) => p.type === 'external' || p.type === 'runbook' || p.type === 'infrastructure').flatMap((p) =>
+  return loadKnowledge(ws).pieces.filter((p) => p.type === 'external' || p.type === 'infrastructure').flatMap((p) =>
     ((Array.isArray(p.fields.production) ? p.fields.production : []) as Row[]).map((r) => ({
       participant: String(r.service || (p.type === 'external' ? p.title : '')).replace(/^(svc|ext|ds):/, ''), aspect: String(r.aspect) as Aspect, value: String(r.value), source: p.id,
     })).filter((r) => r.participant && r.value));

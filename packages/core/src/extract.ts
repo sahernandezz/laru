@@ -19,7 +19,7 @@ export interface RepoExtraction {
 }
 export interface ExtractStats { repo: string; commit: string; files: number; read: number; reused: number; ms: number }
 
-const MAX_BYTES = 512 * 1024;
+export const MAX_BYTES = 512 * 1024;
 const cacheFile = (ws: Workspace, repo: string) => join(stateDir(ws), 'extract', `${repo}.json`);
 
 /** Parsed once per process and file, again only when the file changes: freshness, anchors and hooks ask for it per piece. Read-only. */

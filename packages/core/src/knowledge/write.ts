@@ -8,7 +8,7 @@ import { existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { Graph } from '../graph.ts';
 import type { Workspace } from '../workspace.ts';
-import { documentNote, type DocNote } from './lint.ts';
+import { documentNote, endpointIn, type DocNote } from './lint.ts';
 import { sheetNote } from './sheet.ts';
 import { renderPiece, type FieldValue, type Piece } from './piece.ts';
 import { agreementPath, anchorResolver, containerOf, DOCS_DIR, fingerprint, freshness, loadKnowledge, type Knowledge, type Loaded } from './store.ts';
@@ -28,6 +28,7 @@ function knownIds(k: Knowledge, g: Graph | null, extra: string[] = []) {
   const ids = new Set<string>([...k.byId.keys(), ...(g ? g.nodes.keys() : []), ...extra]);
   return {
     exists: (id: string) => ids.has(id),
+    ...(g ? { endpoint: endpointIn(g) } : {}),
     // Same prefix, and a shared start of at least four letters: `svc:files` → `svc:file-service`.
     suggest: (id: string) => {
       const [pre, rest = ''] = id.split(':');
@@ -43,6 +44,14 @@ function drawn(kind: string) {
   return d ? [{ kind, label: d.label, question: d.question, dialect: d.dialect, legend: d.legend.map((l) => `${l.shape}: ${l.means}`), rules: d.rules.map((r) => `${r.severity}: ${r.text}`), maxNodes: d.maxNodes, template: d.template }] : [];
 }
 
+/** How every piece is written: as long as it needs, every claim checkable. */
+const WRITING = 'No size limits: write all it takes to be correct and complete, and structure it (headings, steps, tables, diagrams) when it grows. Every claim must be checkable: name the code, the endpoint (`GET /path`), the table, the topic or the flow, and Laru checks it against the map. No filler or vague words (probably, etc., as needed, TODO).';
+const DIAGRAM_RULE = 'The suggested diagrams are a starting point, not a limit: draw any class of the catalogue, in any section (or in «Diagramas»), whenever it explains the case better than text. A derived class is computed by Laru from the map: written by hand it drifts. knowledge_shape with `diagram: <class>` gives how a class of the catalogue is drawn.';
+/** Every class Laru draws, one line each: what it answers and who draws it. */
+const CATALOGUE = Object.entries(DIAGRAM_STANDARDS).map(([kind, d]) => ({ kind, label: d.label, question: d.question, ...(d.origin === 'derived' ? { derived: true } : {}) }));
+/** How one class of the catalogue is drawn, for `knowledge_shape` asked about a diagram. */
+export const diagramShape = (kind: string) => drawn(kind)[0] ?? null;
+
 export function knowledgeShape(ws: Workspace, type: PieceType, withExample = true) {
   const std = STANDARD[type];
   if (!std) return null;
@@ -52,7 +61,9 @@ export function knowledgeShape(ws: Workspace, type: PieceType, withExample = tru
   return {
     type, prefix: `${std.prefix}:`, question: std.question[lang], livesIn: std.livesIn, kinds: std.kinds, statuses: std.statuses, anchors: std.anchors, stage: std.stage,
     meta: std.meta, expects: std.expects, folder: isContainer(type) ? `${std.folder}/<slug>/${type}.md` : OWN_FOLDER.includes(type) ? `${std.folder}/<slug>/${type}.md` : `${std.folder}/<slug>.md`,
-    fields: std.fields.map((f) => ({ name: f.name, heading: f.label[lang], type: f.type, required: Boolean(f.required), max: f.max, hint: lang === 'es' && f.hintEs ? f.hintEs : f.hint, hintEs: f.hintEs, diagram: f.diagram, kinds: f.kinds, diagrams: f.diagram && f.kinds ? f.kinds.flatMap((k) => drawn(k)) : undefined, minWords: f.minWords, ref: f.ref, columns: f.columns?.map((c) => ({ name: c.name, heading: c.label[lang], required: Boolean(c.required), enum: c.enum, ref: c.ref, date: c.date })) })),
+    fields: std.fields.map((f) => ({ name: f.name, heading: f.label[lang], type: f.type, required: Boolean(f.required), hint: lang === 'es' && f.hintEs ? f.hintEs : f.hint, hintEs: f.hintEs, diagram: f.diagram, suggested: f.kinds, minWords: f.minWords, ref: f.ref, columns: f.columns?.map((c) => ({ name: c.name, heading: c.label[lang], required: Boolean(c.required), enum: c.enum, ref: c.ref, date: c.date })) })),
+    writing: WRITING,
+    diagrams: { rule: DIAGRAM_RULE, suggested: (std.diagrams ?? []).flatMap((k) => drawn(k)), catalogue: CATALOGUE },
     ...(type === 'flow' ? { standard: { guide: E2E_GUIDE.id, rules: E2E_RULES } } : {}),
     ...(withExample ? { example: { input: { ...example, in: type === 'application' ? undefined : `<${std.livesIn[0]} id>` }, markdown: renderPiece(example, lang) } } : {}),
   };
@@ -116,7 +127,7 @@ export function knowledgeWrite(ws: Workspace, input: WriteInput, g: Graph | null
   issues.push(...validatePiece(piece, { ...known, parent: input.type === 'application' ? null : parent ?? (parentId ? undefined : null), resolveAnchor: anchorResolver(ws) }));
   if (opts.strict) {
     for (const i of issues) if (i.key.startsWith('diagram-') && i.params?.severity === 'error') i.level = 'error';
-    const min = ws.policies?.documento, note = documentNote(piece).score;
+    const min = ws.policies?.documento, note = documentNote(piece, known).score;
     if (min !== undefined && note < min) issues.push({ level: 'error', at: 'note', key: 'policy-documento', message: `the document's note would be ${note} and this workspace asks at least ${min}: fill what the warnings say it owes`, params: { note, min } });
   }
   if (issues.some((i) => i.level === 'error')) return { ok: false, id, issues };
@@ -133,7 +144,7 @@ export function knowledgeWrite(ws: Workspace, input: WriteInput, g: Graph | null
     // the agent files import the working agreement: written, they point at it at once
     if (piece.type === 'agreement') writeAgentFiles(ws);
   }
-  return { ok: true, id, path, issues, note: documentNote(piece) };
+  return { ok: true, id, path, issues, note: documentNote(piece, known) };
 }
 
 /**
@@ -207,7 +218,7 @@ export async function checkWorkspace(ws: Workspace, g: Graph | null): Promise<Ch
   // Policies, only when the workspace turns them on: a note under the minimum breaks the check.
   const memo = new Map();
   for (const p of k.pieces) {
-    const note = documentNote(p).score;
+    const note = documentNote(p, known).score;
     if (ws.policies?.documento !== undefined && note < ws.policies.documento) out.push({ level: 'error', at: 'note', key: 'policy-documento', message: `the document's note is ${note}, the policy asks ${ws.policies.documento}`, params: { note, min: ws.policies.documento }, path: p.path, id: p.id, block: 'policy' });
     if (ws.policies?.hoja !== undefined && (p.type === 'application' || (p.type === 'module' && p.kind === 'feature'))) {
       const sh = sheetNote(ws, k, g, p, conventions, memo).sheet ?? 100;

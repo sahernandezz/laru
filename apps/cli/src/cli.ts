@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import { existsSync, openSync, readFileSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import {
-  addRepo, ask, checkWorkspace, context, docsTree, documentNote, envOf, isContainer, isWorkspace, owedLine, scaffoldPieces, sheetNote, loadKnowledge, migrateWorkspace, movePiece, newPiece, renamePiece, agentRoot, idOf, laruHome, knowledgeShape, knowledgeWrite, loadRegistry, PIECE_TYPES, realRoot, register, resolveId, resolveRoot, unregister, verifyPiece, type PieceType, type WriteInput, initWorkspace, linkRepo, loadGraph, loadWorkspace, withEvidence, path, refreshMap,
+  addRepo, ask, checkWorkspace, context, docsTree, documentNote, endpointIn, envOf, isContainer, isWorkspace, owedLine, scaffoldPieces, sheetNote, loadKnowledge, migrateWorkspace, movePiece, newPiece, renamePiece, agentRoot, idOf, laruHome, knowledgeShape, knowledgeWrite, loadRegistry, PIECE_TYPES, realRoot, register, resolveId, resolveRoot, unregister, verifyPiece, type PieceType, type WriteInput, initWorkspace, linkRepo, loadGraph, loadWorkspace, withEvidence, path, refreshMap,
   repoStatus, ROLES, syncRepos, tree, verify, WorkspaceError, writeAgentFiles, type RepoRole, type RepoStatus, type Workspace,
 } from '@laru/core';
 import { runtimeCommand } from './env-cli.ts';
@@ -34,8 +34,8 @@ const HELP = `laru — a workspace around your application's repositories
   laru docs new <type> "<title>" [--in <id>] [--kind k]   a piece with its title: its note says what it still owes
   laru docs move <id> <container id>   the piece changes container (its folder moves; ids stay)
   laru docs rename <id> <new slug>     the id changes, and every reference to it with it
-  laru docs migrate [--dry-run]        bring a workspace to this standard: terms → glossary, notes → known traps, old headings and statuses; loses nothing
-  laru docs scaffold [--dry-run]       create the pieces the application lacks (architecture, stack, versioning, infrastructure, secrets, runbooks), started from the code
+  laru docs migrate [--dry-run]        bring a workspace to this standard: old headings and statuses, production rows; loses nothing
+  laru docs scaffold [--dry-run]       create the pieces the application lacks (architecture, stack, versioning, infrastructure, secrets, operating guides), started from the code
   laru docs note [id] [--json]         how complete each piece is (0–100) and what it still owes
   laru env init <name> --from <repo>:<compose file>[,<file>…] | --join <env>,<env> [--share <svc>=<svc>]   a joint env runs several projects together
   laru env list | env status [env] [--json]
@@ -234,7 +234,7 @@ export async function run(argv: string[], io: Out = stdio, cwd = process.cwd()):
           if (!PIECE_TYPES.includes(args[1] as PieceType)) { io.err(`types are ${PIECE_TYPES.join(', ')}`); return 2; }
           const r = newPiece(w, g, { type: args[1] as PieceType, title: args.slice(2).join(' '), in: o.in as string | undefined, kind: o.kind as string | undefined });
           if (!r.ok) { for (const i of r.issues.filter((x) => x.level === 'error')) io.err(`${i.at}: ${i.message}`); return 1; }
-          const note = documentNote(loadKnowledge(w).byId.get(r.id)!);
+          const note = documentNote(loadKnowledge(w).byId.get(r.id)!, g ? { endpoint: endpointIn(g) } : {});
           io.log(`${r.id} → ${r.path}  (note ${note.score}; owes: ${note.owed.map((x) => x.at).join(', ') || 'nothing'})`); return 0;
         }
         if (args[0] === 'move' && args[1] && args[2]) { const r = movePiece(w, args[1], args[2]); if (!r.ok) { io.err(r.issues[0].message); return 1; } io.log(`${r.id} → ${r.path}`); return 0; }
@@ -262,7 +262,7 @@ export async function run(argv: string[], io: Out = stdio, cwd = process.cwd()):
         }
         if (args[0] === 'note') {
           const k = loadKnowledge(w);
-          const list = (args[1] ? [k.byId.get(args[1])].filter(Boolean) : k.pieces).map((p) => ({ id: p!.id, path: p!.path, ...documentNote(p!) }));
+          const list = (args[1] ? [k.byId.get(args[1])].filter(Boolean) : k.pieces).map((p) => ({ id: p!.id, path: p!.path, ...documentNote(p!, g ? { endpoint: endpointIn(g) } : {}) }));
           if (o.json) { io.log(JSON.stringify(list, null, 2)); return 0; }
           for (const n of list) io.log(`${String(n.score).padStart(3)}  ${n.id}${n.owed.length ? `  owes ${n.owed.map((x) => x.at).join(', ')}` : ''}`);
           return 0;

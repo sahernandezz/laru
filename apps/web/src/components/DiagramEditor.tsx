@@ -36,7 +36,8 @@ export function DiagramEditor({ code: initial, kinds, onApply, onClose }: { code
   // what is drawn follows the text a moment later, so typing never waits for the engine
   const [drawn, setDrawn] = useState(initial);
   useEffect(() => { const t = setTimeout(() => setDrawn(code), 250); return () => clearTimeout(t); }, [code]);
-  const offered = kinds?.length ? authored.filter((c) => kinds.includes(c.kind)) : authored;
+  // the section's suggested classes first, then every other: any class goes in any section
+  const suggested = authored.filter((c) => kinds?.includes(c.kind)), offered = [...suggested, ...authored.filter((c) => !kinds?.includes(c.kind))];
   const read = kindOfDialect(dialectOf(code));
   const [picked, setPicked] = useState<DiagramKind | undefined>(() => (read && offered.some((c) => c.kind === read) ? read : (offered[0]?.kind as DiagramKind | undefined)));
   const std = authored.find((c) => c.kind === picked);
@@ -79,7 +80,8 @@ export function DiagramEditor({ code: initial, kinds, onApply, onClose }: { code
         <b>Editor de diagramas</b>
         <label className="dg-kind"><span className="faint">Clase</span>
           <select value={picked ?? ''} onChange={(e) => pick(e.target.value as DiagramKind)}>
-            {offered.map((c) => <option key={c.kind} value={c.kind}>{c.label}</option>)}
+            {suggested.length > 0 && <optgroup label="Sugeridas aquí">{suggested.map((c) => <option key={c.kind} value={c.kind}>{c.label}</option>)}</optgroup>}
+            <optgroup label={suggested.length ? 'Todas las demás' : 'Todas'}>{offered.slice(suggested.length).map((c) => <option key={c.kind} value={c.kind}>{c.label}</option>)}</optgroup>
           </select>
         </label>
         {std && <span className="faint dg-q">{std.question}</span>}

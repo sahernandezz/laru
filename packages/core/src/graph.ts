@@ -31,7 +31,7 @@ export class Graph {
 }
 
 export const observedFile = (ws: Workspace) => join(stateDir(ws), 'observed.json');
-const OBSERVED_DAYS = 30;
+export const OBSERVED_DAYS = 30;
 
 /** What runs saw (calls, reads, writes, uses), written by the runtime after each run; older than 30 days drops out. */
 export function loadObserved(ws: Workspace): Array<{ s: string; p: Relation; o: string; seen: Seen }> {

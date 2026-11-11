@@ -16,13 +16,13 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { dirname, extname, join, normalize, relative, resolve, sep } from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import { lastCleanup, lastRunsPrune, workspacesDisk, combineScreens, replayVideoState, startReplayVideo, flowEnvDown, flowEnvStatus, flowEnvUp, instanceOf, instancesOf, prepareInstance, diskReport, dirBytes, checkDocker, dockerAnswers, dockerState, dockerSizes, envLock, heldByEnvs, prune, readConfig, readRunnerFile, runnerFile, runnerFiles, snapshotRows, recentStats, docker, withLock, workspaceKey, writeConfig, type PruneWhat } from '@laru/runtime';
+import { CLEANUP_EVERY_MS, lastCleanup, lastRunsPrune, workspacesDisk, combineScreens, replayVideoState, startReplayVideo, flowEnvDown, flowEnvStatus, flowEnvUp, instanceOf, instancesOf, prepareInstance, diskReport, dirBytes, checkDocker, dockerAnswers, dockerState, dockerSizes, envLock, heldByEnvs, prune, readConfig, readRunnerFile, runnerFile, runnerFiles, snapshotRows, recentStats, docker, withLock, workspaceKey, writeConfig, type PruneWhat } from '@laru/runtime';
 import { mail, sqs, envFor, envProjects, flowDir, flowProjects, runDir, proposeJoint, maskJson, mockContracts, sweepOrphans, readRules, saveFaults, setFaults, setMockMode, kafka, storage, mongo, rabbit, redis, custom, cancelRun, compareRuns, failedFlows, markSession, openSessionBrowser, screenOf, sessionToFlow, sessionToScenario, approveBehavior, behaviorIn, readApproved, fidelity, applyScenario, provisionScenario, appliedOn, listScenarios, scenarioState, ScenarioConfirm, shown, sessionBrowser, sessionTrace, startSession, stopSession, listFlows, listRuns, readRun, readTrace, runsDir, startRun, connection, query as dbQuery, reset as dbReset, rows as dbRows, schema as dbSchema, snapshot as dbSnapshot, storeOf, stores as dbStores, storePassword, updateRow, updateSql, type Browse, type RowUpdate, down, envDir, envMasker, missingVars, listEnvs, loadEnvSpec, logs, revealVar, varValues, mountAll, mountedOf, rebuildText, setVar, status, unsetVar, up, varTable, importEnvFile, type Level } from '@laru/runtime';
 import { endpointMatcher, flowLast, seenIn, type EndpointMatch, type FlowLast, type Seen, type Trace, type TrafficRecord } from '@laru/trace';
 import { affected, brokersOf, doctorChecks, runEnv, screenFindings, vaultServices, writeJoint } from './env-cli.ts';
 import { agreementText, appHome, byCwd, envOf, loadAgreement, idOf, initWorkspace, isWorkspace, laruHome, loadRegistry, realRoot, register, resolveId, stateDir, touch, unregister } from '@laru/core';
 import { drawModel } from '@laru/diagrams';
-import { acceptFinding, withEvidence, shareEvidence, addRepo, queueContracts, CONTAINERS, coverage, DEFAULT_IGNORE, docsLang, documentNote, deriveDiagram, derivedList, evaluateConventions, freshness, liveOf, serviceTests, sheetNote, git, gitOf, isContainer, knowledgeShape, knowledgeWrite, linkRepo, loadExtraction, loadGraph, loadKnowledge, loadWorkspace, PIECE_TYPES, refreshMap, repoStatus, syncRepos, verifyPiece, writeAgentFiles, WorkspaceError, type RepoRole, type Workspace, type WriteInput } from '@laru/core';
+import { acceptFinding, withEvidence, shareEvidence, addRepo, queueContracts, CONTAINERS, coverage, DEFAULT_IGNORE, docsLang, documentNote, endpointIn, deriveDiagram, derivedList, evaluateConventions, freshness, liveOf, serviceTests, sheetNote, git, gitOf, isContainer, knowledgeShape, knowledgeWrite, linkRepo, loadExtraction, loadGraph, loadKnowledge, loadWorkspace, PIECE_TYPES, refreshMap, repoStatus, syncRepos, verifyPiece, writeAgentFiles, WorkspaceError, type RepoRole, type Workspace, type WriteInput } from '@laru/core';
 
 const WEB_DIST = fileURLToPath(new URL('../../web/dist/', import.meta.url));
 const TYPES: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.json': 'application/json', '.png': 'image/png', '.ttf': 'font/ttf', '.webmanifest': 'application/manifest+json' };
@@ -41,7 +41,7 @@ export function traceViewerDir(): string | null {
   } catch { viewerDir = null; }
   return viewerDir;
 }
-export const VERSION = '0.1.0-beta.16';
+export const VERSION = '0.1.0-beta.17';
 
 
 export interface Daemon { url: string; port: number; token: string | null; close: () => Promise<void> }
@@ -407,6 +407,7 @@ export function makeApi(root: Workspace['root']): { api: Record<string, Handler>
     'GET /api/knowledge': async () => {
       const w = ws(), k = loadKnowledge(w), g = graph(w);
       const conventions = await evaluateConventions(w, k);
+      const endpoint = g ? { endpoint: endpointIn(g) } : {};
       const memo = new Map();
       return {
         lang: docsLang(w),
@@ -414,7 +415,7 @@ export function makeApi(root: Workspace['root']): { api: Record<string, Handler>
         shapes: Object.fromEntries(PIECE_TYPES.map((t) => [t, knowledgeShape(w, t, false)])),
         containers: CONTAINERS,
         conventions: Object.fromEntries(conventions),
-        pieces: k.pieces.map((p) => { const { source: _s, ...rest } = p; return { ...rest, note: documentNote(p), sheet: isContainer(p.type) ? sheetNote(w, k, g, p, conventions, memo) : undefined, freshness: freshness(w, p), coverage: isContainer(p.type) ? coverage(w, k, g, p, conventions) : undefined }; }),
+        pieces: k.pieces.map((p) => { const { source: _s, ...rest } = p; return { ...rest, note: documentNote(p, endpoint), sheet: isContainer(p.type) ? sheetNote(w, k, g, p, conventions, memo) : undefined, freshness: freshness(w, p), coverage: isContainer(p.type) ? coverage(w, k, g, p, conventions) : undefined }; }),
       };
     },
     'GET /api/live': async (_req, url) => { const w = ws(), k = loadKnowledge(w), p = k.byId.get(url.searchParams.get('id') ?? ''); if (!p) throw new WorkspaceError('no such piece', 'id'); return liveOf(w, k, graph(w), p); },
@@ -783,7 +784,7 @@ export async function startDaemon(port = 4100, webDist = WEB_DIST, o: { token?: 
   const watcher = setInterval(() => void watchDocker(), 5000);
   watcher.unref();
   // Docker is cleaned on a clock too, not only when something is built or run: what an agent built by hand gets trimmed
-  const cleaner = setInterval(() => void sweepAll(), 6 * 3600_000);
+  const cleaner = setInterval(() => void sweepAll(), CLEANUP_EVERY_MS);
   cleaner.unref();
 
   const server = createServer(async (req, res) => {

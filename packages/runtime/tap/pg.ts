@@ -11,7 +11,7 @@
 export interface PgResult { pid?: number; stmt: string; cols: string[]; rows: string[][]; /** rows beyond the ones kept */ more: number; tag?: string; error?: string }
 
 export const MAX_ROWS = 20;
-const MAX_CELL = 200;
+export const MAX_CELL = 200;
 
 type Req = { k: 'B' | 'C' | 'S' } | { k: 'P'; text: string } | { k: 'D'; stmt?: string; portal?: string } | { k: 'E'; portal: string } | { k: 'Q'; text: string };
 

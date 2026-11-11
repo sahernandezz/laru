@@ -4,7 +4,7 @@
  */
 import {
   Archive, BookOpen, Handshake, BookText, Bookmark, Box, Braces, CalendarRange, Cloud, Container, Database, DatabaseBackup, FileText, GitBranch, GitFork, Globe, KeyRound,
-  Layers, LifeBuoy, ListChecks, Monitor, Network, Package, Puzzle, Quote, Radio, Route, Ruler, Scale, Server, StickyNote, Table, Tag, Workflow, type LucideIcon,
+  Layers, ListChecks, Monitor, Network, Package, Puzzle, Radio, Route, Ruler, Scale, Server, Table, Tag, Workflow, type LucideIcon,
 } from 'lucide-react';
 import { createElement, forwardRef } from 'react';
 import type { DocPiece, KnowledgeData } from '../api.ts';
@@ -15,7 +15,7 @@ import { typeColor } from './typeColor.ts';
 
 export const TYPE_ICON: Record<string, LucideIcon> = {
   application: Box, module: Layers, process: Workflow, repository: GitBranch, service: Server, datastore: Database, external: Globe,
-  agreement: Handshake, plan: CalendarRange, decision: Scale, contract: Braces, 'data-model': Table, convention: Ruler, guide: BookOpen, 'test-plan': ListChecks, flow: Route, scenario: DatabaseBackup, artifact: Archive, runbook: LifeBuoy, architecture: Network, versioning: Tag, stack: Package, infrastructure: Cloud, secrets: KeyRound, glossary: BookText, term: Quote, note: StickyNote,
+  agreement: Handshake, plan: CalendarRange, decision: Scale, contract: Braces, 'data-model': Table, convention: Ruler, guide: BookOpen, 'test-plan': ListChecks, flow: Route, scenario: DatabaseBackup, artifact: Archive, architecture: Network, versioning: Tag, stack: Package, infrastructure: Cloud, secrets: KeyRound, glossary: BookText,
 };
 const SECTION_ICON: Record<string, LucideIcon> = {
   summary: FileText, arch: Network, built: Layers, modules: Layers, processes: Workflow, fronts: Monitor, flows: Route, envs: Container, gov: Scale, owed: ListChecks, doc: BookText, rel: GitFork,

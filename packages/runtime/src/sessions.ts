@@ -200,9 +200,9 @@ const RECORDER = `(() => {
 /** Where the person sees the page: its size, the same for the screencast, the video and the clicks. */
 export const SCREEN = { width: 1280, height: 800 };
 /** a mobile front is shown at a phone's size (Known limit: the size only; no touch events or phone user agent) */
-const PHONE = { width: 390, height: 844 };
+export const PHONE = { width: 390, height: 844 };
 /** the session video's frames per second (the screencast itself streams every frame Chrome paints) */
-const FPS = 10;
+export const FPS = 10;
 
 /** An address the session's browser may be sent to: `http`, the entrance's port and a name `<service>.<app>.localhost` (never a store's port, another app or another host). */
 export function isEntranceUrl(url: string, app: string, port: string): boolean {

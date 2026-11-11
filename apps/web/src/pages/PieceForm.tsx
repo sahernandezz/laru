@@ -20,7 +20,7 @@ export function PieceForm({ k, piece, type, parent, presetId, done }: { k: Knowl
   const shape: Shape | undefined = k.shapes[(piece?.type ?? type) as keyof typeof k.shapes];
   const initial: WriteInput = useMemo(() => piece
     ? { type: piece.type, id: piece.id, title: piece.title, kind: piece.kind, status: piece.status, summary: piece.summary, owner: piece.owner, anchors: piece.anchors, meta: piece.meta, relations: piece.relations, fields: piece.fields as WriteInput['fields'] }
-    : { type: (type ?? 'note') as WriteInput['type'], id: presetId, in: parent === '-' ? undefined : parent, title: presetId ? presetId.split(':')[1] : '', kind: shape?.kinds?.[0], status: shape?.statuses[0], summary: '', fields: {} }, [piece, type, parent, presetId, shape]);
+    : { type: (type ?? 'guide') as WriteInput['type'], id: presetId, in: parent === '-' ? undefined : parent, title: presetId ? presetId.split(':')[1] : '', kind: shape?.kinds?.[0], status: shape?.statuses[0], summary: '', fields: {} }, [piece, type, parent, presetId, shape]);
   const [v, setV] = useState<WriteInput>(initial);
   const [issues, setIssues] = useState<Issue[]>([]);
   const [note, setNote] = useState<DocNote | undefined>(piece?.note);
@@ -115,14 +115,14 @@ export function PieceForm({ k, piece, type, parent, presetId, done }: { k: Knowl
           <div className="body">
             {f.type === 'rows' ? <Rows columns={f.columns!} value={(v.fields[f.name] as Row[] | undefined) ?? []} onChange={(r) => setField(f.name, r)} issues={at(`fields.${f.name}`)} name={f.name} />
               : f.type === 'list' || f.type === 'refs' ? <Lines value={(v.fields[f.name] as string[] | undefined) ?? []} onChange={(l) => setField(f.name, l)} issues={at(`fields.${f.name}`)} hint="Uno por línea." />
-              : <><Area value={(v.fields[f.name] as string | undefined) ?? ''} onChange={(t) => setField(f.name, t)} issues={at(`fields.${f.name}`)} max={f.max} />
-                {f.diagram && mermaidBlocks(String(v.fields[f.name] ?? '')).map((b, n) => (
+              : <><Area value={(v.fields[f.name] as string | undefined) ?? ''} onChange={(t) => setField(f.name, t)} issues={at(`fields.${f.name}`)} />
+                {mermaidBlocks(String(v.fields[f.name] ?? '')).map((b, n) => (
                   <div key={n} className="dg-inline">
                     <Diagram code={b.code} />
-                    <button type="button" className="btn sm" onClick={() => setEditing({ field: f.name, kinds: f.kinds, block: b })}><PenTool />Editar el diagrama</button>
+                    <button type="button" className="btn sm" onClick={() => setEditing({ field: f.name, kinds: f.suggested ?? shape.diagrams.suggested.map((d) => d.kind), block: b })}><PenTool />Editar el diagrama</button>
                   </div>
                 ))}
-                {f.diagram && <p className="faint dg-add"><button type="button" className="btn sm" onClick={() => setEditing({ field: f.name, kinds: f.kinds })}><Plus />{mermaidBlocks(String(v.fields[f.name] ?? '')).length ? 'Otro diagrama' : 'Añadir un diagrama'}</button>{f.diagram === 'required' && !mermaidBlocks(String(v.fields[f.name] ?? '')).length ? ' Esta sección lo exige.' : ''}</p>}</>}
+                {f.type === 'markdown' && <p className="faint dg-add"><button type="button" className="btn sm" onClick={() => setEditing({ field: f.name, kinds: f.suggested ?? shape.diagrams.suggested.map((d) => d.kind) })}><Plus />{mermaidBlocks(String(v.fields[f.name] ?? '')).length ? 'Otro diagrama' : 'Añadir un diagrama'}</button>{f.diagram === 'required' && !mermaidBlocks(String(v.fields[f.name] ?? '')).length ? ' Esta sección lo exige.' : ''}</p>}</>}
           </div>
         </section>
       ))}
@@ -145,11 +145,10 @@ function Input({ label, value, onChange, issues, hint, mono, placeholder, disabl
   );
 }
 
-function Area({ value, onChange, issues, max }: { value: string; onChange: (v: string) => void; issues: Issue[]; max?: number }) {
+function Area({ value, onChange, issues }: { value: string; onChange: (v: string) => void; issues: Issue[] }) {
   return (
     <div className={`fld${issues.some((i) => i.level === 'error') ? ' bad' : ''}`}>
       <textarea value={value} rows={Math.min(14, Math.max(4, value.split('\n').length + 1))} onChange={(e) => onChange(e.target.value)} />
-      {max && <span className="h num">{value.length} / {max}</span>}
       <Problems issues={issues} />
     </div>
   );

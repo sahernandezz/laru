@@ -6,6 +6,17 @@ Todos los cambios de Laru que importan a quien lo usa quedan aquí. El formato s
 
 ## [Sin publicar]
 
+## [0.1.0-beta.17] - 2026-11-11
+
+### Cambiado
+
+- **Documentar sin techo: se mide que sea asertivo, no que sea corto.** Ninguna sección tiene ya límite de caracteres ni de elementos (solo el título y el resumen, que salen en listas y tarjetas). Lo que se mide es que cada afirmación pueda comprobarse: un endpoint nombrado (`GET /ruta`) que el código no tiene, las frases vagas o de relleno («probablemente», «etc.», «TODO»…) y una sección que repite el resumen se avisan y bajan la nota; un diagrama la sube. La guía del agente y `knowledge_shape` le dicen que escriba todo lo necesario, estructurado, y sin dudas que podría comprobar.
+- **Cualquier diagrama en cualquier pieza.** Cada tipo de pieza trae sus diagramas sugeridos, con cómo se dibuja cada uno, y el catálogo completo de las 27 clases; los sugeridos son un punto de partida, no un límite. Ninguna sección rechaza un diagrama por su clase: solo se rechaza el que no se dibuja. Todas las piezas tienen una sección «Diagramas» para el que no encaja en otra, cualquier sección de texto del formulario tiene «Añadir un diagrama», el editor ofrece primero las clases sugeridas y luego todas, y una sección propia de una pieza ya no se marca como falta. `knowledge_shape` con `diagram: <clase>` da cómo se dibuja cualquiera.
+
+### Quitado
+
+- **Las piezas antiguas ya no existen: runbook, término y nota.** Laru no las conoce ni las ofrece. Lo que hacía un runbook es una guía de la aplicación que nombra lo que opera (la etapa «Operar» la busca así), las palabras van en el glosario y lo que merece recordarse va en los problemas conocidos de su servicio o repositorio. `laru docs migrate` solo pone al día títulos de sección y estados antiguos.
+
 ## [0.1.0-beta.16] - 2026-11-10
 
 ### Añadido
@@ -306,7 +317,8 @@ Primera beta pública.
   - `CLAUDE.md` y `AGENTS.md` generados.
   - Hooks para Claude Code.
 
-[Sin publicar]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.16...HEAD
+[Sin publicar]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.17...HEAD
+[0.1.0-beta.17]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.16...v0.1.0-beta.17
 [0.1.0-beta.16]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.15...v0.1.0-beta.16
 [0.1.0-beta.15]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.14...v0.1.0-beta.15
 [0.1.0-beta.14]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.13...v0.1.0-beta.14

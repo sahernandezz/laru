@@ -363,7 +363,7 @@ export const SKINS: Partial<Record<DiagramKind, DiagramSkin>> = {
  * A map drawn from the catalogue has four kinds of piece, whatever the class: something
  * that holds other things, something written about one of them, something that stores
  * data, and the frame around a group. What tells a domain from an application from a
- * runbook is the icon of its type, never the colour — that is a rule of the product and
+ * guide is the icon of its type, never the colour — that is a rule of the product and
  * the reason the renderer takes an icon pack at all. Twenty-four tones would be a palette
  * nobody could learn; four shapes and an icon is a drawing that reads.
  */

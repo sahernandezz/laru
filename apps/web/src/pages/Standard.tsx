@@ -168,11 +168,18 @@ function PieceStandard({ t }: { t: Shape }) {
             <tr key={f.name}>
               <td className="wrap"><b>{f.heading}</b></td>
               <td className="wrap">{f.type === 'rows' ? `tabla (${f.columns?.map((c) => c.heading).join(' · ')})` : f.type === 'list' ? 'lista' : f.type === 'refs' ? `ids de ${f.ref?.join(' ') ?? 'piezas'}` : f.type === 'markdown' ? 'texto' : 'una línea'}</td>
-              <td className="wrap">{[f.required ? 'obligatoria' : 'opcional', f.diagram === 'required' ? 'con diagrama' : f.diagram === 'optional' ? 'diagrama opcional' : '', f.minWords ? `≥ ${f.minWords} palabras` : '', f.max ? `≤ ${f.max}` : ''].filter(Boolean).join(' · ')}</td>
+              <td className="wrap">{[f.required ? 'obligatoria' : 'opcional', f.diagram === 'required' ? 'con diagrama' : f.diagram === 'optional' ? 'diagrama opcional' : '', f.minWords ? `≥ ${f.minWords} palabras` : ''].filter(Boolean).join(' · ')}</td>
               <td className="wrap faint">{f.hintEs ?? f.hint}</td>
             </tr>
           ))}</tbody>
         </table></div>
+      </section>
+      <section className="panel" style={{ marginTop: 16 }}>
+        <header><h3>Cómo se escribe</h3><div className="meta">Lo mismo que recibe el agente</div></header>
+        <div className="body">
+          <p>Sin límite de tamaño: todo lo necesario para que quede correcto y completo, con subtítulos, pasos, tablas o diagramas cuando crece. Cada afirmación tiene que poder comprobarse (el código, el endpoint como <code>GET /ruta</code>, la tabla, el tópico, el flujo) y Laru la contrasta con el mapa; sin relleno ni frases vagas.</p>
+          <p><b>Diagramas sugeridos:</b> {t.diagrams.suggested.map((d) => inSpanish(DIAGRAM_STANDARDS[d.kind as keyof typeof DIAGRAM_STANDARDS]).label).join(', ') || 'ninguno en particular'}. Son un punto de partida, no un límite: cualquier clase del catálogo ({t.diagrams.catalogue.length}) cabe en cualquier sección, o en «Diagramas», cuando lo explica mejor.</p>
+        </div>
       </section>
       {input && (
         <section className="panel" style={{ marginTop: 16 }}>

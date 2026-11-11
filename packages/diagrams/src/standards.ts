@@ -159,7 +159,7 @@ export const DIAGRAM_STANDARDS: Record<DiagramKind, DiagramStandard> = {
     alsoAccepts: [],
     legend: [
       { shape: 'container', means: 'A domain, with the icon of its type: the icon is what tells one kind of piece from another, never the colour.' },
-      { shape: 'facet', means: 'A document written about one of them: an architecture, a runbook, a decision.' },
+      { shape: 'facet', means: 'A document written about one of them: an architecture, a guide, a decision.' },
       { shape: 'store', means: 'A data store, drawn as a cylinder.' },
       { shape: 'group', means: 'A frame around what goes together: a domain and its subdomains, or the pieces of one kind.' },
       { shape: '-->', means: 'A relation between domains, labelled with what one gives the other.' },
@@ -304,7 +304,7 @@ export const DIAGRAM_STANDARDS: Record<DiagramKind, DiagramStandard> = {
       { id: 'end', text: 'The process ends: there is at least one end node.', severity: 'warning' },
     ],
     maxNodes: 25,
-    usedIn: ['process', 'runbook', 'adr', 'domain', 'module'],
+    usedIn: ['process', 'guide', 'adr', 'domain', 'module'],
     template: [
       '---',
       'title: Process',
@@ -574,7 +574,7 @@ export const DIAGRAM_STANDARDS: Record<DiagramKind, DiagramStandard> = {
     alsoAccepts: [],
     legend: [
       { shape: 'container', means: 'An application, with the icon of its type.' },
-      { shape: 'facet', means: 'A document written about one of them: an architecture, a runbook, a decision.' },
+      { shape: 'facet', means: 'A document written about one of them: an architecture, a guide, a decision.' },
       { shape: 'store', means: 'A data store, drawn as a cylinder.' },
       { shape: 'group', means: 'A frame around what goes together: the domain that owns them, or the pieces of one kind.' },
       { shape: '-->', means: 'A `depends_on` relation between applications.' },
@@ -849,7 +849,7 @@ export const DIAGRAM_STANDARDS: Record<DiagramKind, DiagramStandard> = {
     alsoAccepts: [],
     legend: [
       { shape: 'container', means: 'An application of the catalogue. The one being looked at is the one in the middle.' },
-      { shape: 'facet', means: 'A document written about one of them: an architecture, a runbook, a decision.' },
+      { shape: 'facet', means: 'A document written about one of them: an architecture, a guide, a decision.' },
       { shape: 'store', means: 'A data store, drawn as a cylinder.' },
       { shape: 'group', means: 'A frame around what goes together: the domain that owns them, or the pieces of one kind.' },
       { shape: '-->', means: 'A `depends_on` relation: the source needs the target to work.' },
@@ -988,7 +988,7 @@ export const DIAGRAM_STANDARDS: Record<DiagramKind, DiagramStandard> = {
       '    design --> build["Build · 2 repositories"]',
       '    build --> test["Test · missing"]',
       '    test --> deploy["Deploy · 1 infrastructure"]',
-      '    deploy --> operate["Operate · 4 runbooks"]',
+      '    deploy --> operate["Operate · 4 guides"]',
       '    style test stroke-dasharray: 4 4',
     ].join('\n'),
   },

@@ -63,16 +63,7 @@ export const HINT_ES: Record<string, string> = {
   'scenario.faults': 'Fallos en una arista mientras está aplicado: latencia en ms, un estado que se responde en su lugar, una probabilidad. En un buzón de correo o SMS el método es la etapa (CONNECT, AUTH, MAIL, RCPT, DATA, DELIVERY, POST), la ruta el destinatario y el código el del propio proveedor.',
   'scenario.mailbox': 'Qué pasa con el buzón del entorno al aplicarlo: `clear` lo vacía; `inbound-sms` envía a la aplicación un texto entrante cuando todo lo demás está aplicado (detalle: `+57300555…: STOP`, el número y el texto).',
   'scenario.restart': 'Servicios que guardan estado en memoria y se reinician al aplicarlo.',
-  'runbook.symptoms': 'Lo que ves cuando esto ocurre.',
-  'runbook.diagnosis': 'Comprobaciones en orden, con el comando o la pantalla exactos.',
-  'runbook.fix': 'Qué restablece el servicio.',
-  'runbook.escalation': 'Qué equipo, y cuándo.',
-  'runbook.production': 'Lo que corre en producción y ningún fichero de los repos dice: imagen, perfil, memoria, cpus, protocolo, autenticación, modo (real, contrato, simular…), límite de subida o de lectura. Nombra al participante: un servicio, un almacén de datos o un externo.',
   'infrastructure.production': 'Lo que corre en producción y ningún fichero de los repos dice: imagen, perfil, memoria, cpus, protocolo, autenticación, modo (real, contrato, simular…), límite de subida o de lectura. Nombra al participante: un servicio, un almacén de datos o un externo.',
-  'term.definition': 'Qué significa en esta aplicación.',
-  'term.synonyms': 'Otras palabras con que la gente lo nombra.',
-  'term.in-code': 'Nombres que toma en el código: clases, tablas, campos.',
-  'note.body': 'Breve, sobre el código anclado.',
 };
 
 type Example = { title: string; summary: string; fields: Record<string, unknown> };
@@ -116,7 +107,7 @@ export const EXAMPLE_ES: Record<string, Example> = {
   },
   service: {
     title: 'shop-api', summary: 'Es dueño de los pedidos y de su estado de pago; nada más escribe en la tabla de pedidos.',
-    fields: { responsibility: 'Es dueño de los pedidos y de su estado de pago. Nada más escribe en la tabla de pedidos.', invariants: ['Un pedido se cobra como máximo una vez'] },
+    fields: { responsibility: 'Crea los pedidos, los cobra con `POST /payments` de Stripe y guarda si cada uno está pendiente, pagado o devuelto. Los demás servicios leen un pedido con `GET /orders/{id}`: ninguno escribe en la tabla `orders`.', invariants: ['Un pedido se cobra como máximo una vez'] },
   },
   datastore: {
     title: 'postgres', summary: 'La base de datos relacional de la tienda, un esquema por servicio que la usa.',
@@ -207,15 +198,6 @@ export const EXAMPLE_ES: Record<string, Example> = {
       mocks: [{ service: 'stripe', mode: 'simulate' }],
     },
   },
-  runbook: {
-    title: 'Reembolsos atascados como pendientes', summary: 'Qué hacer cuando los reembolsos siguen pendientes: dónde mirar, cómo arreglarlo y cómo comprobarlo.',
-    fields: {
-      symptoms: ['Las devoluciones siguen pendientes más de una hora'],
-      diagnosis: ['Mira en los logs del worker si hay tiempos de espera agotados'],
-      fix: ['Reinicia el worker; reintenta los reembolsos pendientes'],
-      verify: ['El número de reembolsos pendientes baja a cero'],
-    },
-  },
   architecture: {
     title: 'Arquitectura de la tienda', summary: 'Cómo está montada la tienda: servicios, almacenes y las decisiones detrás.',
     fields: {
@@ -271,13 +253,5 @@ export const EXAMPLE_ES: Record<string, Example> = {
   glossary: {
     title: 'Glosario de la tienda', summary: 'Las palabras de la tienda y qué significa cada una, con los nombres que toman en el código.',
     fields: { terms: [{ term: 'Nota de crédito', definition: 'Una factura con importes negativos que anula otra.', code: 'CreditNote' }] },
-  },
-  term: {
-    title: 'Nota de crédito', summary: 'La factura que anula otra.',
-    fields: { definition: 'Una factura con importes negativos que anula toda una factura anterior o una parte.', 'in-code': ['CreditNote', 'credit_notes'] },
-  },
-  note: {
-    title: 'Por qué el reintento es 3', summary: 'El número de reintentos coincide con las ventanas de idempotencia de Stripe.',
-    fields: { body: 'Tres reintentos caben en la ventana de idempotencia de 24 h que guarda Stripe.' },
   },
 };

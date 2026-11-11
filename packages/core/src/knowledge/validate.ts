@@ -4,6 +4,7 @@
  */
 import { kindOfCode, lintDiagramOfKind, mermaidBlocks } from '@laru/diagrams';
 import { parseLimit, parseScreen } from '../limit.ts';
+import { unknownEndpoints, vagueIn } from './lint.ts';
 import { hasValue, RELATIONS, type Piece } from './piece.ts';
 import { isContainer, STANDARD, type ContainerType } from './standard.ts';
 
@@ -17,7 +18,12 @@ export interface ValidateContext {
   parent?: { id: string; type: ContainerType } | null;
   /** files an anchor matches; undefined when the repo is unknown */
   resolveAnchor?: (anchor: string) => string[] | undefined;
+  /** Is there such an endpoint in the code (the map)? Absent when there is no map. */
+  endpoint?: (method: string, path: string) => boolean;
 }
+
+/** Diagram rules whose breach leaves a diagram that does not draw: refused on write. The rest are advice. */
+const BROKEN = new Set(['semicolon', 'dialect']);
 
 const ID = /^([a-z][a-z-]*):([a-z0-9][a-z0-9._-]*)$/;
 const ANCHOR = /^([a-z0-9][a-z0-9-]*):([^#\s]+)(#[\w.$]+\*?)?$/;
@@ -77,6 +83,23 @@ export function validatePiece(p: Piece, ctx: ValidateContext): Issue[] {
     (ids ?? []).forEach((id, i) => checkRef(`relations.${r}[${i}]`, id));
   }
 
+  /** A section's text, whatever section: its diagrams (any class), what it names, and whether it says something concrete. */
+  const prose = (at: string, v: string, kinds?: string[]) => {
+    mermaidBlocks(v).forEach((b, n) => {
+      const kind = kindOfCode(b.code, kinds as never);
+      // any class of the catalogue is taken in any section; only a diagram that does not draw is refused by knowledge_write (`severity`)
+      if (!kind) { warn(`${at}.diagram[${n}]`, 'diagram-unknown', 'this diagram has no class Laru knows: flowchart, sequence, C4, ER, state, class…', { severity: 'error' }); return; }
+      for (const d of lintDiagramOfKind(b.code, kind)) warn(`${at}.diagram[${n}]`, `diagram-${d.rule}`, d.fix ? `${d.text} ${d.fix}` : d.text, { kind, severity: BROKEN.has(d.rule) ? 'error' : 'warning' });
+    });
+    for (const m of v.matchAll(/\[\[([^\]]+)\]\]/g)) if (!ctx.exists(m[1])) warn(at, 'broken-link', `[[${m[1]}]] does not exist`, { id: m[1] });
+    // assertive: what it names is in the code, it says something concrete, and more than the summary
+    if (ctx.endpoint) for (const e of unknownEndpoints(v, ctx.endpoint)) warn(at, 'unknown-endpoint', `it says \`${e}\`, but the code has no such endpoint`, { endpoint: e });
+    const vague = vagueIn(v);
+    if (vague.length) warn(at, 'vague', `say it concretely, or check it and drop the doubt: ${vague.map((x) => `«${x}»`).join(', ')}`, { words: vague.join(', ') });
+    const flat = (x: string) => x.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+    if (flat(v) && (flat(v) === flat(p.summary) || flat(v) === flat(p.title))) warn(at, 'repeats-summary', 'it repeats the title or the summary: say what they do not');
+  };
+
   // Fields.
   for (const f of std.fields) {
     const v = p.fields[f.name];
@@ -85,22 +108,13 @@ export function validatePiece(p: Piece, ctx: ValidateContext): Issue[] {
     if (!hasValue(v)) { if (f.required) warn(at, 'required', 'required', { field: f.name }); continue; }
     if (f.type === 'markdown' || f.type === 'text') {
       if (typeof v !== 'string') { err(at, 'bad-type', 'text expected'); continue; }
-      if (f.max && v.length > f.max) warn(at, 'too-long', `at most ${f.max} characters (${v.length})`, { max: f.max, length: v.length });
       if (f.diagram === 'required' && !/^```mermaid\b/m.test(v)) warn(at, 'diagram-missing', 'draw it: a fenced ```mermaid block', { field: f.name });
-      mermaidBlocks(v).forEach((b, n) => {
-        const kind = kindOfCode(b.code, f.kinds as never);
-        if (!kind) { warn(`${at}.diagram[${n}]`, 'diagram-unknown', 'this diagram has no class Laru knows: flowchart, sequence, C4, ER, state, class…'); return; }
-        // a class this section does not take, and the rules its own standard calls errors: warnings for check, refused by knowledge_write (`severity`)
-        if (f.kinds?.length && !f.kinds.includes(kind)) warn(`${at}.diagram[${n}]`, 'diagram-kind', `this section takes a ${f.kinds.join(' or ')} diagram; this one reads as ${kind}: knowledge_shape says how each is drawn`, { kind, severity: 'error' });
-        for (const d of lintDiagramOfKind(b.code, kind)) warn(`${at}.diagram[${n}]`, `diagram-${d.rule}`, d.fix ? `${d.text} ${d.fix}` : d.text, { kind, severity: d.severity });
-      });
-      for (const m of v.matchAll(/\[\[([^\]]+)\]\]/g)) if (!ctx.exists(m[1])) warn(at, 'broken-link', `[[${m[1]}]] does not exist`, { id: m[1] });
+      prose(at, v, f.kinds);
       if (isContainer(p.type) && (v.match(/^\s*[-*|]?\s*(GET|POST|PUT|PATCH|DELETE)\s+\/\S*/gm) ?? []).length >= 3)
         warn(at, 'extractable-inventory', 'this lists endpoints; they are extracted from the code and a written copy will drift');
       continue;
     }
     if (!Array.isArray(v)) { err(at, 'bad-type', 'a list expected'); continue; }
-    if (f.max && v.length > f.max) warn(at, 'too-many', `at most ${f.max} items (${v.length})`, { max: f.max, length: v.length });
     if (f.type === 'refs') (v as string[]).forEach((id, i) => checkRef(`${at}[${i}]`, id, f.ref));
     if (f.type === 'rows') {
       (v as Array<Record<string, string>>).forEach((row, i) => {
@@ -116,7 +130,8 @@ export function validatePiece(p: Piece, ctx: ValidateContext): Issue[] {
       });
     }
   }
-  for (const k of Object.keys(p.fields)) if (!std.fields.some((f) => f.name === k)) warn(`fields.${k}`, 'unknown-field', `kept as its own section; the standard fields of a ${p.type} are ${std.fields.map((f) => f.name).join(', ')}`);
+  // a section of its own is welcome; its text is checked like any other
+  for (const [name, v] of Object.entries(p.fields)) if (!std.fields.some((f) => f.name === name) && typeof v === 'string') prose(`fields.${name}`, v);
   if (p.type === 'convention') (p.fields.check as string[] | undefined)?.forEach((c, i) => {
     const m = c.match(/^(forbid|require):\s*(.+)$/);
     if (!m) err(`fields.check[${i}]`, 'bad-check', '`forbid: <regex>` or `require: <regex>`');

@@ -8,7 +8,7 @@ import type { Graph } from '../graph.ts';
 import { loadAccepted } from '../findings.ts';
 import type { Workspace } from '../workspace.ts';
 import { coverage, endpointOwner, scopeFiles, type ConventionResult } from './coverage.ts';
-import { documentNote } from './lint.ts';
+import { documentNote, endpointIn } from './lint.ts';
 import type { Row } from './piece.ts';
 import { childrenOf, type Knowledge, type Loaded } from './store.ts';
 import type { PieceType, Stage } from './standard.ts';
@@ -40,7 +40,7 @@ export function sheetNote(ws: Workspace, k: Knowledge, g: Graph | null, p: Loade
   const accepted = loadAccepted(ws);
   const kids = childrenOf(k, p.id);
   const of = (t: string) => kids.filter((x) => x.type === t);
-  const doc = documentNote(p);
+  const doc = documentNote(p, g ? { endpoint: endpointIn(g) } : {});
   const items: OwedItem[] = doc.items.map((i) => ({ key: `doc-${i.key}`, kind: 'structure' as const, at: i.at, weight: i.weight, ok: i.ok, params: i.params, action: 'complete' as const }));
   const add = (i: Omit<OwedItem, 'weight'> & { weight?: number }) => items.push({ weight: 1, ...i });
 

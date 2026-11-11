@@ -21,16 +21,16 @@ import { loadMock, type Mock } from './mocks.ts';
 import type { SinkHost } from './sink.ts';
 
 /** Bytes of each body kept for the record; bodies themselves are streamed whole. */
-const TEE = 64 * 1024;
-const ROTATE = 100 * 1024 * 1024;
-const LOG_ROTATE = 10 * 1024 * 1024;
+export const TEE = 64 * 1024;
+export const ROTATE = 100 * 1024 * 1024;
+export const LOG_ROTATE = 10 * 1024 * 1024;
 /** Bytes kept of a multipart field's value, and characters of a part's name or filename. */
-const FIELD = 1024;
+export const FIELD = 1024;
 const NAME = 256;
 /** Journal bytes waiting for the disk beyond which new lines are dropped (and counted in tap.log), not held in memory. */
-const BACKLOG = 8 * 1024 * 1024;
+export const BACKLOG = 8 * 1024 * 1024;
 /** Multipart parts listed in a record; the rest are counted. */
-const PARTS = 100;
+export const PARTS = 100;
 const TEXTUAL = /^text\/(?!css|javascript)|^application\/(?:[\w.-]+\+)?(?:json|xml|x-www-form-urlencoded|x-ndjson|x-amz-json-[\d.]+)(?:[\s;]|$)/i;
 const EVENTS = /^text\/event-stream/i;
 /** How each applied fault is written on its exchange, as the plan words it. */

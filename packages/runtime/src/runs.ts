@@ -15,6 +15,7 @@ import { interpolations } from './compose.ts';
 import { ksVar, type TrafficRecord } from './types.ts';
 import { assemble, isGreen, MASK_KEYS, parseKafkaDump, parsePgLog, type KafkaLine, type Masker, type RunInfo, type RunnerEvent, type ServiceLog, type SqlLine, type Trace } from '@laru/trace';
 import { readConfig } from './config.ts';
+import { ADMIT_SHARE } from './admission.ts';
 import { cleanDockerDetached, prune } from './disk.ts';
 import { byLabel, destroyByLabel, docker, dockerJson, dockerStream, envLock, inspectEnv, LABEL, stats, withLock, workspaceKey, type ContainerState } from './docker.ts';
 import { envDir, envMasker, envProjects, flowProjects, forgetValues, isInstance, loadEnvSpec, projectName, readState } from './env.ts';
@@ -217,7 +218,9 @@ export async function flowKeys(ws: Workspace, env: string, run: string | undefin
 }
 
 /** About what one runner (Chromium and the test) takes while it plays. */
-const RUNNER_BYTES = 600 * 2 ** 20;
+export const RUNNER_BYTES = 600 * 2 ** 20;
+/** runners playing at once, at most */
+export const WORKERS_MAX = 3;
 /**
  * How many runners play at once: as asked, else `workers` in config.yaml, else what 90 % of Docker's memory leaves
  * after every container running now, at about 600 MB each, between 1 and 3.
@@ -228,7 +231,7 @@ export async function workersFor(asked?: number): Promise<number> {
   const total = Number((await docker(['info', '--format', '{{.MemTotal}}']).catch(() => '0')).trim()) || 0;
   const ids = (await docker(['ps', '-q']).catch(() => '')).split('\n').filter(Boolean);
   const used = (await stats(ids)).reduce((n, x) => n + x.memBytes, 0);
-  return Math.max(1, Math.min(3, Math.floor((0.9 * total - used) / RUNNER_BYTES)));
+  return Math.max(1, Math.min(WORKERS_MAX, Math.floor((ADMIT_SHARE * total - used) / RUNNER_BYTES)));
 }
 
 /** The flows split into `n` runners of about the same length, by how long each took last time (longest first). */

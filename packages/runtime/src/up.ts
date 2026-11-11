@@ -160,7 +160,9 @@ const secs = (d: unknown, dflt: number) => {
   return s;
 };
 /** The longest a service may take to be healthy, from its own healthcheck. */
-const deadlineOf = (doc: ComposeDoc) => Math.max(60, ...Object.values(doc.services).map((s) => {
+/** The least an up waits for its services to be ready, in seconds; their healthchecks can ask for more. */
+export const UP_MIN_S = 60;
+const deadlineOf = (doc: ComposeDoc) => Math.max(UP_MIN_S, ...Object.values(doc.services).map((s) => {
   const h = s.healthcheck;
   return h && !h.disable ? secs(h.start_period, 0) + secs(h.interval, 30) * (h.retries ?? 3) + secs(h.timeout, 30) : 0;
 })) + 60;
