@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Versión" src="https://img.shields.io/badge/versi%C3%B3n-0.1.0--beta.13-22D3EE">
+  <img alt="Versión" src="https://img.shields.io/badge/versi%C3%B3n-0.1.0--beta.17-22D3EE">
   <img alt="Licencia" src="https://img.shields.io/badge/licencia-FSL--1.1--ALv2-0E3B45">
   <img alt="Node" src="https://img.shields.io/badge/node-%E2%89%A5%2024-3c873a">
   <img alt="Local" src="https://img.shields.io/badge/todo%20corre-en%20tu%20m%C3%A1quina-444">
@@ -53,6 +53,9 @@ Todo corre en tu máquina. Nada sale de ella: ni el código, ni los datos, ni lo
 Qué entornos están en marcha, qué flujos pasan, qué tocan tus cambios y qué desacuerdos hay entre
 la documentación y el código.
 
+Las pantallas se actualizan solas cuando un agente, un editor o la CLI cambia algo del workspace, sin recargar.
+Lo que importa llega como aviso: un run que falló, Docker que dejó de responder o una limpieza que liberó espacio.
+
 <img src="docs/images/estado.png" alt="La pantalla de estado: entornos, flujos, últimos runs, tus cambios y desacuerdos">
 
 ### El mapa del sistema, leído del código
@@ -69,10 +72,12 @@ Cada línea del mapa dice de dónde sale: si está en el código, si se observó
 ### Documentación viva, con un estándar
 
 El aplicativo, sus módulos, flujos, escenarios, decisiones, modelos de datos, guías y arquitectura son
-**piezas** con un estándar. Cada pieza:
-- tiene una nota de completitud y dice lo que le falta;
+**piezas** con un estándar que dice qué va en cada una, sin poner techo a cuánto. Cada pieza:
+- tiene una nota que mide que sea **asertiva**, no corta: avisa de un endpoint que el código no tiene,
+  de las frases vagas («probablemente», «etc.», «TODO») y de una sección que repite el resumen;
 - se valida en CI con `laru check`;
-- incluye diagramas con su clase y sus reglas.
+- admite **cualquier diagrama** de las 27 clases, en cualquier sección. Cada tipo de pieza sugiere los suyos,
+  con cómo se dibuja cada uno, y un diagrama sube la nota.
 
 Los diagramas se editan en un lienzo (Excalidraw) o como texto (Mermaid).
 
@@ -84,7 +89,9 @@ Los diagramas se editan en un lienzo (Excalidraw) o como texto (Mermaid).
 - **Bases de datos:** Postgres, MySQL, MongoDB y Redis, con consultas, filtros y edición que enseña el `UPDATE` antes de aplicarlo.
 - **Colas:** Kafka y RabbitMQ, con temas, mensajes recientes y publicación.
 - **Almacenamiento:** S3 y MinIO.
-- **Correo y SMS:** atrapados en local, para leerlos y abrir sus enlaces.
+- **Correo y mensajes:** el correo (SMTP), los SMS y la API de cualquier proveedor de correo, SMS, WhatsApp o
+  notificaciones se atrapan en local, para leerlos y abrir sus enlaces. Un mock propio publica en `http://laru-mailbox/messages`.
+- **Mocks:** cada uno muestra lo que respondió, con cuántas llamadas y qué estados, y las peticiones que le llegan en vivo.
 - **Variables y secretos:** cada clave dice qué nivel gana y quién la lee; los secretos van cifrados en disco.
 
 Para volver a un estado, `laru snapshot` lo guarda y `laru reset` lo restaura en segundos.
@@ -99,6 +106,7 @@ Cada flujo es una prueba de extremo a extremo con Playwright. Cada run guarda:
 - la traza de todo el sistema: cada petición HTTP con su cuerpo, cada consulta SQL con las filas que devolvió,
   cada mensaje de Kafka, los eventos del servidor y los logs de cada servicio.
 
+Cada flujo elige el tamaño de su pantalla (`screen: 1920x1080` o `390x844` para un móvil en su `flow.md`).
 `laru test --affected` corre solo los flujos que toca tu cambio. Si un flujo se comporta distinto del comportamiento aprobado, Laru te lo dice.
 
 ### El estudio: un run como en un editor de vídeo
@@ -108,6 +116,9 @@ Todo a la vez, sin hacer scroll:
 - el **Recorrido**: cada petición en orden, bajo la acción que la provocó, con su camino por los servicios y lo que llevó y recibió;
 - la secuencia y el mapa;
 - una línea de tiempo con una pista por servicio.
+
+Además del vídeo, cada flujo graba una **réplica** de la página (prueba de concepto): el HTML y sus cambios, nítida
+a cualquier tamaño y más ligera. Desde ella se saca un MP4 cuando lo pides.
 
 Para moverte: `Espacio` reproduce, `←` `→` pasan de mensaje en mensaje y `P` recorre paso a paso.
 La imagen de arriba del todo es el estudio.
@@ -135,15 +146,32 @@ Cada flujo que pasa sustituye su evidencia en `evidence/`. Para un workspace que
 ### Todos tus aplicativos en un solo sitio
 
 Un servicio local sirve todos tus workspaces, cada uno en su dirección. También dice cuánta memoria
-usan los entornos en marcha y cuántos pueden correr a la vez.
+usan los entornos en marcha, cuántos pueden correr a la vez y **lo que pesa cada workspace** en disco, parte por parte.
 
 <img src="docs/images/workspaces.png" alt="La página de workspaces con cuatro aplicativos y el uso de la máquina">
+
+### Limpia solo, sin perder nada que necesites
+
+Tras cada `up`, tras cada run, al arrancar el servicio y cada 6 horas, Laru recorta lo que ya no sirve:
+- **Docker:** de cada servicio conserva la imagen más nueva, así un entorno parado vuelve sin construir;
+  borra las de apps que ya no tienes y sus volúmenes, y deja la caché de compilación en 20 GB como mucho.
+  Solo toca lo que lleva su etiqueta, nunca lo que está en uso.
+- **Runs:** el vídeo y las capturas a los 7 días, los runs a los 30, y los más viejos si pasan de 5 GB.
+  De cada flujo quedan siempre enteros el último que pasó y el último que falló.
+- **Instantáneas** del código que ningún entorno usa.
+
+Nunca toca los flujos, el `compose.yml` de cada entorno ni los datos de tus apps. Cada limpieza que libera algo
+deja un aviso. Los límites se cambian en `~/.laru/config.yaml`, y `laru prune --dry-run` dice qué borraría.
 
 ### Para tu agente de IA
 
 Abre `claude` (o Codex) en el workspace y ya sabe dónde está todo:
 - **Servidor MCP:** `.mcp.json` lo declara, con herramientas para el mapa, la documentación, los entornos, los runs y las sesiones en vivo.
-- **Guías del workspace:** `CLAUDE.md` y `AGENTS.md` explican cómo se documenta y cómo se prueba.
+- **Guías del workspace:** `CLAUDE.md` y `AGENTS.md` explican cómo se documenta y cómo se prueba. Se reescriben
+  con cada versión de Laru, así una actualización le llega al agente en la siguiente sesión.
+- **Empieza sabiendo dónde está:** al abrir una sesión, un hook le da el workspace, el estado de cada entorno,
+  los flujos con su último resultado y tu forma de trabajo. También se puede abrir en la carpeta de Laru:
+  trabaja sobre el último workspace que abriste.
 - **Contexto:** `laru context <pieza>` da al agente lo justo antes de tocar algo.
 - **Tu forma de trabajo:** para qué usas el workspace, tus ramas, las ramas donde no se edita código, lo que nunca
   se hace y lo que pide confirmación. Es de cada persona y no entra en git; el agente la lee siempre.
@@ -151,8 +179,9 @@ Abre `claude` (o Codex) en el workspace y ya sabe dónde está todo:
   después, se bloquea si las rompe. No puede escribir `docs/` a mano, ni editar en una rama protegida, ni lanzar
   un comando que tu forma de trabajo prohíbe; uno que pide confirmación se detiene a preguntarte. Al terminar,
   se le pide revisar la documentación del código que tocó.
-- **El estándar, también para el agente:** `knowledge_shape` le da la forma de cada pieza y de sus diagramas,
-  y `knowledge_write` rechaza lo que no la cumple.
+- **El estándar, también para el agente:** `knowledge_shape` le da qué va en cada pieza, los diagramas sugeridos
+  y el catálogo entero, con cómo se dibuja cada uno. `knowledge_write` le avisa de lo que no se puede comprobar
+  y rechaza un diagrama que no se dibuja o una pieza por debajo de la nota que exige tu política.
 
 ### A tu gusto
 
@@ -169,7 +198,8 @@ seis oscuras y dos claras, con el contraste medido en todas. Se aplica al moment
 - **Node.js 24** o superior y **pnpm 10**.
 - **Docker** con Docker Compose.
 - **Git.**
-- **Opcional:** Google Chrome, para usar el aplicativo dentro de Laru en las sesiones en vivo.
+- **Opcional:** Google Chrome, para usar el aplicativo dentro de Laru en las sesiones en vivo y para sacar
+  un MP4 de la réplica de un flujo.
 
 `ffmpeg` no hace falta instalarlo: `pnpm install` descarga uno para tu sistema
 ([ffmpeg-static](https://www.npmjs.com/package/ffmpeg-static)). Laru lo usa para sincronizar el vídeo de cada prueba con su traza,
