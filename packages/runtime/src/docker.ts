@@ -58,6 +58,23 @@ export function docker(args: string[], opts: { env?: Record<string, string>; inp
 }
 
 /** Streams a long docker command (build, up) line by line into `onLine`, and resolves with its exit code. */
+/**
+ * Laru's own BuildKit (`docker buildx`, docker-container driver): what Laru builds leaves its cache there, Laru's alone,
+ * and that is the only build cache its cleanup trims. Docker's own builder, shared with every other project on the
+ * machine, is never touched. Created on first use; false when it cannot be (then Laru builds with Docker's own).
+ */
+export const BUILDER = 'laru';
+let builderReady: Promise<boolean> | undefined;
+// Laru marks the builder it creates; one named `laru` without the mark is someone else's and is never used or trimmed
+const MARK = 'LARU_BUILDER';
+const inspectBuilder = () => docker(['buildx', 'inspect', BUILDER], { timeoutMs: DOCKER_READ.ms }).then((o) => (o.includes(MARK) ? 'ours' : 'theirs'), () => 'none');
+export const hasBuilder = async () => (await inspectBuilder()) === 'ours';
+export const laruBuilder = (): Promise<boolean> => (builderReady ??= inspectBuilder().then((s) => s !== 'none' ? s === 'ours'
+  // two ups at once both create it: the one that loses still finds it
+  : docker(['buildx', 'create', '--name', BUILDER, '--driver', 'docker-container', '--driver-opt', `env.${MARK}=1`], { timeoutMs: 120_000 }).then(() => true, hasBuilder)));
+/** A build Laru's builder cannot do and Docker's own can: an image only on this machine, a registry behind its own certificate or network. */
+export const BUILDER_REACH = /failed to resolve source metadata|pull access denied|x509|certificate|no such host|failed to do request|i\/o timeout|connection refused|no builder/i;
+
 export function dockerStream(args: string[], onLine: (line: string) => void, opts: { env?: Record<string, string>; cwd?: string; signal?: AbortSignal } = {}): Promise<number> {
   return new Promise((resolve, reject) => {
     const child = spawn('docker', args, { env: dockerEnv(opts.env), cwd: opts.cwd, signal: opts.signal });

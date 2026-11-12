@@ -28,7 +28,7 @@ export function createServer(root: Workspace['root'], o: { outside?: boolean; la
   const guide = (!o.outside && (existsSync(join(w0.root, 'CLAUDE.md')) || existsSync(join(w0.root, 'AGENTS.md')))
     ? 'Laru: this workspace\'s guide (the loop, how the documentation is written, how flows are tested) is in CLAUDE.md and AGENTS.md at its root; follow it. Start with `context` on what you will change, and `impact` after it.'
     : agentGuide(w0)) + (agr ? `\n\n${agreementText(agr)}` : '') + (o.outside ? `\n\n${outsideNote(w0, o)}` : '');
-  const server = new McpServer({ name: 'laru', version: '0.1.0-beta.17' }, { instructions: guide });
+  const server = new McpServer({ name: 'laru', version: '0.1.0-beta.18' }, { instructions: guide });
   // Every tool is kept by name, so the ones for stores this application does not have can be left out of the list.
   const tools = new Map<string, ReturnType<McpServer['registerTool']>>();
   const register = server.registerTool.bind(server);
@@ -130,7 +130,7 @@ export function createServer(root: Workspace['root'], o: { outside?: boolean; la
 
   server.registerTool('env_up', {
     description: 'Start or update an env, building only what changed. Cold starts take minutes: wait=false returns at once, follow with env_status. Missing variables stop it first, named with file:line.',
-    inputSchema: { env: envArg, hybrid: z.array(z.string()).optional().describe('services that will run on the host with laru run'), rebuild: z.array(z.string()).optional().describe('services rebuilt WITHOUT cache and replaced; ["all"] for all built from source. NOT for a code change: a plain env_up already builds what changed. Only when the cache is wrong (a dependency fetched at build time changed); each one leaves a full copy of its dependencies in Docker\'s build cache. A running persistent env needs confirm: true'), confirm: z.boolean().optional(), wait: z.boolean().default(false) },
+    inputSchema: { env: envArg, hybrid: z.array(z.string()).optional().describe('services that will run on the host with laru run'), rebuild: z.array(z.string()).optional().describe('services rebuilt WITHOUT cache and replaced; ["all"] for all built from source. NOT for a code change: a plain env_up already builds what changed. Only when the cache is wrong (a dependency fetched at build time changed); each one leaves a full copy of its dependencies in the build cache. A running persistent env needs confirm: true'), confirm: z.boolean().optional(), wait: z.boolean().default(false) },
   }, async ({ env, hybrid, rebuild, confirm, wait }) => {
     const w = ws(), name = pickEnv(w, env);
     if (pending.has(name)) return text(`${name} is already starting; follow it with env_status`);

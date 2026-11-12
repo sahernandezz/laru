@@ -21,7 +21,7 @@ export interface MachineConfig {
   stepHoldMs: number;
   /** mask secrets in what Laru records and shows; off by default: it runs locally, and what it shows is what passed (an env's next up applies it) */
   mask: boolean;
-  /** Docker's build cache (the whole machine's, it carries no label) is trimmed to this after each up, least recently used first; 0: left alone */
+  /** Laru's build cache (its own builder's; Docker's, shared with other projects, is never touched) is trimmed to this after each up, least recently used first; 0: left alone */
   buildCacheGB: number;
 }
 

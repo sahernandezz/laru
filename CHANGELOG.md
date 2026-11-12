@@ -6,6 +6,13 @@ Todos los cambios de Laru que importan a quien lo usa quedan aquí. El formato s
 
 ## [Sin publicar]
 
+## [0.1.0-beta.18] - 2026-11-12
+
+### Arreglado
+
+- **La limpieza ya no toca la caché de compilación de otros proyectos.** La caché de Docker es de toda la máquina, sin dueño, y el recorte a 20 GB alcanzaba también la de compilaciones ajenas. Ahora Laru compila con su propio builder (`laru`, de `docker buildx`, que lleva la marca de Laru), así su caché queda aparte y es la única que recorta; la de Docker no se toca nunca, ni un builder llamado `laru` que Laru no creó. Un entorno que ese builder no puede compilar (una imagen base que solo está en la máquina, un registro detrás de su propio certificado o red) se compila con el de Docker desde entonces, y esa caché tampoco se toca. La primera compilación con el builder nuevo empieza sin caché.
+- **La limpieza solo borra imágenes que Laru construyó.** Elegía las imágenes de apps por el nombre (`ks-<app>/…`); ahora exige además la etiqueta de Laru, así una imagen ajena con un nombre parecido nunca se toca. El runner se sigue reconociendo por su nombre (`laru/runner`), que es el único que llevan los de versiones anteriores.
+
 ## [0.1.0-beta.17] - 2026-11-11
 
 ### Cambiado
@@ -317,7 +324,8 @@ Primera beta pública.
   - `CLAUDE.md` y `AGENTS.md` generados.
   - Hooks para Claude Code.
 
-[Sin publicar]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.17...HEAD
+[Sin publicar]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.18...HEAD
+[0.1.0-beta.18]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.17...v0.1.0-beta.18
 [0.1.0-beta.17]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.16...v0.1.0-beta.17
 [0.1.0-beta.16]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.15...v0.1.0-beta.16
 [0.1.0-beta.15]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.14...v0.1.0-beta.15

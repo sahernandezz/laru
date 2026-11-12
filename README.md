@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Versión" src="https://img.shields.io/badge/versi%C3%B3n-0.1.0--beta.17-22D3EE">
+  <img alt="Versión" src="https://img.shields.io/badge/versi%C3%B3n-0.1.0--beta.18-22D3EE">
   <img alt="Licencia" src="https://img.shields.io/badge/licencia-FSL--1.1--ALv2-0E3B45">
   <img alt="Node" src="https://img.shields.io/badge/node-%E2%89%A5%2024-3c873a">
   <img alt="Local" src="https://img.shields.io/badge/todo%20corre-en%20tu%20m%C3%A1quina-444">
@@ -153,9 +153,15 @@ usan los entornos en marcha, cuántos pueden correr a la vez y **lo que pesa cad
 ### Limpia solo, sin perder nada que necesites
 
 Tras cada `up`, tras cada run, al arrancar el servicio y cada 6 horas, Laru recorta lo que ya no sirve:
-- **Docker:** de cada servicio conserva la imagen más nueva, así un entorno parado vuelve sin construir;
-  borra las de apps que ya no tienes y sus volúmenes, y deja la caché de compilación en 20 GB como mucho.
-  Solo toca lo que lleva su etiqueta, nunca lo que está en uso.
+- **Docker:** de cada servicio conserva la imagen más nueva, así un entorno parado vuelve sin construir,
+  y borra las de apps que ya no tienes y sus volúmenes. Solo toca imágenes, volúmenes y contenedores con la
+  etiqueta de Laru, nunca uno en uso.
+- **Caché de compilación:** Laru compila con su propio builder (`laru`), así su caché queda aparte y la deja
+  en 20 GB como mucho. La caché de Docker, que comparten tus otros proyectos, no la toca nunca. Un entorno que
+  ese builder no puede compilar (una imagen base que solo está en tu máquina, un registro que no alcanza) se
+  compila con el de Docker, y esa caché tampoco se toca.
+
+**Nada que no sea de Laru se borra:** ni imágenes, ni volúmenes, ni contenedores, ni redes, ni caché de otros proyectos.
 - **Runs:** el vídeo y las capturas a los 7 días, los runs a los 30, y los más viejos si pasan de 5 GB.
   De cada flujo quedan siempre enteros el último que pasó y el último que falló.
 - **Instantáneas** del código que ningún entorno usa.

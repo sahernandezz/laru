@@ -11,7 +11,7 @@ import { parse } from 'yaml';
 import { promisify } from 'node:util';
 import { appHome, appOf, laruHome, loadRegistry, loadWorkspace, shadowDir, stateDir, withLock, type Workspace } from '@laru/core';
 import { readConfig, type Retention } from './config.ts';
-import { docker, DOCKER_READ, LABEL, sizeBytes } from './docker.ts';
+import { BUILDER, docker, DOCKER_READ, hasBuilder, LABEL, sizeBytes } from './docker.ts';
 import { RUNNER_IMAGE } from './runs.ts';
 import { envDir, listEnvs, readState } from './env.ts';
 import { RESULTS, runnerFiles } from './runner-file.ts';
@@ -258,21 +258,22 @@ const knownApps = (app: string) => {
   return new Set([app, ...[...loadRegistry().map((x) => x.root), ...machine].map((r) => appOf(r)).filter((a): a is string => Boolean(a))]);
 };
 const oldImages = async (app: string) => {
-  const rows = (await docker(['image', 'ls', '--format', '{{json .}}'])).split('\n').filter(Boolean).map((l) => JSON.parse(l) as ImageRow)
-    .filter((r) => /^ks-[^/]+\//.test(r.Repository) || /^(laru|keelson)\/runner$/.test(r.Repository));
+  const ls = async (...filter: string[]) => (await docker(['image', 'ls', ...filter, '--format', '{{json .}}'])).split('\n').filter(Boolean).map((l) => JSON.parse(l) as ImageRow);
+  // an app's image only if Laru built it (its label, not just its name); the runner by its name, which older ones carry alone
+  const rows = [...(await ls('--filter', `label=${LABEL.app}`)).filter((r) => /^ks-[^/]+\//.test(r.Repository)), ...(await ls()).filter((r) => /^(laru|keelson)\/runner$/.test(r.Repository))];
   return staleImages(rows, (await docker(['ps', '-a', '--format', '{{.Image}}'])).split('\n').filter(Boolean), knownApps(app));
 };
 /**
- * Docker's build cache down to `gb` (0: left alone), measured before and after: Docker's own answer is not trusted.
- * Each build of a project's Dockerfile leaves its layers (an `npm ci` per change of the code) and Docker does not trim
- * them on its own. First the least recently used go (`--max-used-space`; `--keep-storage` on an older Docker); a Docker
- * that leaves it above the cap anyway (the containerd image store ignores those limits) loses all the cache no build is
- * using: the next build of each image starts from scratch, nothing else is lost (an image keeps its own layers).
+ * Laru's build cache (its own builder's, never Docker's, which other projects share) down to `gb` (0: left alone),
+ * measured before and after. Each build of a project's Dockerfile leaves its layers (an `npm ci` per change of the code)
+ * and BuildKit does not trim them on its own. First the least recently used go (`--max-used-space`; `--keep-storage` on
+ * an older buildx); if it stays above the cap, all of it no build is using: the next build of each image starts from
+ * scratch, nothing else is lost (an image keeps its own layers).
  */
 async function trimBuildCache(gb: number): Promise<{ before: number; after: number }> {
   const cap = gb * 1e9, before = await buildCacheBytes();
   if (before <= cap) return { before, after: before };
-  const args = ['builder', 'prune', '--all', '--force'], o = { timeoutMs: 600_000 }; // a hung Docker never holds the cleanup
+  const args = ['buildx', 'prune', '--builder', BUILDER, '--all', '--force'], o = { timeoutMs: 600_000 }; // a hung Docker never holds the cleanup
   await docker([...args, '--max-used-space', `${gb}gb`], o).catch((e: Error) => {
     if (!/unknown flag/i.test(e.message)) throw e;
     return docker([...args, '--keep-storage', `${gb}gb`], o);
@@ -296,8 +297,8 @@ export function cleanDockerDetached(app: string): void {
 const cleanupFile = () => join(laruHome(), 'docker-cleanup.json');
 export type DockerCleanup = { at: string; images: number; imagesBytes?: number; volumes: number; buildCache?: PruneReport['buildCache'] };
 export const lastCleanup = (): DockerCleanup | undefined => { try { return JSON.parse(readFileSync(cleanupFile(), 'utf8')); } catch { return undefined; } };
-/** Docker's build cache as `docker system df` counts it */
-const buildCacheBytes = async () => sizeBytes(JSON.parse((await docker(['system', 'df', '--format', '{{json .}}'], { timeoutMs: DOCKER_READ.ms })).split('\n').filter(Boolean).find((l) => l.includes('"Build Cache"')) ?? '{"Size":"0B"}').Size);
+/** Laru's build cache, as its builder counts it (none until Laru first builds) */
+const buildCacheBytes = async () => (await hasBuilder() ? sizeBytes((await docker(['buildx', 'du', '--builder', BUILDER], { timeoutMs: DOCKER_READ.ms })).match(/^Total:\s*(\S+)/m)?.[1] ?? '0B') : 0);
 
 /** Laru's volumes no container uses, of an app without a workspace on this machine (a registered app's caches stay). */
 const oldVolumes = async (app: string) => {

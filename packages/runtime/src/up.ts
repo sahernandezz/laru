@@ -13,7 +13,7 @@ import { writeMaskFile } from '@laru/trace';
 import { closure, composeFiles, importCompose, interpolations, leftOut, renderCompose, type ComposeDoc, type RenderContext, type Service, type Target } from './compose.ts';
 import { readConfig } from './config.ts';
 import { cleanDockerDetached, prune } from './disk.ts';
-import { destroyByLabel, docker, dockerAnswers, DockerError, dockerStream, envLock, hold, inspectEnv, LABEL, machineLock, recentStats, stats, withLock, workspaceKey, type ContainerState, type DestroyReport } from './docker.ts';
+import { BUILDER, BUILDER_REACH, destroyByLabel, docker, laruBuilder, dockerAnswers, DockerError, dockerStream, envLock, hold, inspectEnv, LABEL, machineLock, recentStats, stats, withLock, workspaceKey, type ContainerState, type DestroyReport } from './docker.ts';
 import { checkShare, ENV_KEYS, envDir, envKeys, envMasker, forgetValues, isInstance, jointSpec, loadEnvSpec, projectName, readState, translateSpec, writeState, type EnvState } from './env.ts';
 import { joinComposes, jointRouting } from './join.ts';
 import { nameOf, provisional } from './names.ts';
@@ -574,11 +574,25 @@ export async function up(ws: Workspace, opts: UpOptions): Promise<UpResult> {
         for (const [keys, flags] of [[toBuild.filter((k) => !fresh.has(k)), []], [toBuild.filter((k) => fresh.has(k)), ['--no-cache']]] as Array<[string[], string[]]>) {
           if (!keys.length) continue;
           if (flags.length) emit({ kind: 'log', source: 'laru', line: `rebuilding without cache: ${keys.join(', ')}` });
-          const code = await dockerStream(['compose', '--progress', 'plain', '-p', project, '-f', composePath, 'build', ...flags, ...keys], (l) => {
-            const line = emit.masker.text(l);
-            appendFileSync(log, line + '\n');
-            emit({ kind: 'log', source: 'build', line });
-          }, { env });
+          // Laru's builder keeps its cache apart; an env it cannot build (a base image only on this machine, a registry it
+          // cannot reach) is built with Docker's own from then on, whose cache Laru never trims
+          const shared = join(dir, 'shared-builder');
+          const build = (own: boolean) => {
+            const lines: string[] = [];
+            return dockerStream(['compose', '--progress', 'plain', '-p', project, '-f', composePath, 'build', ...flags, ...keys], (l) => {
+              const line = emit.masker.text(l);
+              lines.push(line);
+              appendFileSync(log, line + '\n');
+              emit({ kind: 'log', source: 'build', line });
+            }, { env: own ? { ...env, BUILDX_BUILDER: BUILDER } : env }).then((code) => ({ code, lines }));
+          };
+          const own = !existsSync(shared) && await laruBuilder();
+          let { code, lines } = await build(own);
+          if (code !== 0 && own && BUILDER_REACH.test(lines.slice(-40).join('\n'))) {
+            emit({ kind: 'log', source: 'laru', line: 'Laru\'s builder cannot reach a base image of this env: it builds with Docker\'s own from now on, whose cache Laru never trims' });
+            writeFileSync(shared, new Date().toISOString());
+            ({ code, lines } = await build(false));
+          }
           if (code !== 0) throw new EnvError(`the build failed; see ${relative(ws.root, log)}`, { logs: readFileSync(log, 'utf8').trimEnd().split('\n').slice(-30) });
         }
       }

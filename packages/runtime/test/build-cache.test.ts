@@ -1,5 +1,5 @@
 /**
- * Docker's build cache is capped after each up, measured before and after: an older Docker that only knows
+ * Laru's build cache (its own builder's, never Docker's shared one) is capped after each up, measured before and after: an older Docker that only knows
  * `--keep-storage` still gets it, one that ignores the cap loses the cache no build uses, and a trim that fails says so,
  * never "trimmed". Against a fake docker first on PATH (one process per test file).
  */
@@ -14,15 +14,16 @@ import { cleanDockerDetached, dirBytes, DOCKER_READ, forgetSizes, prune, workspa
 const tmp = mkdtempSync(join(tmpdir(), 'laru-buildcache-'));
 const bin = join(tmp, 'bin');
 mkdirSync(bin);
-// `mode` says how `builder prune` answers: ok, old (no --max-used-space), ignores (the cap does nothing) or broken;
-// `size` is the cache in GB that `system df` reports
+// `mode` says how Laru's builder answers `buildx prune`: ok, old (no --max-used-space), ignores (the cap does nothing),
+// broken, hang (on `buildx du`), none (no builder yet) or theirs (a `laru` builder Laru did not create); `size` is the cache in GB that `buildx du` reports
 writeFileSync(join(bin, 'docker'), `#!/bin/sh
 echo "$*" >> "${bin}/calls"
 mode=$(cat "${bin}/mode")
 case "$*" in
-  "image ls"*) [ -f "${bin}/images" ] && cat "${bin}/images";;
-  "system df"*) [ "$mode" = hang ] && sleep 5; echo "{\\"Type\\":\\"Build Cache\\",\\"Size\\":\\"$(cat "${bin}/size")GB\\"}";;
-  "builder prune"*)
+  "image ls"*) [ -f "${bin}/images" ] || exit 0; if echo "$*" | grep -q "label=keelson.app"; then grep '"Labels":"keelson.app' "${bin}/images" || true; else cat "${bin}/images"; fi;;
+  "buildx inspect laru"*) [ "$mode" = none ] && exit 1; [ "$mode" = theirs ] || echo 'Driver Options:        env.LARU_BUILDER="1"';;
+  "buildx du --builder laru"*) [ "$mode" = hang ] && sleep 5; printf 'Reclaimable:\\t1GB\\nTotal:\\t\\t%sGB\\n' "$(cat "${bin}/size")";;
+  "buildx prune --builder laru"*)
     if [ "$mode" = broken ]; then echo "Error response from daemon: permission denied" >&2; exit 1; fi
     if [ "$mode" = old ] && echo "$*" | grep -q max-used-space; then echo "unknown flag: --max-used-space" >&2; exit 125; fi
     if echo "$*" | grep -q -e max-used-space -e keep-storage; then [ "$mode" = ignores ] || echo 18 > "${bin}/size"; else echo 5 > "${bin}/size"; fi
@@ -37,16 +38,16 @@ process.env.LARU_DOCKER_CLEANUP = '1'; // the suite turns it off; here it is wha
 process.env.HOME = join(tmp, 'user');
 const ws = { root: join(tmp, 'ws'), app: 'shop', repos: [] } as unknown as Workspace;
 const mode = (m: string, gb = 30) => { writeFileSync(join(bin, 'mode'), m); writeFileSync(join(bin, 'size'), String(gb)); writeFileSync(join(bin, 'calls'), ''); };
-const prunes = () => readFileSync(join(bin, 'calls'), 'utf8').split('\n').filter((l) => l.startsWith('builder prune'));
+const prunes = () => readFileSync(join(bin, 'calls'), 'utf8').split('\n').filter((l) => l.startsWith('buildx prune'));
 const cache = async () => (await prune(ws, { what: ['images'] })).buildCache;
 
 test('the build cache goes down to 20 GB, least used first, with --keep-storage on an older Docker; under the cap it is left alone', async () => {
   mode('ok');
   assert.deepEqual(await cache(), { gb: 20, trimmed: true, before: 30e9, after: 18e9 });
-  assert.deepEqual(prunes(), ['builder prune --all --force --max-used-space 20gb']);
+  assert.deepEqual(prunes(), ['buildx prune --builder laru --all --force --max-used-space 20gb']);
   mode('old');
   assert.deepEqual(await cache(), { gb: 20, trimmed: true, before: 30e9, after: 18e9 });
-  assert.deepEqual(prunes(), ['builder prune --all --force --max-used-space 20gb', 'builder prune --all --force --keep-storage 20gb']);
+  assert.deepEqual(prunes(), ['buildx prune --builder laru --all --force --max-used-space 20gb', 'buildx prune --builder laru --all --force --keep-storage 20gb']);
   mode('ok', 10);
   assert.deepEqual(await cache(), { gb: 20, trimmed: false, before: 10e9, after: 10e9 });
   assert.deepEqual(prunes(), []);
@@ -55,7 +56,7 @@ test('the build cache goes down to 20 GB, least used first, with --keep-storage 
 test('a Docker that ignores the cap loses the cache no build uses; the sizes are the ones measured', async () => {
   mode('ignores');
   assert.deepEqual(await cache(), { gb: 20, trimmed: true, before: 30e9, after: 5e9 });
-  assert.deepEqual(prunes(), ['builder prune --all --force --max-used-space 20gb', 'builder prune --all --force']);
+  assert.deepEqual(prunes(), ['buildx prune --builder laru --all --force --max-used-space 20gb', 'buildx prune --builder laru --all --force']);
 });
 
 test('a trim that fails is reported as failed, with Docker\'s reason, and a dry run trims nothing', async () => {
@@ -99,7 +100,7 @@ test('after a run or an up, the cleanup runs in a detached process: the command 
 
 test('what each workspace weighs: two workspaces of one app each show its images, the whole counts them once', async () => {
   mode('ok', 2);
-  writeFileSync(join(bin, 'images'), [{ Repository: 'ks-shop/api', Tag: 'a', ID: 'a1', CreatedAt: '', Size: '1GB' }, { Repository: 'postgres', Tag: '16', ID: 'p1', CreatedAt: '', Size: '400MB' }].map((r) => JSON.stringify(r)).join('\n'));
+  writeFileSync(join(bin, 'images'), [{ Repository: 'ks-shop/api', Tag: 'a', ID: 'a1', CreatedAt: '', Size: '1GB', Labels: 'keelson.app=shop' }, { Repository: 'postgres', Tag: '16', ID: 'p1', CreatedAt: '', Size: '400MB' }].map((r) => JSON.stringify(r)).join('\n'));
   for (const d of ['one', 'two']) await register(initWorkspace(join(tmp, d), { app: 'shop' }).root);
   // the app's snapshot lives in Laru's home
   mkdirSync(join(tmp, 'home', 'shop', 'snapshots', 'api@c1'), { recursive: true });
@@ -118,7 +119,7 @@ test('what each workspace weighs: two workspaces of one app each show its images
 
 test('an app registered only in the machine\'s own Laru home is never a leftover for a Laru with another LARU_HOME', async () => {
   mode('ok', 2);
-  writeFileSync(join(bin, 'images'), ['ks-bench/api', 'ks-gone/api'].map((repo) => JSON.stringify({ Repository: repo, Tag: 'a', ID: repo, CreatedAt: '', Size: '1MB' })).join('\n'));
+  writeFileSync(join(bin, 'images'), ['ks-bench/api', 'ks-gone/api'].map((repo) => JSON.stringify({ Repository: repo, Tag: 'a', ID: repo, CreatedAt: '', Size: '1MB', Labels: `keelson.app=${repo.slice(3, -4)}` })).join('\n'));
   const bench = initWorkspace(join(tmp, 'bench'), { app: 'bench' }).root;
   mkdirSync(join(tmp, 'user', '.laru'), { recursive: true });
   writeFileSync(join(tmp, 'user', '.laru', 'workspaces.yaml'), `- root: ${bench}\n  addedAt: x\n`);
@@ -133,4 +134,30 @@ test('ups and runs in a row start one cleanup, not one each', async () => {
   await new Promise((r) => setTimeout(r, 20));
   cleanDockerDetached('shop');
   assert.equal(readFileSync(join(tmp, 'home', 'docker-cleanup.started'), 'utf8'), first, 'the second one did not start');
+});
+
+test('only what Laru built goes: an image named like Laru\'s but without its label stays, an unused older runner goes', async () => {
+  mode('ok', 2);
+  writeFileSync(join(bin, 'images'), [
+    { Repository: 'ks-ajeno/api', Tag: 'a', ID: 'x1', CreatedAt: '', Size: '1MB' }, // someone else's, same prefix, no label
+    { Repository: 'ks-gone/api', Tag: 'a', ID: 'g1', CreatedAt: '', Size: '1MB', Labels: 'keelson.app=gone' },
+    { Repository: 'keelson/runner', Tag: 'old', ID: 'r1', CreatedAt: '', Size: '1MB' },
+    { Repository: 'postgres', Tag: '16', ID: 'p1', CreatedAt: '', Size: '1MB' },
+  ].map((r) => JSON.stringify(r)).join('\n'));
+  assert.deepEqual((await prune(ws, { what: ['images'], dryRun: true })).images.map((i) => i.ref), ['ks-gone/api:a', 'keelson/runner:old']);
+  rmSync(join(bin, 'images'));
+});
+
+test('Docker\'s own build cache, shared with every project on the machine, is never pruned; without a builder of its own, or with someone else\'s named laru, Laru prunes none', async () => {
+  mode('ok');
+  await cache();
+  const calls = readFileSync(join(bin, 'calls'), 'utf8').split('\n').filter((l) => /prune/.test(l));
+  assert.ok(calls.length && calls.every((l) => !l.startsWith('builder') && !l.startsWith('system') && (l.startsWith('image prune --force --filter label=') || l.includes('--builder laru'))), calls.join('\n'));
+  mode('none');
+  assert.deepEqual(await cache(), { gb: 20, trimmed: false, before: 0, after: 0 });
+  assert.deepEqual(prunes(), []);
+  // a builder named `laru` that Laru did not create (no mark) is someone else's: not measured, not trimmed
+  mode('theirs');
+  assert.deepEqual(await cache(), { gb: 20, trimmed: false, before: 0, after: 0 });
+  assert.deepEqual(prunes(), []);
 });
