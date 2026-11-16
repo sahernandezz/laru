@@ -61,7 +61,7 @@ export function knowledgeShape(ws: Workspace, type: PieceType, withExample = tru
   return {
     type, prefix: `${std.prefix}:`, question: std.question[lang], livesIn: std.livesIn, kinds: std.kinds, statuses: std.statuses, anchors: std.anchors, stage: std.stage,
     meta: std.meta, expects: std.expects, folder: isContainer(type) ? `${std.folder}/<slug>/${type}.md` : OWN_FOLDER.includes(type) ? `${std.folder}/<slug>/${type}.md` : `${std.folder}/<slug>.md`,
-    fields: std.fields.map((f) => ({ name: f.name, heading: f.label[lang], type: f.type, required: Boolean(f.required), hint: lang === 'es' && f.hintEs ? f.hintEs : f.hint, hintEs: f.hintEs, diagram: f.diagram, suggested: f.kinds, minWords: f.minWords, ref: f.ref, columns: f.columns?.map((c) => ({ name: c.name, heading: c.label[lang], required: Boolean(c.required), enum: c.enum, ref: c.ref, date: c.date })) })),
+    fields: std.fields.map((f) => ({ name: f.name, heading: f.label[lang], type: f.type, required: Boolean(f.required), hint: lang === 'es' && f.hintEs ? f.hintEs : f.hint, hintEs: f.hintEs, hintEn: f.hint, diagram: f.diagram, suggested: f.kinds, minWords: f.minWords, ref: f.ref, columns: f.columns?.map((c) => ({ name: c.name, heading: c.label[lang], required: Boolean(c.required), enum: c.enum, ref: c.ref, date: c.date })) })),
     writing: WRITING,
     diagrams: { rule: DIAGRAM_RULE, suggested: (std.diagrams ?? []).flatMap((k) => drawn(k)), catalogue: CATALOGUE },
     ...(type === 'flow' ? { standard: { guide: E2E_GUIDE.id, rules: E2E_RULES } } : {}),

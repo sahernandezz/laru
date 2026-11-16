@@ -7,7 +7,7 @@
  * started with `laru serve --token`, every API call but `/api/ping` needs the session cookie, handed out once in
  * exchange for the token kept in ~/.laru/daemon.json (0600): for a machine other people log in to.
  */
-import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { execFile, spawn } from 'node:child_process';
 import { chmodSync, closeSync, createReadStream, createWriteStream, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, readSync, realpathSync, renameSync, rmSync, statSync, watch, watchFile, unwatchFile, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
@@ -16,10 +16,10 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { dirname, extname, join, normalize, relative, resolve, sep } from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import { CLEANUP_EVERY_MS, lastCleanup, lastRunsPrune, workspacesDisk, combineScreens, replayVideoState, startReplayVideo, flowEnvDown, flowEnvStatus, flowEnvUp, instanceOf, instancesOf, prepareInstance, diskReport, dirBytes, checkDocker, dockerAnswers, dockerState, dockerSizes, envLock, heldByEnvs, prune, readConfig, readRunnerFile, runnerFile, runnerFiles, snapshotRows, recentStats, docker, withLock, workspaceKey, writeConfig, type PruneWhat } from '@laru/runtime';
-import { mail, sqs, envFor, envProjects, flowDir, flowProjects, runDir, proposeJoint, maskJson, mockContracts, sweepOrphans, readRules, saveFaults, setFaults, setMockMode, kafka, storage, mongo, rabbit, redis, custom, cancelRun, compareRuns, failedFlows, markSession, openSessionBrowser, screenOf, sessionToFlow, sessionToScenario, approveBehavior, behaviorIn, readApproved, fidelity, applyScenario, provisionScenario, appliedOn, listScenarios, scenarioState, ScenarioConfirm, shown, sessionBrowser, sessionTrace, startSession, stopSession, listFlows, listRuns, readRun, readTrace, runsDir, startRun, connection, query as dbQuery, reset as dbReset, rows as dbRows, schema as dbSchema, snapshot as dbSnapshot, storeOf, stores as dbStores, storePassword, updateRow, updateSql, type Browse, type RowUpdate, down, envDir, envMasker, missingVars, listEnvs, loadEnvSpec, logs, revealVar, varValues, mountAll, mountedOf, rebuildText, setVar, status, unsetVar, up, varTable, importEnvFile, type Level } from '@laru/runtime';
+import { CLEANUP_EVERY_MS, lastCleanup, lastRunsPrune, workspacesDisk, combineScreens, flowEnvDown, flowEnvStatus, flowEnvUp, instanceOf, instancesOf, prepareInstance, diskReport, dirBytes, retainedOf, checkDocker, dockerAnswers, dockerState, dockerSizes, envLock, heldByEnvs, prune, readConfig, readRunnerFile, runnerFile, runnerFiles, snapshotRows, recentStats, docker, withLock, workspaceKey, writeConfig, type PruneWhat } from '@laru/runtime';
+import { mail, sqs, vaultServices, recordingOf, blobOf, browseRecorded, readKey, READS, STATE_LIMITS, WITHHELD, type Recording, envFor, envProjects, flowDir, flowProjects, runDir, proposeJoint, maskJson, mockContracts, sweepOrphans, readRules, saveFaults, setFaults, setMockMode, kafka, storage, mongo, rabbit, redis, custom, cancelRun, compareRuns, failedFlows, markSession, openSessionBrowser, screenOf, sessionToFlow, sessionToScenario, approveBehavior, behaviorIn, readApproved, fidelity, applyScenario, provisionScenario, appliedOn, listScenarios, scenarioState, ScenarioConfirm, shown, sessionBrowser, sessionTrace, startSession, stopSession, listFlows, listRuns, readRun, readTrace, runsDir, startRun, connection, query as dbQuery, reset as dbReset, rows as dbRows, schema as dbSchema, snapshot as dbSnapshot, storeOf, stores as dbStores, storePassword, updateRow, updateSql, type Browse, type RowUpdate, down, envDir, envMasker, missingVars, listEnvs, loadEnvSpec, logs, revealVar, varValues, mountAll, mountedOf, rebuildText, setVar, status, unsetVar, up, varTable, importEnvFile, type Level } from '@laru/runtime';
 import { endpointMatcher, flowLast, seenIn, type EndpointMatch, type FlowLast, type Seen, type Trace, type TrafficRecord } from '@laru/trace';
-import { affected, brokersOf, doctorChecks, runEnv, screenFindings, vaultServices, writeJoint } from './env-cli.ts';
+import { affected, doctorChecks, runEnv, screenFindings, writeJoint } from './env-cli.ts';
 import { agreementText, appHome, byCwd, envOf, loadAgreement, idOf, initWorkspace, isWorkspace, laruHome, loadRegistry, realRoot, register, resolveId, stateDir, touch, unregister } from '@laru/core';
 import { drawModel } from '@laru/diagrams';
 import { acceptFinding, withEvidence, shareEvidence, addRepo, queueContracts, CONTAINERS, coverage, DEFAULT_IGNORE, docsLang, documentNote, endpointIn, deriveDiagram, derivedList, evaluateConventions, freshness, liveOf, serviceTests, sheetNote, git, gitOf, isContainer, knowledgeShape, knowledgeWrite, linkRepo, loadExtraction, loadGraph, loadKnowledge, loadWorkspace, PIECE_TYPES, refreshMap, repoStatus, syncRepos, verifyPiece, writeAgentFiles, WorkspaceError, type RepoRole, type Workspace, type WriteInput } from '@laru/core';
@@ -41,7 +41,7 @@ export function traceViewerDir(): string | null {
   } catch { viewerDir = null; }
   return viewerDir;
 }
-export const VERSION = '0.1.0-beta.18';
+export const VERSION = '0.1.0-beta.19';
 
 
 export interface Daemon { url: string; port: number; token: string | null; close: () => Promise<void> }
@@ -57,6 +57,16 @@ const asked = <T>(p: Promise<T>) => p.catch((e) => { throw e instanceof Scenario
 const json = (res: ServerResponse, status: number, body: unknown) => {
   res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
   res.end(JSON.stringify(body));
+};
+/**
+ * A GET's answer with its tag (a hash of the body): the page sends back the tag of what it holds, and an answer that did
+ * not change goes back as 304 with no body, so the page keeps what it has without downloading or parsing it again. Still
+ * `no-store`: the browser keeps nothing on disk, the page holds it in memory.
+ */
+const tagged = (req: IncomingMessage, res: ServerResponse, body: unknown) => {
+  const text = JSON.stringify(body), tag = `"${createHash('sha1').update(text).digest('base64url').slice(0, 22)}"`;
+  if (req.headers['if-none-match'] === tag) { res.writeHead(304, { etag: tag, 'cache-control': 'no-store' }).end(); return; }
+  res.writeHead(200, { 'content-type': 'application/json', etag: tag, 'cache-control': 'no-store' }).end(text);
 };
 const readBody = async (req: IncomingMessage) => { let s = ''; for await (const c of req) s += c; return s ? JSON.parse(s) : {}; };
 const same = (a: string, b: string) => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
@@ -95,11 +105,59 @@ const heldNow = async () => (Date.now() - watched.heldAt < 10_000 ? watched.held
 const look = () => { const first = !watched.lookedAt; watched.lookedAt = Date.now(); if (first) void watchDocker(); return dockerState(); };
 
 /** One workspace's routes, as they were when the service served one workspace: only where `ws()` comes from changed. */
-export function makeApi(root: Workspace['root']): { api: Record<string, Handler>; streams: Record<string, Stream> } {
+export function makeApi(root: Workspace['root']): { api: Record<string, Handler>; streams: Record<string, Stream>; recorded: Record<string, Stream> } {
   const ws = () => withEvidence(loadWorkspace(root));
 
   const envMembers = async (w: Workspace) => Promise.all(listEnvs(w).map(async (e) => ({ env: e, services: (await envStatus(w, e)).services.map((s) => s.service) })));
   const graph = (w: Workspace) => { try { return loadGraph(w); } catch { return null; } };
+
+  /**
+   * What the derived answers (the documentation with its notes, the flows with their results, the findings) are made
+   * from, as file stats: docs/, envs/ and vault/, laru.yaml, laru.lock and findings.yaml, the person's working agreement,
+   * the map and the code's extractions, the runs index, every env's compose (imported and rendered), state, tap rules and
+   * scenarios' states (a flow's own instances included), this machine's checkouts, and the day (notes and findings go by
+   * date). Anything that changes there changes it. It is
+   * read at most every quarter second, so a screen's burst of requests walks it once; anything this service is asked to
+   * do (a POST) reads it again on the next request, so what was just saved shows at once.
+   */
+  let sigAt = 0, sigLast = '';
+  const sigOf = (w: Workspace): string => {
+    if (Date.now() - sigAt < 250) return sigLast;
+    const h = createHash('sha1'), st = stateDir(w);
+    const stat = (f: string) => { try { const x = statSync(f); h.update(`${f}:${x.mtimeMs}:${x.size}\n`); } catch { h.update(`${f}:-\n`); } };
+    const walk = (dir: string) => {
+      let names: string[] = [];
+      try { names = (readdirSync(dir, { recursive: true }) as string[]).sort(); } catch { h.update(`${dir}:-\n`); return; }
+      for (const n of names) stat(join(dir, n));
+    };
+    for (const d of ['docs', 'envs', 'vault']) walk(join(w.root, d));
+    for (const f of ['laru.yaml', 'laru.lock', 'findings.yaml']) stat(join(w.root, f));
+    for (const f of ['map.json', 'observed.json', 'agreement.md', join('runs', 'index.jsonl')]) stat(join(st, f));
+    walk(join(st, 'extract'));
+    // every env this machine has (a flow's own instances too, which are not in envs/), as the vault, fidelity, coverage
+    // and the findings read it: its imported and rendered compose, its state, the tap's routes and rules, and its
+    // scenarios' states (a setup that failed is a finding)
+    let started: string[] = [];
+    try { started = readdirSync(join(st, 'envs')).sort(); } catch { /* no env started yet */ }
+    for (const e of new Set([...listEnvs(w), ...started])) {
+      for (const f of ['normalized.json', 'compose.yml', 'state.json', join('tap', 'routes.json'), join('tap', 'rules.json')]) stat(join(envDir(w, e), f));
+      walk(join(envDir(w, e), 'scenarios'));
+    }
+    stat(join(appHome(w.app), 'checkouts.yaml'));
+    h.update(new Date().toISOString().slice(0, 10));
+    sigAt = Date.now();
+    return (sigLast = h.digest('hex'));
+  };
+  /** An answer kept until what it is made from changes (sigOf); asked twice at once, it is computed once. */
+  const kept = new Map<string, { sig: string; value: Promise<unknown> }>();
+  const keep = <T>(name: string, w: Workspace, f: () => Promise<T>): Promise<T> => {
+    const sig = sigOf(w), hit = kept.get(name);
+    if (hit && hit.sig === sig) return hit.value as Promise<T>;
+    const value = f();
+    kept.set(name, { sig, value });
+    value.catch(() => { if (kept.get(name)?.value === value) kept.delete(name); });
+    return value;
+  };
 
   // Each flow's results, oldest first, from runs/index.jsonl.
   type Row = { run: string; status: string; ms?: number; at: string };
@@ -367,6 +425,22 @@ export function makeApi(root: Workspace['root']): { api: Record<string, Handler>
     },
   };
 
+  /** Every flow with its last ten results and its last one read whole (and, with several projects, the env that runs it). */
+  const flowsNow = async (w: Workspace) => {
+    const g = graph(w);
+    if (g !== lastGraph) { lastMemo.clear(); lastGraph = g; }
+    const match = endpointMatcher(g?.map.nodes ?? []);
+    const hist = history(w);
+    const several = w.repos.length > 1;
+    const ready = several ? new Set((await Promise.all(listEnvs(w).map((e) => envStatus(w, e).catch(() => null)))).filter((x) => x?.state === 'ready').map((x) => x!.env)) : new Set<string>();
+    return listFlows(w).map((f) => {
+      const row = lastRow(hist[f.slug]);
+      let runsOn: { env: string; ready: boolean } | null = null;
+      if (several) try { const env = envForOne(w, g, f, ready); runsOn = { env, ready: ready.has(env) }; } catch { /* no env runs its projects: a finding says so */ }
+      return { ...f, history: (hist[f.slug] ?? []).slice(-10), last: row ? lastOf(w, f.slug, row, match) : null, ...(several ? { projects: flowProjects(g, f), runsOn } : {}) };
+    });
+  };
+
   const api: Record<string, Handler> = {
     'GET /api/workspace': async () => { const w = ws(); void touch(root).catch(() => undefined); return { app: w.app, title: w.title, docsLanguage: w.docsLanguage, repos: w.repos, root: w.root, id: idOf(root), key: workspaceKey(w) }; },
     'GET /api/disk': async () => diskReport(ws()),
@@ -404,8 +478,8 @@ export function makeApi(root: Workspace['root']): { api: Record<string, Handler>
     'POST /api/repos/sync': async () => { const w = ws(); const st = await syncRepos(w); writeAgentFiles(w); return st; },
     'POST /api/map/refresh': async () => { const { stats, ms, map } = await refreshMap(ws()); return { stats, ms, nodes: map.nodes.length, facts: map.facts.length }; },
     'GET /api/map': async () => { try { return loadGraph(ws()).map; } catch { return null; } },
-    'GET /api/knowledge': async () => {
-      const w = ws(), k = loadKnowledge(w), g = graph(w);
+    'GET /api/knowledge': async () => { const w = ws(); return keep('knowledge', w, async () => {
+      const k = loadKnowledge(w), g = graph(w);
       const conventions = await evaluateConventions(w, k);
       const endpoint = g ? { endpoint: endpointIn(g) } : {};
       const memo = new Map();
@@ -417,7 +491,7 @@ export function makeApi(root: Workspace['root']): { api: Record<string, Handler>
         conventions: Object.fromEntries(conventions),
         pieces: k.pieces.map((p) => { const { source: _s, ...rest } = p; return { ...rest, note: documentNote(p, endpoint), sheet: isContainer(p.type) ? sheetNote(w, k, g, p, conventions, memo) : undefined, freshness: freshness(w, p), coverage: isContainer(p.type) ? coverage(w, k, g, p, conventions) : undefined }; }),
       };
-    },
+    }); },
     'GET /api/live': async (_req, url) => { const w = ws(), k = loadKnowledge(w), p = k.byId.get(url.searchParams.get('id') ?? ''); if (!p) throw new WorkspaceError('no such piece', 'id'); return liveOf(w, k, graph(w), p); },
     'GET /api/service-tests': async (_req, url) => { const g = graph(ws()); return g ? serviceTests(ws(), g, url.searchParams.get('id') ?? '') : []; },
     // Derived diagrams: read from the map and the documentation, placed and painted here, so the page only shows them.
@@ -491,8 +565,6 @@ export function makeApi(root: Workspace['root']): { api: Record<string, Handler>
       if (b.dryRun) return down(w, env, { dryRun: true, caches: b.caches });
       return detach(env, 'down', () => down(w, env, { caches: b.caches }));
     },
-    'GET /api/db/stores': async (_req, url) => { const w = ws(), env = envName(url); return (await dbStores(w, env)).map((s) => ({ ...s, conn: connection(s, w.app) })); },
-    'GET /api/db/schema': async (_req, url) => { const w = ws(); return dbSchema(await storeOf(w, envName(url), url.searchParams.get('service') ?? undefined)); },
     'POST /api/db/rows': async (_req, url, b: { env: string; service?: string; browse: Browse }) => dbRows(await storeOf(ws(), envName(url, b), b.service), b.browse),
     'POST /api/db/query': async (_req, url, b: { env: string; service?: string; sql: string; limit?: number }) => dbQuery(await storeOf(ws(), envName(url, b), b.service), b.sql, { limit: b.limit ?? 500 }),
     'POST /api/db/update/preview': async (_req, url, b: { env: string; service?: string; update: RowUpdate }) => { const s = await storeOf(ws(), envName(url, b), b.service); return { preview: updateSql(b.update, s.kind).preview, as: s.user }; },
@@ -500,20 +572,8 @@ export function makeApi(root: Workspace['root']): { api: Record<string, Handler>
     'POST /api/db/password': async (_req, url, b: { env: string; service?: string }) => ({ value: await storePassword(await storeOf(ws(), envName(url, b), b.service)) }),
     'POST /api/env/snapshot': async (_req, url, b: { env: string; service?: string }) => { const w = ws(), env = envName(url, b); return withLock(`snapshot ${w.app}/${env}`, async () => { const out = []; for (const s of b.service ? [await storeOf(w, env, b.service)] : (await dbStores(w, env)).filter((x) => x.kind === 'postgres')) out.push({ service: s.service, ...(await dbSnapshot(s)) }); return out; }, undefined, envLock(w, env)); },
     'POST /api/env/reset': async (_req, url, b: { env: string; service?: string }) => { const w = ws(), env = envName(url, b); return withLock(`reset ${w.app}/${env}`, async () => { const out = []; for (const s of b.service ? [await storeOf(w, env, b.service)] : (await dbStores(w, env)).filter((x) => x.kind === 'postgres')) out.push({ service: s.service, ...(await dbReset(s)) }); return out; }, undefined, envLock(w, env)); },
-    'GET /api/flows': async () => {
-      const w = ws(), g = graph(w);
-      if (g !== lastGraph) { lastMemo.clear(); lastGraph = g; }
-      const match = endpointMatcher(g?.map.nodes ?? []);
-      const hist = history(w);
-      const several = w.repos.length > 1;
-      const ready = several ? new Set((await Promise.all(listEnvs(w).map((e) => envStatus(w, e).catch(() => null)))).filter((x) => x?.state === 'ready').map((x) => x!.env)) : new Set<string>();
-      return listFlows(w).map((f) => {
-        const row = lastRow(hist[f.slug]);
-        let runsOn: { env: string; ready: boolean } | null = null;
-        if (several) try { const env = envForOne(w, g, f, ready); runsOn = { env, ready: ready.has(env) }; } catch { /* no env runs its projects: a finding says so */ }
-        return { ...f, history: (hist[f.slug] ?? []).slice(-10), last: row ? lastOf(w, f.slug, row, match) : null, ...(several ? { projects: flowProjects(g, f), runsOn } : {}) };
-      });
-    },
+    // with several projects a flow's results name the env that runs it, whose state is live; otherwise they are files only
+    'GET /api/flows': async () => { const w = ws(); return w.repos.length > 1 ? flowsNow(w) : keep('flows', w, () => flowsNow(w)); },
     'GET /api/runs/env': async (_req, url) => {
       const w = ws(), env = await runEnv(w, (url.searchParams.get('flows') ?? '').split(',').filter(Boolean));
       return { env, ready: (await status(w, env)).state === 'ready' };
@@ -531,17 +591,25 @@ export function makeApi(root: Workspace['root']): { api: Record<string, Handler>
     'GET /api/mock-contracts': async () => mockContracts(ws()),
     // `?running=1`: only what is in progress (the shell asks it every few seconds)
     'GET /api/runs': async (_req, url) => { const l = listRuns(ws(), 50); return url.searchParams.get('running') ? l.filter((r) => r.phase !== 'done') : l; },
+    // where a flow's recorded data are: its last run that played it (a reused result: the run it came from), and what it kept
+    'GET /api/run/state': async (_req, url) => {
+      const w = ws(), id = url.searchParams.get('id'), flow = url.searchParams.get('flow');
+      let r = id ? (/^\d+$/.test(id) ? readRun(w, id) : null) : listRuns(w, 500).find((x) => x.phase === 'done' && flow && x.results?.[flow]);
+      for (let hops = 0; r && flow && r.results?.[flow]?.cachedFrom && hops < 20; hops++) r = readRun(w, r.results[flow].cachedFrom!);
+      if (!r) return { run: null };
+      const rec = recordingOf(runDir(w, r.id));
+      return { run: r.id, status: r.status, startedAt: r.startedAt, endedAt: r.endedAt, result: flow ? r.results?.[flow]?.status : undefined, recording: rec && { at: rec.at, env: rec.env, error: rec.error, cut: rec.cut, masked: rec.masked, withheld: rec.withheld?.length ?? 0 } };
+    },
     'GET /api/run': async (_req, url) => {
       const w = ws(), id = url.searchParams.get('id') ?? '', r = readRun(w, id);
       if (!r || !/^\d+$/.test(id)) throw new HttpError(404, `no run ${id}`);
       const dir = runDir(w, id);
       let projects: string[] | undefined;
       if (w.repos.length > 1) try { projects = envProjects(w, r.env); } catch { /* an env file that went away */ }
-      // the last passed (or cached) and the last failed of each flow are never removed by retention
-      const last = new Map<string, Row>();
-      for (const [flow, rows] of Object.entries(history(w))) for (const x of rows) if (x.status !== 'error') last.set(`${flow}|${x.status === 'failed' ? 'failed' : 'passed'}`, x);
-      const kept = [...last].find(([, x]) => x.run === id);
-      return { ...r, dir, bytes: dirBytes(dir), ...(projects ? { projects } : {}), retention: { policy: readConfig().retention, ...(kept ? { keptFor: { flow: kept[0].split('|')[0], status: kept[0].split('|')[1] } } : {}) } };
+      // why retention keeps it: the last passed run of a flow (its pivot, never removed), or one of a flow's last runs
+      const policy = readConfig().retention, kept = retainedOf(w, policy.keepRuns);
+      const keptFor = kept.pivot.has(id) ? { why: 'pivot', flows: kept.pivot.get(id)! } : kept.recent.has(id) ? { why: 'recent', flows: kept.recent.get(id)! } : undefined;
+      return { ...r, dir, bytes: dirBytes(dir), ...(projects ? { projects } : {}), retention: { policy, ...(keptFor ? { keptFor } : {}) } };
     },
     'GET /api/run/trace': async (_req, url) => {
       const w = ws(), id = url.searchParams.get('id') ?? '', flow = url.searchParams.get('flow') ?? '';
@@ -568,9 +636,6 @@ export function makeApi(root: Workspace['root']): { api: Record<string, Handler>
     'POST /api/scenarios/apply': async (_req, url, b: { name: string; env?: string; confirm?: boolean }) => shown(await asked(applyScenario(ws(), b.name, { env: envName(url, b), confirm: b.confirm === true }))),
     // every screen of a flow in one video, side by side (made the first time, kept after)
     'POST /api/run/video': async (_req, _url, b: { id: string; flow: string }) => ({ file: await combineScreens(ws(), b.id, b.flow) }),
-    // a video made from the story's rrweb recording: started here, found later as replay.mp4
-    'POST /api/run/replay-video': async (_req, _url, b: { id: string; flow: string }) => startReplayVideo(ws(), b.id, b.flow),
-    'GET /api/run/replay-video': async (_req, url) => replayVideoState(ws(), url.searchParams.get('id') ?? '', url.searchParams.get('flow') ?? ''),
     'POST /api/session/start': async (_req, url, b: { env?: string; title?: string; browser?: boolean; scenario?: string; flow?: string; front?: string; device?: string; confirm?: boolean }) => {
       const w = ws(), run = await asked(startSession(w, { env: envName(url, b), title: b.title, scenario: b.scenario, flow: b.flow, front: b.front, device: b.device === 'phone' ? 'phone' : undefined, confirm: b.confirm === true }));
       if (b.browser) openSessionBrowser(w, run.id);
@@ -615,11 +680,6 @@ export function makeApi(root: Workspace['root']): { api: Record<string, Handler>
     },
     'POST /api/runs/cancel': async (_req, _url, b: { id: string }) => ({ ok: await cancelRun(ws(), b.id) }),
     'GET /api/runs/compare': async (_req, url) => compareRuns(ws(), url.searchParams.get('a') ?? '', url.searchParams.get('b') ?? ''),
-    'GET /api/mocks': async (_req, url) => {
-      const w = ws(), env = envName(url), dir = join(envDir(w, env), 'tap');
-      const routes = existsSync(join(dir, 'routes.json')) ? JSON.parse(readFileSync(join(dir, 'routes.json'), 'utf8')).routes : [];
-      return { rules: readRules(w, env), routes, spec: { mocks: loadEnvSpec(w, env).mocks, faults: loadEnvSpec(w, env).faults } };
-    },
     // What a dependency received and answered, from the tap's journal: the newest requests (whole, as the tap kept them:
     // already masked) and, by endpoint, how often and with which statuses. Read from the journal's end only: it can be 100 MB.
     'GET /api/mocks/traffic': async (_req, url) => {
@@ -649,85 +709,38 @@ export function makeApi(root: Workspace['root']): { api: Record<string, Handler>
     'POST /api/mocks/save': async (_req, url, b: { env: string }) => { saveFaults(ws(), envName(url, b)); return { ok: true }; },
     // The topics against their contracts, the code and the runs: files only, so it answers with every env stopped.
     // SQS, read only: the queues with their counts, and a look at one's messages that hides none of them.
-    'GET /api/sqs/queues': async (_req, url) => sqs.queues(await sqs.sqsOf(ws(), envName(url))),
-    'GET /api/sqs/peek': async (_req, url) => { const w = ws(), env = envName(url); return sqs.peek(w, env, await sqs.sqsOf(w, env), url.searchParams.get('queue') ?? '', Number(url.searchParams.get('n') ?? 10)); },
     'GET /api/queue/contracts': async () => { const w = ws(); return queueContracts(w, graph(w), loadKnowledge(w)); },
-    'GET /api/queues': async (_req, url) => { const b = await kafka.brokerOf(ws(), envName(url)); const [topics, groups] = await Promise.all([kafka.topics(b), kafka.groups(b)]); return { broker: b.service, topics, groups }; },
-    'GET /api/queue/peek': async (_req, url) => { const w = ws(), env = envName(url); return kafka.peek(w, env, await kafka.brokerOf(w, env), url.searchParams.get('topic') ?? '', Number(url.searchParams.get('limit') ?? 20)); },
     'POST /api/queue/publish': async (_req, url, b: { env: string; topic: string; value: string; key?: string }) => { await kafka.publish(await kafka.brokerOf(ws(), envName(url, b)), b.topic, b.value, b.key); return { ok: true }; },
     // «Colas» for whichever broker the env has; the Kafka routes above keep their shapes.
-    'GET /api/brokers': async (_req, url) => brokersOf(ws(), envName(url)),
-    'GET /api/rabbit/queues': async (_req, url) => { const w = ws(), env = envName(url), r = await rabbit.rabbitOf(w, env); const [queues, bindings, exchanges] = await Promise.all([rabbit.queues(r), rabbit.bindings(r, maskerFor(w, env)), rabbit.exchanges(r)]); return { broker: r.service, queues, bindings, exchanges: exchanges.map((x) => ({ name: x.name, type: x.type })) }; },
     'POST /api/rabbit/route': async (_req, url, b: { env: string; exchange?: string; routingKey: string }) => { const w = ws(), env = envName(url, b); return { route: await rabbit.route(await rabbit.rabbitOf(w, env), b.exchange ?? '', b.routingKey, maskerFor(w, env)) }; },
     // A peek requeues what it reads (a quorum queue's order changes): a POST, never a link someone can send.
     'POST /api/rabbit/get': async (_req, url, b: { env?: string; queue: string; count?: number; reorder?: boolean }) => { const w = ws(), env = envName(url, b); return rabbit.get(await rabbit.rabbitOf(w, env), b.queue ?? '', maskerFor(w, env), Math.min(Number(b.count ?? 5), 50), b.reorder === true); },
     'POST /api/rabbit/publish': async (_req, url, b: { env: string; exchange?: string; routingKey: string; payload: string }) => ({ routed: await rabbit.publish(await rabbit.rabbitOf(ws(), envName(url, b)), b.exchange ?? '', b.routingKey, b.payload) }),
-    'GET /api/redis/stores': async (_req, url) => (await redis.redisStores(ws(), envName(url))).map((s) => ({ service: s.service, conn: redis.connection(s) })),
-    'GET /api/redis/keys': async (_req, url) => { const w = ws(), env = envName(url), s = await redis.redisOf(w, env, url.searchParams.get('service') || undefined); return { service: s.service, keys: await redis.keys(s, maskerFor(w, env), url.searchParams.get('pattern') || '*') }; },
-    'GET /api/redis/key': async (_req, url) => { const w = ws(), env = envName(url); return redis.read(await redis.redisOf(w, env, url.searchParams.get('service') || undefined), url.searchParams.get('key') ?? '', maskerFor(w, env)); },
     'POST /api/redis/del': async (_req, url, b: { env: string; service?: string; key: string }) => ({ ok: await redis.del(await redis.redisOf(ws(), envName(url, b), b.service), b.key) }),
     // Stores laru.yaml explains how to look into (`stores.<name>.explore`): any engine, through its own container's command.
-    'GET /api/custom/stores': async (_req, url) => custom.customStores(ws(), envName(url)),
     'POST /api/custom/run': async (_req, url, b: { env?: string; service: string; what: 'query' | 'tables' | 'table'; input?: string }) => {
       const w = ws(), env = envName(url, b);
       return custom.customRun(w, env, b.service, { what: b.what, input: b.input }, maskerFor(w, env));
     },
-    'GET /api/mongo/stores': async (_req, url) => (await mongo.mongoStores(ws(), envName(url))).map((s) => ({ ...s, conn: mongo.connection(s) })),
-    'GET /api/mongo/dbs': async (_req, url) => mongo.dbs(await mongo.mongoOf(ws(), envName(url), url.searchParams.get('service') ?? undefined)),
-    'GET /api/mongo/collections': async (_req, url) => mongo.collections(await mongo.mongoOf(ws(), envName(url), url.searchParams.get('service') ?? undefined), url.searchParams.get('db') ?? ''),
     'POST /api/mongo/find': async (_req, url, b: { env: string; service?: string } & mongo.Find) => { const w = ws(), env = envName(url, b); return mongo.find(await mongo.mongoOf(w, env, b.service), b, maskerFor(w, env)); },
     'GET /api/mongo/doc': async (_req, url) => {
       const w = ws(), env = envName(url), p = (k: string) => url.searchParams.get(k) ?? '';
       return { doc: await mongo.get(await mongo.mongoOf(w, env, p('service') || undefined), p('db'), p('collection'), p('id'), maskerFor(w, env)) };
     },
-    'GET /api/storage/ls': async (_req, url) => storage.ls(await storage.storeOfEnv(ws(), envName(url)), url.searchParams.get('path') ?? '', url.searchParams.get('recursive') === '1'),
-    'GET /api/storage/object': async (_req, url) => {
-      const w = ws(), env = envName(url), s = await storage.storeOfEnv(w, env), at = url.searchParams.get('path') ?? '';
-      const meta = await storage.stat(s, at), type = storage.contentTypeOf(meta, at);
-      // what the browser shows by itself is streamed by /api/storage/raw; a spreadsheet has its own reader (/api/storage/sheet)
-      if (storage.STREAMABLE.test(type) || type === storage.XLSX) return { meta, type, truncated: false, stream: type === storage.XLSX ? 'sheet' : 'raw' };
-      const c = await storage.cat(s, at, 256 * 1024);
-      const text = /^[\x09\x0a\x0d\x20-\x7e\u00a0-\uffff]*$/.test(c.bytes.toString('utf8', 0, 4096));
-      if (!text) return { meta, type, truncated: c.truncated, base64: c.bytes.toString('base64') };
-      // Masked like a queue peek or an env log: a file holding a vault value shows its mark, never the value.
-      const m = maskerFor(w, env), masked = m.body(c.bytes.toString('utf8'), String((meta.metadata as Record<string, unknown> | undefined)?.['Content-Type'] ?? ''));
-      return { meta, type, truncated: c.truncated, text: c.truncated ? m.cut(masked, 'end') : masked };
-    },
     // A spreadsheet as rows, read here and masked like any text: a cell holding a vault value shows its mark, never the value.
-    'GET /api/storage/sheet': async (_req, url) => {
-      const w = ws(), env = envName(url), s = await storage.storeOfEnv(w, env), at = url.searchParams.get('path') ?? '';
-      const meta = await storage.stat(s, at);
-      if (Number(meta.size) > 25 * 2 ** 20) throw new HttpError(413, 'a spreadsheet over 25 MB is not previewed');
-      const bytes = await storage.cat(s, at, 25 * 2 ** 20);
-      const m = maskerFor(w, env), r = storage.sheet(bytes.bytes);
-      return { ...r, rows: r.rows.map((row) => row.map((c) => m.text(c))) };
-    },
-    'GET /api/mail': async (_req, url) => {
-      const w = ws(), env = envName(url), q = url.searchParams;
-      const kind = q.get('kind') === 'mail' || q.get('kind') === 'sms' ? (q.get('kind') as 'mail' | 'sms') : 'all';
-      const st = await status(w, env).catch(() => undefined);
-      let sinks: ReturnType<typeof mail.sinkReport> | undefined;
-      try { sinks = mail.sinkReport(w, env); } catch { /* an env that does not load has no sinks to show */ }
-      return { env, state: st?.state ?? 'absent', sinks, plan: mail.plan(w, env), ...mail.list(w, env, { kind, query: q.get('q') ?? '', limit: Number(q.get('limit')) || 500 }) };
-    },
-    'GET /api/mail/message': async (_req, url) => {
-      const m = mail.message(ws(), envName(url), url.searchParams.get('id') ?? '');
-      if (!m) throw new HttpError(404, 'no such message');
-      return mail.withOpen(ws(), envName(url), m);
-    },
     'POST /api/mail/enable': async (_req, url, b: { env?: string; as?: string; confirm?: boolean }) => mail.enable(ws(), envName(url, b), { as: b.as, confirm: b.confirm }),
     'POST /api/mail/clear': async (_req, url, b: { env?: string }) => mail.clear(ws(), envName(url, b)),
     'POST /api/mail/delete': async (_req, url, b: { env?: string; ids: string[] }) => mail.remove(ws(), envName(url, b), (b.ids ?? []).filter((x) => /^[0-9a-f-]{36}$|^SM[0-9a-f]{32}$/.test(x))),
     'POST /api/mail/sms-status': async (_req, url, b: { env?: string; id: string; status: 'sent' | 'delivered' | 'undelivered' | 'failed'; code?: number }) => mail.smsStatus(ws(), envName(url, b), b.id, b.status, b.code),
     'POST /api/mail/sms-reply': async (_req, url, b: { env?: string; from: string; body: string }) => mail.smsReply(ws(), envName(url, b), b.from, b.body),
-    'GET /api/findings': async (_req, url) => screenFindings(ws(), url.searchParams.get('env') ?? undefined),
+    'GET /api/findings': async (_req, url) => { const w = ws(), env = url.searchParams.get('env') ?? undefined; return keep(`findings:${env ?? ''}`, w, () => screenFindings(w, env)); },
     'POST /api/findings/accept': async (_req, _url, b: { key: string; reason: string; until?: string }) => { acceptFinding(ws(), b.key, { reason: b.reason, until: b.until, by: process.env.USER }); return { ok: true }; },
     'GET /api/impact': async () => affected(ws()),
     'GET /api/overview': async () => {
       const w = ws(), k = loadKnowledge(w);
       const [envs, findings, im] = await Promise.all([
         Promise.all(listEnvs(w).map((e) => envStatus(w, e))),
-        screenFindings(w).catch(() => []),
+        keep('findings:', w, () => screenFindings(w)).catch(() => []),
         affected(w).catch(() => null),
       ]);
       const open = findings.filter((f) => !f.accepted);
@@ -739,10 +752,6 @@ export function makeApi(root: Workspace['root']): { api: Record<string, Handler>
         stale: k.pieces.filter((p) => freshness(w, p) === 'stale').map((p) => ({ id: p.id, title: p.title })),
         impact: im && { changes: im.changes.length, services: im.services, flows: im.flows },
       };
-    },
-    'GET /api/vars': async (_req, url) => {
-      const w = ws(), env = envName(url), services = vaultServices(w, env), g = graph(w);
-      return { env, read: services.length > 0, rows: varTable(w, env, services, g), issues: services.length ? missingVars(w, env, services, g) : [] };
     },
     'POST /api/vars/set': async (_req, _url, b: { key: string; value: string; level: Level; scope?: string; secret?: boolean }) => { await setVar(ws(), b); return { ok: true }; },
     'POST /api/vars/unset': async (_req, _url, b: { key: string; level: Level; scope?: string }) => ({ ok: await unsetVar(ws(), b) }),
@@ -764,7 +773,124 @@ export function makeApi(root: Workspace['root']): { api: Record<string, Handler>
   // What every open page asks every 3 s: Docker as last seen, what changed from outside, and the runs not finished.
   api['GET /api/pulse'] = async () => { follow(); return { docker: look(), changes: { n: changes, files: changedFiles }, running: listRuns(ws(), 50).filter((r) => r.phase !== 'done'), cleanup: { docker: lastCleanup(), runs: lastRunsPrune(ws()) } }; };
   for (const [k, h] of Object.entries(api)) if (!k.startsWith('GET ')) api[k] = async (...a) => { writing++; try { return await h(...a); } finally { writing--; wroteAt = Date.now(); } };
-  return { api, streams };
+  // Each data screen's read, live: the same functions a run records its data with (READS), so a recording answers as these do.
+  for (const [path, read] of Object.entries(READS)) api[`GET /api/${path}`] = async (_req, url) => {
+    const w = ws(), env = envName(url);
+    try { return await read(w, env, Object.fromEntries(url.searchParams), maskerFor(w, env)); }
+    catch (e) { const status = (e as { status?: number }).status; throw status ? new HttpError(status, (e as Error).message) : e; }
+  };
+  // what this service did may have changed the files the kept answers come from: the next one reads them again
+  for (const [key, handler] of Object.entries(api)) if (!key.startsWith('GET ')) api[key] = async (...a) => { try { return await handler(...a); } finally { sigAt = 0; } };
+  return { api, streams, recorded: recordedApi(ws) };
+}
+
+/**
+ * The data screens' reads answered from a run's recording (`?run=<id>`), with the env off: what the run left, as the
+ * screen would have read it live. A table, a collection, a key, a topic, a folder, a file or a mail the recording does
+ * not hold says so; nothing here reaches an env, and nothing that changes one answers from a recording.
+ */
+const NOT_RECORDED = 'Esto no quedó en la grabación del run: se ve con el entorno en vivo.';
+export const RECORDED_ONLY = 'Es la grabación de un run: aquí solo se mira lo que dejó. Para cambiar datos, abre el entorno en vivo.';
+/** The data screens' paths: with `run`, only the recording answers them. */
+export const DATA_PATH = /^\/api\/(db|mongo|redis|custom|brokers|queues?|rabbit|sqs|storage|mail|vars|mocks)(\/|$)/;
+function recordedApi(ws: () => Workspace): Record<string, Stream> {
+  const cache = new Map<string, { mtime: number; rec: Recording }>();
+  const recordingFor = (url: URL) => {
+    const id = url.searchParams.get('run') ?? '';
+    if (!/^\d+$/.test(id)) throw new HttpError(400, 'run is the number of a run');
+    const dir = runDir(ws(), id), f = join(dir, 'state', 'reads.json');
+    const mtime = existsSync(f) ? statSync(f).mtimeMs : -1;
+    let hit = cache.get(id);
+    if (!hit || hit.mtime !== mtime) {
+      const rec = recordingOf(dir);
+      if (!rec) throw new HttpError(404, `El run ${id} no grabó sus datos.`);
+      hit = { mtime, rec };
+      cache.set(id, hit);
+      if (cache.size > 4) cache.delete(cache.keys().next().value!);
+    }
+    if (hit.rec.error) throw new HttpError(404, `El run ${id} no pudo grabar sus datos: ${hit.rec.error}`);
+    return { rec: hit.rec, dir };
+  };
+  const answer = (rec: Recording, key: string) => {
+    const a = rec.reads[key];
+    if (!a) throw new HttpError(404, NOT_RECORDED);
+    if ('error' in a) throw new HttpError(a.status ?? 502, a.error);
+    return a.ok;
+  };
+  const params = (url: URL) => Object.fromEntries(url.searchParams);
+  const reply = (f: (url: URL, body: any) => unknown): Stream => (req, url, res) => void (async () => {
+    try { json(res, 200, await f(url, req.method === 'POST' ? await readBody(req) : undefined)); }
+    catch (e) { json(res, e instanceof HttpError ? e.status : 500, { error: e instanceof Error ? e.message : String(e) }); }
+  })();
+  const out: Record<string, Stream> = {};
+  for (const path of Object.keys(READS)) out[`GET /api/${path}`] = reply((url) => answer(recordingFor(url).rec, readKey(path, params(url))));
+  // what the recording answers for any page or pattern the screen asks: a topic's last messages, a store's keys
+  out['GET /api/queue/peek'] = reply((url) => {
+    const all = answer(recordingFor(url).rec, readKey('queue/peek', { topic: url.searchParams.get('topic') ?? '', limit: String(STATE_LIMITS.messages) })) as unknown[];
+    return all.slice(0, Number(url.searchParams.get('limit') ?? 20));
+  });
+  out['GET /api/redis/keys'] = reply((url) => {
+    const all = answer(recordingFor(url).rec, readKey('redis/keys', { service: url.searchParams.get('service') ?? '' })) as { service: string; keys: Array<{ key: string }> };
+    const glob = new RegExp(`^${(url.searchParams.get('pattern') || '*').replace(/[.+^${}()|\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')}$`);
+    return { ...all, keys: all.keys.filter((k) => glob.test(k.key)) };
+  });
+  out['POST /api/vars/values'] = reply((url) => answer(recordingFor(url).rec, 'vars/values'));
+  // the mailbox: its kinds and its searches (`de:ana asunto:pedido`) over the messages the run left
+  out['GET /api/mail'] = reply((url) => {
+    const p = params(url), box = answer(recordingFor(url).rec, readKey('mail', { kind: 'all' })) as { messages: mail.Row[] };
+    const kind = p.kind === 'mail' || p.kind === 'sms' ? p.kind : undefined;
+    return { ...box, messages: box.messages.filter((r) => (!kind || r.kind === kind) && mail.matches(r, undefined, p.q ?? '')).slice(0, Number(p.limit) || 500) };
+  });
+  out['POST /api/db/rows'] = reply((url, b: { service?: string; browse: Browse }) => {
+    const { rec } = recordingFor(url);
+    const service = b.service || (answer(rec, 'db/stores') as Array<{ service: string }>)[0]?.service;
+    const t = rec.rows[`${service}|${b.browse.schema}.${b.browse.table}`];
+    if (!t) throw new HttpError(404, NOT_RECORDED);
+    if ('error' in t) throw new HttpError(502, t.error);
+    return browseRecorded(t, b.browse);
+  });
+  out['POST /api/mongo/find'] = reply((url, b: { service?: string; db: string; collection: string; filter?: string; sort?: string; projection?: string; limit?: number; skip?: number }) => {
+    const { rec } = recordingFor(url);
+    const asked = (x?: string) => Boolean(x && x.trim() && x.trim() !== '{}');
+    if (asked(b.filter) || asked(b.sort) || asked(b.projection)) throw new HttpError(409, 'Una grabación se recorre tal como quedó: filtrar, ordenar o elegir campos necesita el entorno en vivo.');
+    const service = b.service || (answer(rec, 'mongo/stores') as Array<{ service: string }>)[0]?.service;
+    const d = rec.docs[`${service}|${b.db}.${b.collection}`];
+    if (!d) throw new HttpError(404, NOT_RECORDED);
+    if ('error' in d) throw new HttpError(502, d.error);
+    const skip = Math.max(Number(b.skip ?? 0), 0), limit = Math.max(Number(b.limit ?? 20), 1);
+    return { docs: d.docs.slice(skip, skip + limit), more: d.more || d.docs.length > skip + limit, ms: 0 };
+  });
+  out['GET /api/mongo/doc'] = reply((url) => {
+    const { rec } = recordingFor(url), p = params(url);
+    const service = p.service || (answer(rec, 'mongo/stores') as Array<{ service: string }>)[0]?.service;
+    const d = rec.docs[`${service}|${p.db}.${p.collection}`];
+    if (!d || 'error' in d) throw new HttpError(404, NOT_RECORDED);
+    const idOf = (x: unknown) => (typeof x === 'string' ? x : x && typeof x === 'object' && '$oid' in x ? String((x as { $oid: string }).$oid) : JSON.stringify(x));
+    const doc = d.docs.find((x) => x && typeof x === 'object' && idOf((x as { _id?: unknown })._id) === p.id);
+    if (!doc) throw new HttpError(404, NOT_RECORDED);
+    return { doc };
+  });
+  // bytes the screen loads by address: a stored file the browser shows (by ranges, so a video can seek) and a mail's parts
+  for (const path of ['storage/raw', 'mail/html', 'mail/part', 'mail/eml']) out[`GET /api/${path}`] = (req, url, res) => {
+    try {
+      const { rec, dir } = recordingFor(url), { width: _w, ...p } = params(url);
+      const key = readKey(path, p), b = rec.blobs[key], bytes = b && blobOf(dir, b);
+      if (!b || !bytes) { res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' }).end(rec.withheld?.includes(key) ? WITHHELD : NOT_RECORDED); return; }
+      const headers: Record<string, string | number> = { ...b.headers, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' };
+      if (b.headers['content-type'] === 'image/svg+xml') headers['content-security-policy'] = "sandbox; default-src 'none'; style-src 'unsafe-inline'";
+      const m = path === 'storage/raw' ? /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range ?? '')) : null;
+      if (m && bytes.length) {
+        const start = m[1] ? Number(m[1]) : Math.max(0, bytes.length - Number(m[2])), end = m[1] && m[2] ? Math.min(Number(m[2]), bytes.length - 1) : bytes.length - 1;
+        if (start >= bytes.length || start > end) { res.writeHead(416, { 'content-range': `bytes */${bytes.length}` }).end(); return; }
+        res.writeHead(206, { ...headers, 'accept-ranges': 'bytes', 'content-range': `bytes ${start}-${end}/${bytes.length}`, 'content-length': end - start + 1 }).end(bytes.subarray(start, end + 1));
+        return;
+      }
+      res.writeHead(b.status, { ...headers, ...(path === 'storage/raw' ? { 'accept-ranges': 'bytes' } : {}), 'content-length': bytes.length }).end(bytes);
+    } catch (e) { res.writeHead(e instanceof HttpError ? e.status : 500, { 'content-type': 'text/plain; charset=utf-8' }).end(e instanceof Error ? e.message : String(e)); }
+  };
+  // a recording does not grow: its mailbox sends no news
+  out['GET /api/mail/live'] = (_req, _url, res) => { res.writeHead(204).end(); };
+  return out;
 }
 
 /**
@@ -823,7 +949,7 @@ export async function startDaemon(port = 4100, webDist = WEB_DIST, o: { token?: 
         if (req.method === 'POST' && !video && !/^application\/json\s*(;|$)/i.test(req.headers['content-type'] ?? '')) return json(res, 415, { error: 'JSON only' });
         // /api/w/<id>/<rest>: that workspace's "<METHOD> /api/<rest>"; anything else is the machine's.
         const m = /^\/api\/w\/([^/]+)(\/.*)$/.exec(url.pathname);
-        let table: { api: Record<string, Handler>; streams: Record<string, Stream> } = { api: machine, streams: {} };
+        let table: { api: Record<string, Handler>; streams: Record<string, Stream>; recorded?: Record<string, Stream> } = { api: machine, streams: {} };
         let key = `${req.method} ${url.pathname}`;
         if (m) {
           const id = decodeURIComponent(m[1]), root = resolveId(id);
@@ -831,10 +957,18 @@ export async function startDaemon(port = 4100, webDist = WEB_DIST, o: { token?: 
           table = apiOf(root);
           key = `${req.method} /api${m[2]}`;
         }
+        // a data screen on a run's recording: only the recording answers it, never the env (and nothing that changes one)
+        if (url.searchParams.has('run') && DATA_PATH.test(key.slice(key.indexOf(' ') + 1))) {
+          const r = table.recorded?.[key];
+          if (!r) return json(res, 409, { error: RECORDED_ONLY });
+          r(req, url, res);
+          return;
+        }
         const stream = table.streams[key];
         if (stream) { stream(req, url, res); return; }
         const handler = table.api[key];
         if (!handler) return json(res, 404, { error: 'Not found' });
+        if (req.method === 'GET') return tagged(req, res, await handler(req, url, undefined));
         return json(res, 200, await handler(req, url, req.method === 'POST' ? await readBody(req) : undefined));
       }
       if (url.pathname.startsWith('/trace-viewer/') && authed) {

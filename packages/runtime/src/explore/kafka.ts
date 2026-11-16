@@ -42,6 +42,23 @@ export async function topics(b: Broker): Promise<Topic[]> {
   return [...by.values()].sort((x, y) => x.name.localeCompare(y.name));
 }
 
+/**
+ * How many messages each topic holds now: its end offsets less its earliest ones (what retention already removed is
+ * gone from the broker even though `messages`, the end offsets, still counts it).
+ */
+export async function held(b: Broker): Promise<Map<string, number>> {
+  const sum = async (time: string) => {
+    let out = '';
+    try { out = await run(b, `${tool('kafka-get-offsets')} --bootstrap-server localhost:9092 --time ${time}`); }
+    catch (e) { if (e instanceof DockerError && /Could not match any topic-partitions/.test(e.stderr)) return new Map<string, number>(); throw e; }
+    const by = new Map<string, number>();
+    for (const l of out.split('\n')) { const m = /^(.+):(\d+):(\d+)$/.exec(l.trim()); if (m) by.set(m[1], (by.get(m[1]) ?? 0) + Number(m[3])); }
+    return by;
+  };
+  const [end, start] = await Promise.all([sum('-1'), sum('-2')]);
+  return new Map([...end].map(([t, n]) => [t, n - (start.get(t) ?? 0)]));
+}
+
 export async function groups(b: Broker): Promise<GroupLag[]> {
   const out = await run(b, `${tool('kafka-consumer-groups')} --bootstrap-server localhost:9092 --describe --all-groups 2>/dev/null`);
   const rows: GroupLag[] = [];

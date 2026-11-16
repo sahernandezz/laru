@@ -8,6 +8,7 @@ import { useEffect, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { api } from '../api.ts';
 import { Code, Skeleton } from '../components/ui.tsx';
 import { plural } from '../lib/es.ts';
+import { tr } from '../lib/i18n.ts';
 
 export interface CustomStoreInfo { service: string; kind: string; container: string; tables: boolean }
 interface Answer { columns?: string[]; rows?: Array<Array<string | null>>; text?: string; truncated?: boolean; ms: number }
@@ -22,18 +23,18 @@ function Result({ state }: { state: { loading?: boolean; error?: string; data?: 
   const d = state.data;
   return (
     <>
-      <div className="grid-wrap" aria-busy={state.loading} aria-live="polite" tabIndex={d ? 0 : undefined} aria-label="Resultado">
+      <div className="grid-wrap" aria-busy={state.loading} aria-live="polite" tabIndex={d ? 0 : undefined} aria-label={tr('Resultado')}>
         {state.error ? <div className="notice" role="alert" style={{ margin: 12 }}><CircleX /><div className="mono pre-line"><Code text={state.error} lang="log" /></div></div>
           : state.loading && !d ? <Skeleton lines={5} />
           : d?.columns ? (
             <table className="dg">
-              <thead><tr><th className="rn"><span className="sr-only">Fila</span></th>{d.columns.map((c, i) => <th key={i}>{c}</th>)}</tr></thead>
-              <tbody>{d.rows!.map((r, i) => <tr key={i}><td className="rn num">{i + 1}</td>{r.map((v, j) => <td key={j} className={v === null ? 'null' : undefined}>{v ?? 'NULL'}</td>)}</tr>)}</tbody>
+              <thead><tr><th className="rn"><span className="sr-only">{tr('Fila')}</span></th>{d.columns.map((c, i) => <th key={i}>{c}</th>)}</tr></thead>
+              <tbody>{d.rows!.map((r, i) => <tr key={i}><td className="rn num">{i + 1}</td>{r.map((v, j) => <td key={j} className={v === null ? 'null' : undefined}>{v ?? tr('NULL')}</td>)}</tr>)}</tbody>
             </table>
-          ) : d ? <pre className="mono" style={{ margin: 12, whiteSpace: 'pre-wrap' }}>{d.text || '(sin salida)'}</pre>
-          : <p className="empty">Escribe lo que entiende este almacén y ejecútalo.</p>}
+          ) : d ? <pre className="mono" style={{ margin: 12, whiteSpace: 'pre-wrap' }}>{d.text || tr('(sin salida)')}</pre>
+          : <p className="empty">{tr('Escribe lo que entiende este almacén y ejecútalo.')}</p>}
       </div>
-      {d && <div className="gridfoot"><span className="num">{d.rows ? plural(d.rows.length, 'fila', 'filas') + (d.truncated ? ', las primeras 1000' : '') : 'texto'}</span><span className="grow" /><span className="num">{d.ms} ms</span></div>}
+      {d && <div className="gridfoot"><span className="num">{d.rows ? plural(d.rows.length, tr('fila'), tr('filas')) + (d.truncated ? tr(', las primeras 1000') : '') : tr('texto')}</span><span className="grow" /><span className="num">{d.ms} ms</span></div>}
     </>
   );
 }
@@ -60,28 +61,28 @@ export function CustomView({ env, nav, store, tableArg, at }: { env: string; nav
 
   return (
     <div className="dbx">
-      <aside className="schema" aria-label="Contenido">
+      <aside className="schema" aria-label={tr('Contenido')}>
         {nav}
         {store.tables && (
           <>
-            <h4>Contenido</h4>
+            <h4>{tr('Contenido')}</h4>
             {names.error ? <p className="form-err" style={{ padding: '0 8px' }}>{names.error}</p>
               : !names.list ? <Skeleton lines={4} />
               : names.list.length ? names.list.map((n) => <a key={n} href={at(n)} aria-current={n === tableArg ? 'true' : undefined}><Table2 /><span className="tn">{n}</span></a>)
-              : <p className="faint" style={{ padding: '4px 8px', fontSize: 13 }}>No hay nada que abrir todavía.</p>}
+              : <p className="faint" style={{ padding: '4px 8px', fontSize: 13 }}>{tr('No hay nada que abrir todavía.')}</p>}
           </>
         )}
       </aside>
       <div className="center">
         <div className="query">
           <div className="sql-box">
-            <label className="sr-only" htmlFor="custom-in">Consulta</label>
+            <label className="sr-only" htmlFor="custom-in">{tr('Consulta')}</label>
             <textarea id="custom-in" className="sql-ed mono" rows={5} value={input} spellCheck={false} autoComplete="off" onChange={(e) => setInput(e.target.value)} onKeyDown={keys}
-              placeholder={`Lo que entiende ${store.service} (${store.kind})`} style={{ position: 'static', color: 'inherit' }} />
+              placeholder={tr('Lo que entiende {service} ({kind})', { service: store.service, kind: store.kind })} style={{ position: 'static', color: 'inherit' }} />
             <div className="sql-bar">
-              <span className="faint">Va a la orden de <span className="mono">explore.query</span> en laru.yaml, dentro del contenedor. <kbd>⌘</kbd>/<kbd>Ctrl</kbd> <kbd>↵</kbd> ejecuta.</span>
+              <span className="faint">{tr('Va a la orden de')}{' '}<span className="mono">explore.query</span>{' '}{tr('en laru.yaml, dentro del contenedor.')}{' '}<kbd>⌘</kbd>/<kbd>Ctrl</kbd> <kbd>↵</kbd>{' '}{tr('ejecuta.')}</span>
               <span className="grow" />
-              <button className="btn sm primary" aria-disabled={!input.trim() || res.loading || undefined} onClick={send}><Play className={res.loading ? 'spin' : undefined} />Ejecutar</button>
+              <button className="btn sm primary" aria-disabled={!input.trim() || res.loading || undefined} onClick={send}><Play className={res.loading ? 'spin' : undefined} />{tr('Ejecutar')}</button>
             </div>
           </div>
           <Result state={res} />

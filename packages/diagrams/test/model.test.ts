@@ -543,3 +543,10 @@ describe('cadenas en una línea', () => {
     expect(model.edges).toEqual([]);
   });
 });
+
+it('every class\'s own template is read back as that class: the roadmap\'s gantt too', async () => {
+  const { DIAGRAM_STANDARDS } = await import('../src/standards.ts');
+  const { kindOfCode } = await import('../src/model.ts');
+  const { DIAGRAM_KINDS } = await import('../src/kinds.ts');
+  for (const k of DIAGRAM_KINDS) expect([k, kindOfCode(DIAGRAM_STANDARDS[k].template, [k])]).toEqual([k, k]);
+});

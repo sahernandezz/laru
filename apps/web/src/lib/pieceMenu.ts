@@ -12,6 +12,7 @@ import { piecesLabel, STAGE } from './es.ts';
 import { href } from './route.ts';
 import type { Section } from './menu.ts';
 import { typeColor } from './typeColor.ts';
+import { tr } from './i18n.ts';
 
 export const TYPE_ICON: Record<string, LucideIcon> = {
   application: Box, module: Layers, process: Workflow, repository: GitBranch, service: Server, datastore: Database, external: Globe,
@@ -44,13 +45,13 @@ export function ownFlows(k: KnowledgeData, id: string): string[] {
 }
 
 /** A flow's own sections: its sheet's tabs (its data's sections are the menu's, lib/menu.ts). */
-export const FLOW_TABS: Array<[string, string]> = [['summary', 'Resumen'], ['live', 'Probar en vivo'], ['doc', 'Documento']];
+export const FLOW_TABS: Array<[string, string]> = [['summary', tr('Resumen')], ['live', tr('Probar en vivo')], ['doc', tr('Documento')]];
 
 /** The tabs of the classes that have their own sheet (as the approved mock has them): key and label. ⌘K reaches each one. */
 export const TABS_OF: Record<string, Array<[string, string]>> = {
-  application: [['summary', 'Resumen'], ['arch', 'Diagramas'], ['modules', 'Módulos'], ['processes', 'Procesos'], ['fronts', 'Clientes'], ['flows', 'Escenarios y flujos'], ['envs', 'Entornos'], ['owed', 'Lo que debe'], ['doc', 'Documento']],
+  application: [['summary', tr('Resumen')], ['arch', tr('Diagramas')], ['modules', tr('Módulos')], ['processes', tr('Procesos')], ['fronts', tr('Clientes')], ['flows', tr('Escenarios y flujos')], ['envs', tr('Entornos')], ['owed', tr('Lo que debe')], ['doc', tr('Documento')]],
   flow: FLOW_TABS,
-  module: [['summary', 'Resumen'], ['flows', 'Escenarios y flujos'], ['owed', 'Lo que debe'], ['doc', 'Documento'], ['code', 'Código']],
+  module: [['summary', tr('Resumen')], ['flows', tr('Escenarios y flujos')], ['owed', tr('Lo que debe')], ['doc', tr('Documento')], ['code', tr('Código')]],
 };
 
 /**
@@ -78,7 +79,7 @@ export function sectionsOf(k: KnowledgeData, byId: Map<string, DocPiece>, owner:
     // a tab with nothing in it that the application may lack is not shown: clients nobody recognised, processes nobody wrote
     ...TABS_OF[owner.type].filter(([key]) => (key !== 'fronts' || fronts) && (key !== 'processes' || counts.processes)).map(([key, label]) => ({ key, label, n: key === 'fronts' ? fronts : counts[key], icon: SECTION_ICON[key], to: key === 'summary' ? href('docs', owner.id) : href('docs', owner.id, 't', key) })),
     ...kindsOf(k, byId, owner, keep).sort((a, b) => STAGES.indexOf(a.stage) - STAGES.indexOf(b.stage))
-      .map((x) => ({ key: `p-${x.type}`, label: piecesLabel(x.type), n: x.n || undefined, icon: iconOf({ type: x.type }), to: href('docs', owner.id, 't', `p-${x.type}`), group: 'Piezas' })),
+      .map((x) => ({ key: `p-${x.type}`, label: piecesLabel(x.type), n: x.n || undefined, icon: iconOf({ type: x.type }), to: href('docs', owner.id, 't', `p-${x.type}`), group: tr('Piezas') })),
   ];
 }
 

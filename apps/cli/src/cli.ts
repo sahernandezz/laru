@@ -6,6 +6,7 @@ import { join, resolve } from 'node:path';
 import {
   addRepo, ask, checkWorkspace, context, docsTree, documentNote, endpointIn, envOf, isContainer, isWorkspace, owedLine, scaffoldPieces, sheetNote, loadKnowledge, migrateWorkspace, movePiece, newPiece, renamePiece, agentRoot, idOf, laruHome, knowledgeShape, knowledgeWrite, loadRegistry, PIECE_TYPES, realRoot, register, resolveId, resolveRoot, unregister, verifyPiece, type PieceType, type WriteInput, initWorkspace, linkRepo, loadGraph, loadWorkspace, withEvidence, path, refreshMap,
   repoStatus, ROLES, syncRepos, tree, verify, WorkspaceError, writeAgentFiles, type RepoRole, type RepoStatus, type Workspace,
+  instructions, MOMENTS, rulesFor, rulesForText, ruleText, type Moment,
 } from '@laru/core';
 import { runtimeCommand } from './env-cli.ts';
 
@@ -24,6 +25,7 @@ const HELP = `laru — a workspace around your application's repositories
   laru verify                          record the commits the map was read at in laru.lock
   laru tree [--depth 3]
   laru context <target> [--budget 2000]
+  laru rules [commit|push|pr|ticket] | rules --for "<task>"   the person's instructions for how the agent works here (their working agreement); with a moment or a task, the ones about it, whole
   laru ask "<question>" [--budget 2000]
   laru path <from> <to>
   laru check [--json] [--worklist]     validate the documentation in three blocks (structure, contrast, policies); exits 1 on errors (for CI); --worklist lists what each container still owes
@@ -42,6 +44,8 @@ const HELP = `laru — a workspace around your application's repositories
   laru up [env] [--hybrid a,b] [--services a,b] [--worktree] [--rebuild a,b|all [--yes]] [--force] [-v]   build what changed, start, wait until ready (--rebuild: those images again without the cache, only when a dependency fetched at build time changed; --force: skip the memory check)
   laru down [env] [--dry-run] [--caches]   remove the env's containers, network and volumes (by label)
   laru logs [service] [--env e] [-f] [--tail 100]
+  laru start                           what a session starts with: the application and its modules, the envs, the flows, the working agreement, the rules and how each thing is done with Laru (an agent with no hooks runs it first)
+  laru exec <service> [--env e] -- <command…>   a command inside the service's container, as Laru reaches Docker (never docker exec from your shell)
   laru run [--env e] --service <name> -- <command…>   run a hybrid service here with its values
   laru db [list | schema | query "<sql>"|- [--write] | conn | password] [--env e] [--service s]   list shows MongoDB too
   laru mongo [dbs] | collections <db> | find <db> <collection> [--filter json] [--sort json] [--projection json] [--limit n] [--skip n] | get <db> <collection> <id> | conn   read-only, masked
@@ -99,7 +103,7 @@ export async function run(argv: string[], io: Out = stdio, cwd = process.cwd()):
       flow: { type: 'string' }, last: { type: 'string' }, step: { type: 'string' }, exchange: { type: 'string' }, affected: { type: 'boolean' }, failed: { type: 'boolean' }, workers: { type: 'string' }, runs: { type: 'string' }, key: { type: 'string' }, recursive: { type: 'boolean' }, latency: { type: 'string' }, abort: { type: 'boolean' }, timeout: { type: 'boolean' }, bandwidth: { type: 'string' }, 'slow-after': { type: 'string' }, p: { type: 'string' }, path: { type: 'string' }, method: { type: 'string' }, 'no-cache': { type: 'boolean' }, reason: { type: 'string' }, until: { type: 'string' }, reorder: { type: 'boolean' },
       filter: { type: 'string' }, sort: { type: 'string' }, projection: { type: 'string' }, skip: { type: 'string' }, broker: { type: 'string' },
       kind: { type: 'string' }, q: { type: 'string' }, part: { type: 'string' }, to: { type: 'string' }, as: { type: 'string' }, code: { type: 'string' }, within: { type: 'string' }, join: { type: 'string' }, share: { type: 'string' }, ignore: { type: 'string' },
-      since: { type: 'string' }, browser: { type: 'boolean' }, in: { type: 'string' }, scenario: { type: 'string' }, ws: { type: 'string' }, force: { type: 'boolean' }, stop: { type: 'boolean' }, quiet: { type: 'boolean' }, token: { type: 'boolean' }, yes: { type: 'boolean' },
+      for: { type: 'string' }, since: { type: 'string' }, browser: { type: 'boolean' }, in: { type: 'string' }, scenario: { type: 'string' }, ws: { type: 'string' }, force: { type: 'boolean' }, stop: { type: 'boolean' }, quiet: { type: 'boolean' }, token: { type: 'boolean' }, yes: { type: 'boolean' },
     },
   });
   const rootOf = () => resolveRoot({ dir: o.workspace ? String(o.workspace) : undefined, ws: o.ws as string | undefined, env: envOf('WORKSPACE'), cwd });
@@ -179,6 +183,16 @@ export async function run(argv: string[], io: Out = stdio, cwd = process.cwd()):
         return 0;
       }
       case 'tree': io.log(tree(loadGraph(ws()), Number(o.depth ?? 2))); return 0;
+      case 'rules': {
+        const w = ws();
+        const none = 'No instructions yet: write how you want the agent to work here in your working agreement («Cómo se trabaja», its «Instrucciones para el agente»).';
+        if (typeof o.for === 'string') { const due = rulesForText(w, o.for); io.log(due.length ? due.map((p) => ruleText(w, p)).join('\n\n') : `None of the person's instructions is about «${o.for}»: do it through Laru's tools.`); return 0; }
+        if (!args[0]) { const all = instructions(w); io.log(all.length ? all.map((p) => ruleText(w, p)).join('\n\n') : none); return 0; }
+        if (!MOMENTS.some((m) => m.key === args[0])) { io.err(`usage: laru rules [${MOMENTS.map((m) => m.key).join('|')}] | rules --for "<task>"`); return 2; }
+        const due = rulesFor(w, [args[0] as Moment]);
+        io.log(due.length ? due.map((p) => ruleText(w, p)).join('\n\n') : `None of the person's instructions is about a ${args[0]}: follow the repository's own conventions.`);
+        return 0;
+      }
       case 'context': { if (!args[0]) { io.err('usage: laru context <target>'); return 2; } const w = ws(); io.log(context(loadGraph(w), w, args.join(' '), Number(o.budget ?? 2000))); return 0; }
       case 'ask': { if (!args[0]) { io.err('usage: laru ask "<question>"'); return 2; } io.log(ask(loadGraph(ws()), args.join(' '), Number(o.budget ?? 2000))); return 0; }
       case 'path': { if (args.length < 2) { io.err('usage: laru path <from> <to>'); return 2; } const w = ws(); io.log(path(loadGraph(w), w, args[0], args[1])); return 0; }
@@ -224,7 +238,8 @@ export async function run(argv: string[], io: Out = stdio, cwd = process.cwd()):
           for (const piece of list) {
             // the agent's way to write without MCP: as strict as knowledge_write
             const r = knowledgeWrite(w, piece, g, { batch, strict: true });
-            if (r.ok) io.log(`wrote ${r.id} → ${r.path}${r.issues.length ? `  (${r.issues.length} warnings)` : ''}`);
+            // each warning with where and why: a count alone left the agent guessing what to fix
+            if (r.ok) { io.log(`wrote ${r.id} → ${r.path}${r.issues.length ? `  (${r.issues.length} warnings)` : ''}`); for (const i of r.issues) io.log(`  ${i.at}: ${i.message}`); }
             else { failed++; io.err(`${r.id || piece.title}: not written`); for (const i of r.issues.filter((x) => x.level === 'error')) io.err(`  ${i.at}: ${i.message}`); }
           }
           return failed ? 1 : 0;

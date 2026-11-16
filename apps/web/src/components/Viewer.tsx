@@ -8,6 +8,7 @@ import { useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEven
 import { useApi } from '../api.ts';
 import { pageOf } from '../lib/route.ts';
 import { Origin, Skeleton, copy, toast } from './ui.tsx';
+import { tr } from '../lib/i18n.ts';
 
 export interface DiagramData { id: string; kind: string; title: string; svg: string; mermaid: string; viewBox: [number, number, number, number]; ms: number; pieces: number; links: number }
 
@@ -17,13 +18,13 @@ const download = (name: string, text: string, type: string) => {
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 };
-const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'diagrama';
+const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || tr('diagrama');
 
 export function DiagramViewer({ id, height = 560 }: { id: string; height?: number }) {
   const d = useApi<DiagramData>(`/api/diagram?id=${encodeURIComponent(id)}`);
   if (d.loading && !d.data) return <section className="panel"><div className="body"><Skeleton lines={6} /></div></section>;
-  if (d.error || !d.data) return <section className="panel"><div className="empty">{d.error ?? 'No hay con qué dibujarlo: lee el código primero (Proyectos › Releer el código).'}</div></section>;
-  if (d.data.pieces <= 1 && d.data.links === 0 && d.data.kind !== 'data-model') return <section className="panel"><div className="empty">Sin relaciones declaradas todavía: se dibujan cuando una pieza nombra a otra.</div></section>;
+  if (d.error || !d.data) return <section className="panel"><div className="empty">{d.error ?? tr('No hay con qué dibujarlo: lee el código primero (Proyectos › Releer el código).')}</div></section>;
+  if (d.data.pieces <= 1 && d.data.links === 0 && d.data.kind !== 'data-model') return <section className="panel"><div className="empty">{tr('Sin relaciones declaradas todavía: se dibujan cuando una pieza nombra a otra.')}</div></section>;
   return <Stage key={id} data={d.data} height={height} />;
 }
 
@@ -50,7 +51,7 @@ function Stage({ data, height }: { data: DiagramData; height: number }) {
   useEffect(() => {
     stage.current?.querySelectorAll<SVGGElement>('g.pd-node[data-ref]').forEach((g) => {
       g.setAttribute('tabindex', '0'); g.setAttribute('role', 'link');
-      g.setAttribute('aria-label', `Abrir ${g.querySelector('text')?.textContent ?? g.dataset.ref}`);
+      g.setAttribute('aria-label', tr('Abrir {name}', { name: g.querySelector('text')?.textContent ?? g.dataset.ref }));
       g.style.cursor = 'pointer';
     });
   }, [data]);
@@ -101,18 +102,18 @@ function Stage({ data, height }: { data: DiagramData; height: number }) {
   return (
     <section className="panel viewer" ref={box}>
       <header><h3>{data.title}</h3>
-        <div className="meta"><Origin of="derived" /> {data.pieces} piezas · {data.links} flechas · dibujado en {data.ms} ms</div></header>
-      <div className="viewer-tools" role="toolbar" aria-label="Herramientas del diagrama">
-        {btn('Acercar', Plus, () => zoom(1.25))}{btn('Alejar', Minus, () => zoom(0.8))}{btn('Ajustar al marco', ScanSearch, fit)}
-        {btn('Pantalla completa', Maximize2, () => (document.fullscreenElement ? document.exitFullscreen() : box.current?.requestFullscreen()))}
-        <button className="btn sm" aria-pressed={limit} onClick={() => { setLimit((v) => !v); setLit(null); }} title="Pulsa un límite (un recuadro) y se apaga lo que queda fuera"><Scissors />Apagar lo de fuera{limit ? ': elige un límite' : ''}</button>
-        {lit && <button className="btn sm" onClick={() => setLit(null)}>Encender todo</button>}
+        <div className="meta"><Origin of="derived" /> {data.pieces}{' '}{tr('piezas ·')}{' '}{data.links}{' '}{tr('flechas · dibujado en')}{' '}{data.ms} ms</div></header>
+      <div className="viewer-tools" role="toolbar" aria-label={tr('Herramientas del diagrama')}>
+        {btn(tr('Acercar'), Plus, () => zoom(1.25))}{btn(tr('Alejar'), Minus, () => zoom(0.8))}<button className="btn sm" onClick={fit} title={tr('Ajustar al marco (0)')}><ScanSearch />{tr('Ajustar')}</button>
+        {btn(tr('Pantalla completa'), Maximize2, () => (document.fullscreenElement ? document.exitFullscreen() : box.current?.requestFullscreen()))}
+        <button className="btn sm" aria-pressed={limit} onClick={() => { setLimit((v) => !v); setLit(null); }} title={tr('Pulsa un límite (un recuadro) y se apaga lo que queda fuera')}><Scissors />{tr('Apagar lo de fuera')}{limit ? tr(': elige un límite') : ''}</button>
+        {lit && <button className="btn sm" onClick={() => setLit(null)}>{tr('Encender todo')}</button>}
         <span className="grow" />
         <button className="btn sm" onClick={() => download(`${slug(data.title)}.svg`, data.svg.includes('xmlns') ? data.svg : data.svg.replace('<svg', '<svg xmlns="http://www.w3.org/2000/svg"'), 'image/svg+xml')}><Download />SVG</button>
-        <button className="btn sm" onClick={() => copy(data.mermaid, 'Mermaid copiado')}><Expand />Copiar Mermaid</button>
-        <button className="btn sm" onClick={() => { download(`${slug(data.title)}.mmd`, data.mermaid, 'text/plain'); toast('Mermaid descargado'); }}><Download />Mermaid</button>
+        <button className="btn sm" onClick={() => copy(data.mermaid, tr('Mermaid copiado'))}><Expand />{tr('Copiar Mermaid')}</button>
+        <button className="btn sm" onClick={() => { download(`${slug(data.title)}.mmd`, data.mermaid, 'text/plain'); toast(tr('Mermaid descargado')); }}><Download />Mermaid</button>
       </div>
-      <div className="viewer-frame" ref={view} style={{ height }} tabIndex={0} role="group" aria-label={`${data.title}: arrastra para moverlo, +/− para acercar, Enter sobre una caja abre su hoja`}
+      <div className="viewer-frame" ref={view} style={{ height }} tabIndex={0} role="group" aria-label={tr('{title}: arrastra para moverlo, +/− para acercar, Enter sobre una caja abre su hoja', { title: data.title })}
         onPointerDown={down} onPointerMove={move} onPointerUp={up} onKeyDown={key}
         onWheel={(e) => { if (e.ctrlKey || e.metaKey) { e.preventDefault(); const r = view.current!.getBoundingClientRect(); zoom(e.deltaY < 0 ? 1.1 : 0.9, e.clientX - r.left, e.clientY - r.top); } }}>
         <div ref={stage} className="viewer-stage" style={{ width: w, height: h, transform: `translate(${t.x}px, ${t.y}px) scale(${t.s})` }} dangerouslySetInnerHTML={svg} />

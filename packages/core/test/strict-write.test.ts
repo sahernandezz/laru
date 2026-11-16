@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { DIAGRAM_KINDS } from '@laru/diagrams';
-import { diagramShape, documentNote, endpointIn, initWorkspace, knowledgeShape, knowledgeWrite, loadWorkspace, STANDARD } from '../src/index.ts';
+import { diagramShape, documentNote, endpointIn, initWorkspace, knowledgeShape, knowledgeWrite, loadKnowledge, loadWorkspace, STANDARD } from '../src/index.ts';
 
 test('the agent gets the suggested diagrams with how each is drawn, the whole catalogue, and the rule that any of them fits', () => {
   const ws = loadWorkspace(initWorkspace(join(mkdtempSync(join(tmpdir(), 'laru-shape-')), 'ws'), { app: 'tienda', title: 'Tienda' }).root);
@@ -63,4 +63,24 @@ test('assertive, not short: vague words, a repeated summary and an endpoint the 
   const named = { ...plainInput, fields: { purpose: 'Entra con `POST /api/auth/login` y borra con `DELETE /api/files/{id}`.' } } as never;
   const note = documentNote(named, { endpoint: has });
   assert.deepEqual(note.owed.find((o) => o.key === 'unknown-endpoint')?.params, { endpoints: 'DELETE /api/files/{id}' });
+});
+
+test('a diagram where no class is suggested («Diagramas») is read as one drawn by hand: a flowchart is a process, never a class Laru derives', () => {
+  const ws = loadWorkspace(initWorkspace(join(mkdtempSync(join(tmpdir(), 'laru-free-')), 'ws'), { app: 'tienda', title: 'Tienda' }).root);
+  knowledgeWrite(ws, { type: 'application', title: 'Tienda', kind: 'product', status: 'active', summary: 'Una tienda que vende y devuelve pedidos pagados.', fields: { purpose: 'Vende pedidos y gestiona sus devoluciones.', users: [{ actor: 'Cliente', need: 'Comprar' }], scope: ['Pagos'] } });
+  const lanes = '```mermaid\n---\ntitle: Un fichero se queda en PENDING\n---\nflowchart TB\n  subgraph Operador\n    a[Ve el fichero en PENDING] --> b{¿Responde clamd?}\n  end\n  subgraph Sistema\n    b -->|sí| c[Reenvía file.uploaded]\n    b -->|no| d[Reinicia clamav]\n  end\n```';
+  const lr = '```mermaid\n---\ntitle: Qué hace con cada respuesta\n---\nflowchart LR\n  r[Respuesta de clamd] --> ok{¿Dice OK?}\n  ok -->|sí| clean[CLEAN]\n  ok -->|no| infected[INFECTED]\n```';
+  for (const d of [lanes, lr]) {
+    const r = knowledgeWrite(ws, { type: 'guide', in: 'app:tienda', title: 'Ficheros en PENDING', summary: 'Qué hacer cuando un fichero no sale de PENDING tras subirlo.', fields: { goal: 'Sacar un fichero de PENDING.', steps: ['Mirar si clamd responde.'], diagrams: d } }, null, { dryRun: true });
+    const kinds = r.issues.filter((i) => i.at.startsWith('fields.diagrams')).map((i) => `${i.params?.kind}:${i.key}`);
+    assert.ok(!kinds.some((k) => /derived|landscape|value-stream|domain-map/.test(k)), kinds.join(', '));
+  }
+});
+
+test('a heading inside a field goes under the piece\'s sections: the field comes back whole, its diagrams untouched', () => {
+  const ws = loadWorkspace(initWorkspace(join(mkdtempSync(join(tmpdir(), 'laru-heads-')), 'ws'), { app: 'tienda', title: 'Tienda' }).root);
+  assert.ok(knowledgeWrite(ws, { type: 'application', title: 'Tienda', kind: 'product', status: 'active', summary: 'Una tienda que vende y devuelve pedidos pagados.', fields: { purpose: 'Vende.\n\n## Cómo\nCon pagos.\n\n# Por qué\nPorque sí.\n\n```mermaid\nflowchart LR\n  a --> b\n```', users: [{ actor: 'Cliente', need: 'Comprar' }], scope: ['Pagos'] } }).ok);
+  const app = loadKnowledge(ws).byId.get('app:tienda')!;
+  assert.equal(String(app.fields.purpose), 'Vende.\n\n### Cómo\nCon pagos.\n\n### Por qué\nPorque sí.\n\n```mermaid\nflowchart LR\n  a --> b\n```');
+  assert.ok(app.fields.users, 'the next section still read as its own');
 });

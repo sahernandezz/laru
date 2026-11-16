@@ -13,8 +13,9 @@ import { ACTORS, edgesOf, groupsOf, homeOf, layout, NO_GROUP, SHARED, type EdgeK
 import { ServiceEnvMap } from '../components/EnvMap.tsx';
 import { RunningEnvs } from '../components/RunningEnvs.tsx';
 import { Components, NodeSheet, through } from './Service.tsx';
+import { tr } from '../lib/i18n.ts';
 
-const KIND_LABEL: Record<EdgeKind, string> = { call: 'Llamadas HTTP', event: 'Eventos', store: 'Almacenes y externos' };
+const KIND_LABEL: Record<EdgeKind, string> = { call: tr('Llamadas HTTP'), event: tr('Eventos'), store: tr('Almacenes y externos') };
 
 export function MapView({ g: whole, selected, tabArg }: { g: Indexed; selected?: string; tabArg?: string }) {
   const flows = useApi<FlowInfo[]>('/api/flows');
@@ -66,22 +67,24 @@ export function MapView({ g: whole, selected, tabArg }: { g: Indexed; selected?:
   const nodeName = (n: MapNode) => {
     const fl = flowList && through(flowList, n.id);
     const bad = fl?.filter((f) => f.last?.status === 'failed').length ?? 0;
-    return [n.name, `${pieceLabel(n.type).toLowerCase()} ${KIND[n.kind ?? ''] ?? n.kind ?? ''}`.trim(), n.type === 'service' && plural(g.out(n.id).filter((f) => f.p === 'exposes').length, 'endpoint', 'endpoints'),
-      fl && plural(fl.length, 'flujo', 'flujos'), bad && `${bad} ${bad === 1 ? 'falla' : 'fallan'}`].filter(Boolean).join(', ');
+    return [n.name, `${pieceLabel(n.type).toLowerCase()} ${KIND[n.kind ?? ''] ?? n.kind ?? ''}`.trim(), n.type === 'service' && plural(g.out(n.id).filter((f) => f.p === 'exposes').length, tr('endpoint'), tr('endpoints')),
+      fl && plural(fl.length, tr('flujo'), tr('flujos')), bad && (bad === 1 ? tr('{bad} falla', { bad }) : tr('{bad} fallan', { bad }))].filter(Boolean).join(', ');
   };
 
   return (
     <div className="page wide map-page">
       {selected ? (
         <div className="map-top">
-          <nav className="crumbs" aria-label="Ruta"><a href={href('map')}>Mapa y servicios</a><ChevronRight /><span>{sel?.name ?? selected}</span></nav>
-          <button className="btn sm" onClick={close}><X />Cerrar</button>
+          <nav className="crumbs" aria-label={tr('Ruta')}><a href={href('map')}>{tr('Mapa y servicios')}</a><ChevronRight /><span>{sel?.name ?? selected}</span></nav>
+          <button className="btn sm" onClick={close}><X />{tr('Cerrar')}</button>
         </div>
       ) : (
         <div className="head">
-          <div><h1>Mapa y servicios</h1><p>Lo que se despliega y con qué habla cada servicio. Elige una pieza para ver su ficha.</p></div>
+          <div><h1>{tr('Mapa y servicios')}</h1><p>{tr('Lo que se despliega y con qué habla cada servicio. Elige una pieza para ver su ficha.')}</p></div>
           <div className="actions faint map-sum">
-            {plural(count('service'), 'servicio', 'servicios')} · {plural(count('datastore'), 'almacén', 'almacenes')} · {plural(count('external'), 'externo', 'externos')} · leído de {g.map.repos.map((r) => `${r.name}@${r.commit.slice(0, 7)}`).join(', ')}
+            {plural(count('service'), tr('servicio'), tr('servicios'))} · {plural(count('datastore'), tr('almacén'), tr('almacenes'))} · {plural(count('external'), tr('externo'), tr('externos'))} · {g.map.repos.length > 2
+              ? <span title={g.map.repos.map((r) => `${r.name}@${r.commit.slice(0, 7)}`).join('\n')}>{tr('leído de')}{' '}{plural(g.map.repos.length, tr('proyecto'), tr('proyectos'))}</span>
+              : <>{tr('leído de')}{' '}{g.map.repos.map((r) => `${r.name}@${r.commit.slice(0, 7)}`).join(', ')}</>}
           </div>
         </div>
       )}
@@ -94,35 +97,35 @@ export function MapView({ g: whole, selected, tabArg }: { g: Indexed; selected?:
               <svg className="lg" width="22" height="8" aria-hidden="true"><path d="M1 4H21" className={`e ${k}`} style={{ stroke: 'currentColor', strokeWidth: 1.5, strokeDasharray: k === 'event' ? '5 4' : k === 'store' ? '1.5 3.5' : undefined }} /></svg>{KIND_LABEL[k]}
             </button>
           ))}
-          <button className="btn sm" aria-pressed={derived} style={{ opacity: derived ? 1 : 0.5 }} onClick={() => setDerived((d) => !d)}><Origin of="derived" label={false} />Deducidas</button>
-          {several && <Segmented label="Proyecto" value={project} onChange={setProject} options={[{ key: '', label: 'Todos' }, ...projects.map((p) => ({ key: p, label: p }))]} />}
+          <button className="btn sm" aria-pressed={derived} style={{ opacity: derived ? 1 : 0.5 }} onClick={() => setDerived((d) => !d)}><Origin of="derived" label={false} />{tr('Deducidas')}</button>
+          {several && <Segmented label={tr('Proyecto')} value={project} onChange={setProject} options={[{ key: '', label: tr('Todos') }, ...projects.map((p) => ({ key: p, label: p }))]} />}
         </div>
-        <MapCanvas lay={lay} label={`Mapa del sistema, ${plural(lay.nodes.length, 'pieza', 'piezas')}`} keep={sel?.id} onBackground={close} className={sel ? 'with-sheet' : undefined}>
+        <MapCanvas lay={lay} label={tr('Mapa del sistema, {plural}', { plural: plural(lay.nodes.length, tr('pieza'), tr('piezas')) })} keep={sel?.id} onBackground={close} className={sel ? 'with-sheet' : undefined}>
           {/* Edges have their list equivalents: «Componentes» and each sheet's «Conexiones». */}
           <g aria-hidden="true">
             {shown.map((e) => {
               const hot = sel && (e.from === sel.id || e.to === sel.id);
               return (
-                <path key={e.id} d={e.d} className={`e ${e.kind}${e.origin === 'derived' ? ' derived' : ''}${across(e) ? ' across' : ''}${xapp(e) ? ' xapp' : ''}${hot ? ' hot' : sel ? ' dim' : ''}`} markerEnd="url(#arrow)"><title>{`${g.nodes.get(e.from)?.name} → ${g.nodes.get(e.to)?.name}: ${e.kind === 'store' ? 'usa' : e.label} (${e.origin === 'derived' ? 'deducido' : 'extraído'}${across(e) ? ', entre proyectos' : ''}${xapp(e) ? `, de ${apps.get(e.from)} a ${apps.get(e.to)}` : ''})`}</title></path>
+                <path key={e.id} d={e.d} className={`e ${e.kind}${e.origin === 'derived' ? ' derived' : ''}${across(e) ? ' across' : ''}${xapp(e) ? ' xapp' : ''}${hot ? ' hot' : sel ? ' dim' : ''}`} markerEnd="url(#arrow)"><title>{`${g.nodes.get(e.from)?.name} → ${g.nodes.get(e.to)?.name}: ${e.kind === 'store' ? tr('usa') : e.label} (${e.origin === 'derived' ? tr('deducido') : tr('extraído')}${across(e) ? tr(', entre proyectos') : ''}${xapp(e) ? tr(', de {get} a {get2}', { get: apps.get(e.from), get2: apps.get(e.to) }) : ''})`}</title></path>
               );
             })}
             {/* over the lines, each stopping its own */}
             {shown.filter((e) => sel && e.kind !== 'store' && (e.from === sel.id || e.to === sel.id)).map((e) => <EdgeLabel key={e.id} e={e} className="hot" />)}
           </g>
           {lay.nodes.map(({ node, x, y }) => (
-            <NodeBox key={node.id} node={node} x={x} y={y} sub={`${several && node.repo ? `${node.repo} · ` : ''}${node.type === 'service' ? `${node.kind}, ${g.out(node.id).filter((f) => f.p === 'exposes').length} endpoints` : KIND[node.kind ?? ''] ?? node.kind ?? ''}`}
+            <NodeBox key={node.id} node={node} x={x} y={y} sub={`${node.type === 'service' ? `${node.kind}, ${g.out(node.id).filter((f) => f.p === 'exposes').length} endpoints` : KIND[node.kind ?? ''] ?? node.kind ?? ''}${several && node.repo ? ` · ${node.repo}` : ''}`}
               className={sel?.id === node.id ? 'sel' : sel && !near.has(node.id) ? 'dim' : ''} role="button" tabIndex={0} aria-pressed={sel?.id === node.id} aria-label={nodeName(node)}
               onClick={() => select(node.id)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); select(node.id); } }} />
           ))}
         </MapCanvas>
-        <div className="legend"><span>Elige una pieza para ver su ficha y sus conexiones</span><span>Las líneas atenuadas son deducidas, no leídas literalmente del código</span>{several && <span><svg className="lg" width="22" height="8" aria-hidden="true"><path d="M1 4H21" style={{ stroke: 'currentColor', strokeWidth: 1.5, strokeDasharray: '8 3' }} /></svg> entre proyectos</span>}{lay.bands.length > 0 && <span><svg className="lg" width="22" height="8" aria-hidden="true"><path d="M1 4H21" style={{ stroke: 'var(--run)', strokeWidth: 2.5 }} /></svg> de una aplicación a otra</span>}</div>
+        <div className="legend"><span>{tr('Elige una pieza para ver su ficha y sus conexiones')}</span><span>{tr('Las líneas atenuadas son deducidas, no leídas literalmente del código')}</span>{several && <span><svg className="lg" width="22" height="8" aria-hidden="true"><path d="M1 4H21" style={{ stroke: 'currentColor', strokeWidth: 1.5, strokeDasharray: '8 3' }} /></svg>{' '}{tr('entre proyectos')}</span>}{lay.bands.length > 0 && <span><svg className="lg" width="22" height="8" aria-hidden="true"><path d="M1 4H21" style={{ stroke: 'var(--run)', strokeWidth: 2.5 }} /></svg>{' '}{tr('de una aplicación a otra')}</span>}</div>
       </section>
 
-      {flows.error && <div className="notice" role="alert">No se pudo leer el historial de runs: {flows.error}</div>}
+      {flows.error && <div className="notice" role="alert">{tr('No se pudo leer el historial de runs:')}{' '}{flows.error}</div>}
       {sel ? <NodeSheet key={sel.id} tabArg={tabArg} g={g} node={sel} flows={flowList} k={kd.data} seen={seen} reload={kd.reload} headRef={heading} close={close} />
-        : selected ? <section className="panel"><div className="empty">No hay ningún «{selected}» en el mapa. <a className="rowlink" href={href('map')}>Ver el mapa</a></div></section>
+        : selected ? <section className="panel"><div className="empty">{tr('No hay ningún «')}{selected}{tr('» en el mapa.')}{' '}<a className="rowlink" href={href('map')}>{tr('Ver el mapa')}</a></div></section>
         : <>
-          <section className="panel" style={{ marginBottom: 16 }}><header><h3>Servicios por entorno</h3><div className="meta">Dónde corre cada servicio · <a className="more" href={href('envs')}>Gestionar entornos</a></div></header><ServiceEnvMap g={whole} envs={envs.data} /></section>
+          <section className="panel" style={{ marginBottom: 16 }}><header><h3>{tr('Servicios por entorno')}</h3><div className="meta">{tr('Dónde corre cada servicio ·')}{' '}<a className="more" href={href('envs')}>{tr('Gestionar entornos')}</a></div></header><ServiceEnvMap g={whole} envs={envs.data} /></section>
           <Components g={g} flows={flowList} k={kd.data} onOpen={() => { toSheet.current = true; }} />
         </>}
     </div>

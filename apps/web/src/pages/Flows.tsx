@@ -16,6 +16,7 @@ import { FlowEvidence, FlowMap, SeqView, useFlowView, type FlowView } from './Ru
 
 /** A flow's glyph: its newest result that says something about the code (a cached one passed). */
 import { flowDot, lastWord } from '../lib/es.ts';
+import { tr, LOCALE } from '../lib/i18n.ts';
 export { flowDot, lastWord };
 /** The flows whose last run reached an endpoint. */
 export const walkers = (flows: FlowInfo[], ep: string) => flows.filter((f) => f.last?.endpoints.some((e) => e.id === ep));
@@ -42,12 +43,12 @@ export function RunFlows({ chosen, envs, single }: { chosen: FlowInfo[]; envs?: 
 function RunAcross({ chosen, single }: { chosen: FlowInfo[]; single?: boolean }) {
   const runnable = chosen.filter((f) => f.exists);
   const on = useApi<{ env: string; ready: boolean }>(runnable.length ? `/api/runs/env?flows=${encodeURIComponent(runnable.map((f) => f.slug).join(','))}` : null);
-  const why = single && !runnable.length ? 'Sin prueba' : !runnable.length ? 'Marca los flujos que quieres ejecutar' : on.error ? on.error : undefined;
+  const why = single && !runnable.length ? tr('Sin prueba') : !runnable.length ? tr('Marca los flujos que quieres ejecutar') : on.error ? on.error : undefined;
   return (
     <>
       <ActionButton icon={Play} primary={!single} disabled={Boolean(why) || !on.data} title={why}
-        run={() => askFirst((confirm) => api<{ id: string }>('/api/runs/start', { method: 'POST', body: { flows: runnable.map((f) => f.slug), confirm, pwTrace: true } }).then((r) => { location.hash = href('runs', r.id); }), 'Ejecutar')}>
-        {single ? 'Ejecutar prueba automática' : !runnable.length ? 'Ejecutar' : `Ejecutar ${plural(runnable.length, 'flujo', 'flujos')}`}{!single && on.data ? ` en ${on.data.env}${on.data.ready ? '' : ' (se levanta)'}` : ''}
+        run={() => askFirst((confirm) => api<{ id: string }>('/api/runs/start', { method: 'POST', body: { flows: runnable.map((f) => f.slug), confirm, pwTrace: true } }).then((r) => { location.hash = href('runs', r.id); }), tr('Ejecutar'))}>
+        {single ? tr('Ejecutar prueba automática') : !runnable.length ? tr('Ejecutar') : tr('Ejecutar {plural}', { plural: plural(runnable.length, tr('flujo'), tr('flujos')) })}{!single && on.data ? tr(' en {env}{p1}', { env: on.data.env, p1: on.data.ready ? '' : tr(' (se levanta)') }) : ''}
       </ActionButton>
     </>
   );
@@ -58,13 +59,13 @@ function RunOnReady({ chosen, envs, single }: { chosen: FlowInfo[]; envs?: EnvSu
   const ready = (envs ?? []).filter((e) => e.state === 'ready');
   const env = ready.find((e) => e.env === envSel)?.env ?? ready[0]?.env;
   const runnable = chosen.filter((f) => f.exists);
-  const why = single && !runnable.length ? 'Sin prueba' : !env ? 'Levanta un entorno para ejecutar flujos' : !runnable.length ? 'Marca los flujos que quieres ejecutar' : undefined;
+  const why = single && !runnable.length ? tr('Sin prueba') : !env ? tr('Levanta un entorno para ejecutar flujos') : !runnable.length ? tr('Marca los flujos que quieres ejecutar') : undefined;
   return (
     <>
-      {ready.length > 1 && <Segmented label="Entorno" value={env ?? ''} onChange={setEnv} options={ready.map((e) => ({ key: e.env, label: e.env }))} />}
+      {ready.length > 1 && <Segmented label={tr('Entorno')} value={env ?? ''} onChange={setEnv} options={ready.map((e) => ({ key: e.env, label: e.env }))} />}
       <ActionButton icon={Play} primary={!single} disabled={Boolean(why)} title={why}
-        run={() => askFirst((confirm) => api<{ id: string }>('/api/runs/start', { method: 'POST', body: { env, flows: runnable.map((f) => f.slug), confirm, pwTrace: true } }).then((r) => { location.hash = href('runs', r.id); }), 'Ejecutar')}>
-        {single ? 'Ejecutar prueba automática' : !runnable.length ? 'Ejecutar' : `Ejecutar ${plural(runnable.length, 'flujo', 'flujos')}`}{!single && env ? ` en ${env}` : ''}
+        run={() => askFirst((confirm) => api<{ id: string }>('/api/runs/start', { method: 'POST', body: { env, flows: runnable.map((f) => f.slug), confirm, pwTrace: true } }).then((r) => { location.hash = href('runs', r.id); }), tr('Ejecutar'))}>
+        {single ? tr('Ejecutar prueba automática') : !runnable.length ? tr('Ejecutar') : tr('Ejecutar {plural}', { plural: plural(runnable.length, tr('flujo'), tr('flujos')) })}{!single && env ? tr(' en {env}', { env }) : ''}
       </ActionButton>
     </>
   );
@@ -85,8 +86,8 @@ export function FlowTable({ rows, pick, home, sub, label }: { rows: FlowInfo[]; 
       <table className="t flows">
         <thead>
           <tr>
-            <th className="pick"><input type="checkbox" aria-label={`Elegir todos: ${label}`} checked={all} disabled={!runnable.length} onChange={() => pick.setPicked((s) => { const n = new Set(s); for (const f of runnable) if (all) n.delete(f.slug); else n.add(f.slug); return n; })} /></th>
-            <th>Flujo</th>{where && <th className="c-where">Vive en</th>}<th className="c-last">Último</th><th className="c-spark">Últimos 10</th><th className="r c-dur">Dur.</th><th className="r">Cuándo</th>
+            <th className="pick"><input type="checkbox" aria-label={tr('Elegir todos: {label}', { label })} checked={all} disabled={!runnable.length} onChange={() => pick.setPicked((s) => { const n = new Set(s); for (const f of runnable) if (all) n.delete(f.slug); else n.add(f.slug); return n; })} /></th>
+            <th>{tr('Flujo')}</th>{where && <th className="c-where">{tr('Vive en')}</th>}<th className="c-last">{tr('Último')}</th><th className="c-spark">{tr('Últimos 10')}</th><th className="r c-dur">{tr('Dur.')}</th><th className="r">{tr('Cuándo')}</th>
           </tr>
         </thead>
         <tbody>
@@ -96,21 +97,21 @@ export function FlowTable({ rows, pick, home, sub, label }: { rows: FlowInfo[]; 
             const cmd = `laru flow scaffold ${f.id}`;
             const [dot, word] = lastWord(f);
             const failAt = whereFailed(f);
-            const fail = failAt && <div className="sub"><a className="rowlink" href={failAt} aria-label={`Ver dónde falló ${f.title}`}>Ver dónde falló ›</a></div>;
+            const fail = failAt && <div className="sub"><a className="rowlink" href={failAt} aria-label={tr('Ver dónde falló {title}', { title: f.title })}>{tr('Ver dónde falló ›')}</a></div>;
             return (
               <tr key={f.slug}>
-                <td className="pick">{f.exists && <input type="checkbox" aria-label={`Elegir ${f.title}`} checked={pick.picked.has(f.slug)} onChange={() => pick.toggle(f.slug)} />}</td>
+                <td className="pick">{f.exists && <input type="checkbox" aria-label={tr('Elegir {title}', { title: f.title })} checked={pick.picked.has(f.slug)} onChange={() => pick.toggle(f.slug)} />}</td>
                 <td className="wrap">
                   <a className="rowlink" href={href('docs', f.id)} style={{ fontWeight: 500 }}>{f.title}</a>
-                  <div className="faint mono sub">{sub?.(f) ?? `${f.id} · ${plural(f.steps.length, 'paso', 'pasos')}`}</div>
+                  <div className="faint mono sub">{sub?.(f) ?? `${f.id} · ${plural(f.steps.length, tr('paso'), tr('pasos'))}`}</div>
                   <div className="only-sm sub"><Status state={dot}>{word}</Status>{fail}</div>
-                  {!f.exists && <div className="scaffold"><span className="faint">Créala con</span> <code>{cmd}</code><CopyButton value={cmd} label={`Copiar el comando para crear la prueba de ${f.title}`} /></div>}
+                  {!f.exists && <div className="scaffold"><span className="faint">{tr('Créala con')}</span> <code>{cmd}</code><CopyButton value={cmd} label={tr('Copiar el comando para crear la prueba de {title}', { title: f.title })} /></div>}
                 </td>
                 {where && <td className="c-where">{parent ? <a className="rowlink" href={href('docs', parent.id)}>{parent.title}</a> : <span className="faint">—</span>}</td>}
                 <td className="c-last"><Status state={dot}>{word}</Status>{fail}</td>
                 <td className="c-spark"><Spark history={f.history} /></td>
                 <td className="r num c-dur">{last?.ms !== undefined ? secs(last.ms) : <span className="faint">—</span>}</td>
-                <td className="r faint">{last ? <a className="rowlink" href={href('runs', last.run, f.slug)} title={new Date(last.at).toLocaleString('es')}>{ago(last.at)}</a> : 'nunca'}</td>
+                <td className="r faint">{last ? <a className="rowlink" href={href('runs', last.run, f.slug)} title={new Date(last.at).toLocaleString(LOCALE)}>{ago(last.at)}</a> : tr('nunca')}</td>
               </tr>
             );
           })}
@@ -125,8 +126,8 @@ export function Spark({ history }: { history: FlowInfo['history'] }) {
   if (!history.length) return <span className="faint">—</span>;
   const ok = history.filter((h) => h.status === 'passed' || h.status === 'cached').length;
   return (
-    <span className="spark" role="img" aria-label={`${ok} de ${history.length} correctos`}>
-      {history.map((h) => <i key={h.run} className={h.status === 'passed' || h.status === 'cached' ? 'ok' : 'bad'} title={`Run ${h.run}: ${RUN_STATUS[h.status] ?? h.status}`} />)}
+    <span className="spark" role="img" aria-label={tr('{ok} de {length} correctos', { ok, length: history.length })}>
+      {history.map((h) => <i key={h.run} className={h.status === 'passed' || h.status === 'cached' ? 'ok' : 'bad'} title={tr('Run {run}: {p1}', { run: h.run, p1: RUN_STATUS[h.status] ?? h.status })} />)}
     </span>
   );
 }
@@ -136,15 +137,15 @@ export function Spark({ history }: { history: FlowInfo['history'] }) {
  * clock), or what it should do when it never ran.
  */
 export function FlowPage({ g, flow, error, loading, view, onView, test, address, k }: { g: Indexed | null; flow?: FlowInfo; error?: string; loading: boolean; view?: FlowView; onView: (v: FlowView) => void; test?: string; address?: (v: FlowView, test?: string) => string; k?: KnowledgeData }) {
-  if (error) return <div className="notice" role="alert"><CircleX />No se pudo leer el historial de runs: {error}</div>;
+  if (error) return <div className="notice" role="alert"><CircleX />{tr('No se pudo leer el historial de runs:')}{' '}{error}</div>;
   if (!flow) return loading ? <><Skeleton lines={2} /><div style={{ height: 16 }} /><Skeleton lines={8} /></>
-    : <div className="notice warn"><CircleX /><div>El historial de runs todavía no conoce este flujo. Recarga la página para leerlo de nuevo.</div></div>;
+    : <div className="notice warn"><CircleX /><div>{tr('El historial de runs todavía no conoce este flujo. Recarga la página para leerlo de nuevo.')}</div></div>;
   const row = flow.history.findLast((h) => h.status !== 'error');
   const newest = flow.history.at(-1);
   return (
     <>
-      {row?.status === 'cached' && flow.last && <p className="faint last-note">De la caché: la evidencia es del run {flow.last.run}.</p>}
-      {newest?.status === 'error' && <div className="notice warn"><CircleX /><div>El run {newest.run} no llegó a correr ninguna prueba{flow.last ? `; la evidencia es del run ${flow.last.run}` : ''}.</div></div>}
+      {row?.status === 'cached' && flow.last && <p className="faint last-note">{tr('De la caché: la evidencia es del run')}{' '}{flow.last.run}.</p>}
+      {newest?.status === 'error' && <div className="notice warn"><CircleX /><div>{tr('El run')}{' '}{newest.run}{' '}{tr('no llegó a correr ninguna prueba')}{flow.last ? tr('; la evidencia es del run {run}', { run: flow.last.run }) : ''}.</div></div>}
       {flow.last ? <LastEvidence g={g} flow={flow} view={view} onView={onView} test={test} address={address} k={k} /> : <Expected g={g} flow={flow} view={view} onView={onView} />}
     </>
   );
@@ -169,24 +170,24 @@ function Expected({ g, flow, view: asked, onView }: { g: Indexed | null; flow: F
     if (!g) return null;
     const eg = expectedGraph(g, flow), a = archGraph(g, []);
     const ids = new Set(eg.edges.map((e) => e.id));
-    const edges = new Map(eg.edges.map((e): [string, FlowEdge] => [e.id, { ...e, label: 'esperado', ex: [], n: 0, sse: 0, failed: 0, errors: 0, bad: false, tables: [], inMap: true }]));
-    return { lay: layout(a.sub, a.edges.map((e) => (ids.has(e.id) ? { ...e, label: 'esperado' } : e)), { keep: true, bands: true }), pieces: a.pieces, lit: { edges, nodes: new Set(eg.sub.nodes.keys()), quiet: new Set<string>() } };
+    const edges = new Map(eg.edges.map((e): [string, FlowEdge] => [e.id, { ...e, label: tr('esperado'), ex: [], n: 0, sse: 0, failed: 0, errors: 0, bad: false, tables: [], inMap: true }]));
+    return { lay: layout(a.sub, a.edges.map((e) => (ids.has(e.id) ? { ...e, label: tr('esperado') } : e)), { keep: true, bands: true }), pieces: a.pieces, lit: { edges, nodes: new Set(eg.sub.nodes.keys()), quiet: new Set<string>() } };
   }, [g, flow]);
   const cmd = `laru flow scaffold ${flow.id}`;
   return (
     <section className="panel expected" aria-labelledby="expected-h">
       <header>
         <h3 id="expected-h" className="status">{flow.exists
-          ? <><span className="dot idle" aria-hidden="true" />Sin ejecutar. Esto es lo esperado según sus Pasos y el código; no es evidencia.</>
-          : <><span className="dot idle" aria-hidden="true" />Sin prueba. Créala con <code>{cmd}</code><CopyButton value={cmd} label={`Copiar el comando para crear la prueba de ${flow.title}`} /></>}</h3>
+          ? <><span className="dot idle" aria-hidden="true" />{tr('Sin ejecutar. Esto es lo esperado según sus Pasos y el código; no es evidencia.')}</>
+          : <><span className="dot idle" aria-hidden="true" />{tr('Sin prueba. Créala con')}{' '}<code>{cmd}</code><CopyButton value={cmd} label={tr('Copiar el comando para crear la prueba de {title}', { title: flow.title })} /></>}</h3>
       </header>
       <div className="view-bar">
-        <Tabs id="expected" className="tabs view-tabs" label="Vista del flujo" value={view} onChange={pickView} tabs={[{ key: 'seq', label: 'Secuencia' }, { key: 'map', label: 'Mapa' }]} />
-        <span className="faint num">{view === 'seq' ? plural(seq.rows.length, 'mensaje esperado', 'mensajes esperados') : arch ? plural(arch.lit.edges.size, 'conexión esperada', 'conexiones esperadas') : ''}</span>
+        <Tabs id="expected" className="tabs view-tabs" label={tr('Vista del flujo')} value={view} onChange={pickView} tabs={[{ key: 'seq', label: tr('Secuencia') }, { key: 'map', label: tr('Mapa') }]} />
+        <span className="faint num">{view === 'seq' ? plural(seq.rows.length, tr('mensaje esperado'), tr('mensajes esperados')) : arch ? plural(arch.lit.edges.size, tr('conexión esperada'), tr('conexiones esperadas')) : ''}</span>
       </div>
       <div role="tabpanel" id="expected-panel" aria-labelledby={`expected-tab-${view}`} className="diagram-panel">
         {view === 'seq' ? <SeqView layout={seq} now={Infinity} sel={-1} onPick={noop} wrap={wrap} still />
-          : !arch ? <p className="empty">Sin mapa: pulsa «Releer el código» en <a className="rowlink" href={href('repos')}>Proyectos</a>.</p>
+          : !arch ? <p className="empty">{tr('Sin mapa: pulsa «Releer el código» en')}{' '}<a className="rowlink" href={href('repos')}>{tr('Proyectos')}</a>.</p>
           : <FlowMap lay={arch.lay} pieces={arch.pieces} lit={arch.lit} expected />}
       </div>
     </section>

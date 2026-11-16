@@ -41,19 +41,15 @@ test('keepEvidence moves only real files of out/: a video path that leaves it, a
   assert.equal(existsSync(join(dir, 'out', 'results', 'a-historia', 's1.png')), true, 'the link was left alone, not moved into the served evidence');
 });
 
-test('keepEvidence keeps the story\'s rrweb recording as replay.json, already masked by maskOutput, and only a real file of out/', () => {
+test('maskOutput masks a JSON file of out/ value by value: a secret JSON escapes is masked all the same', () => {
   const { dir, put } = fixture();
   // a secret JSON escapes: as text in the file it reads Sup3r\"se\\cret, never what the masker looks for
   const masker = { text: (s: string) => s.replaceAll('Sup3r"se\\cret', '«secreto»'), headers: (h: Record<string, string>) => h } as unknown as Parameters<typeof maskOutput>[1];
-  put('out/results/a-historia/replay.json', JSON.stringify([{ type: 2, data: { text: 'Sup3r"se\\cret' } }]));
+  put('out/results/a-historia/data.json', JSON.stringify([{ data: { text: 'Sup3r"se\\cret' } }]));
   maskOutput(join(dir, 'out'), masker);
-  const story = { test: 'historia', replay: '/ks/out/results/a-historia/replay.json', steps: [] } as unknown as Trace;
-  keepEvidence(dir, 'a', [story], story);
-  assert.equal(story.replay, 'replay.json');
-  assert.equal(JSON.stringify(JSON.parse(readFileSync(join(dir, 'flows', 'a', 'replay.json'), 'utf8'))).includes('Sup3r'), false, 'a vault value never reaches the kept recording, escaped or not');
-  const hostile = { test: 'historia', replay: '/ks/out/../../daemon.json', steps: [] } as unknown as Trace;
-  keepEvidence(dir, 'b', [hostile], hostile);
-  assert.equal(hostile.replay, undefined);
+  const kept = readFileSync(join(dir, 'out', 'results', 'a-historia', 'data.json'), 'utf8');
+  assert.equal(kept.includes('Sup3r'), false, 'a vault value never stays in a JSON of out/, escaped or not');
+  assert.equal(JSON.parse(kept)[0].data.text, '«secreto»');
 });
 
 test('dropRawMedia deletes the runner\'s media, never what a linked folder points at', () => {

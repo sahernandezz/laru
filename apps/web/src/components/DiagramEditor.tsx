@@ -10,6 +10,7 @@ import { DIAGRAM_STANDARDS, dialectOf, emptyModel, emptySequence, fromMermaid, i
 import { ask } from '../lib/ask.ts';
 import { Diagram } from '../lib/md.tsx';
 import type { Drawing } from './ExcalidrawCanvas.tsx';
+import { tr } from '../lib/i18n.ts';
 
 // Excalidraw is megabytes: it loads when a canvas is first opened, never with the page
 const ExcalidrawCanvas = lazy(() => import('./ExcalidrawCanvas.tsx'));
@@ -19,12 +20,12 @@ const onCanvas = (k?: DiagramKind) => Boolean(k && (k === 'sequence' || (paintsK
 function drawingOf(code: string, kind: DiagramKind): { drawing?: Drawing; why?: string } {
   if (kind === 'sequence') {
     const r = parseSequence(code.trim() || 'sequenceDiagram');
-    return r.model ? { drawing: { ...(code.trim() ? r.model : emptySequence()), kind: 'sequence' } } : { why: 'la secuencia no se pudo leer' };
+    return r.model ? { drawing: { ...(code.trim() ? r.model : emptySequence()), kind: 'sequence' } } : { why: tr('la secuencia no se pudo leer') };
   }
   if (!code.trim()) return { drawing: emptyModel(kind) };
   const r = fromMermaid(code, kind);
-  if (!r) return { why: 'este texto no es de esta clase' };
-  if (r.unsupported.length) return { why: `el lienzo no sabe representar: ${r.unsupported.slice(0, 3).join('; ')}` };
+  if (!r) return { why: tr('este texto no es de esta clase') };
+  if (r.unsupported.length) return { why: tr('el lienzo no sabe representar: {join}', { join: r.unsupported.slice(0, 3).join('; ') }) };
   return { drawing: r.model };
 }
 const textOf = (d: Drawing) => (d.kind === 'sequence' ? toSequence(d as never) : toMermaid(d as never));
@@ -72,31 +73,31 @@ export function DiagramEditor({ code: initial, kinds, onApply, onClose }: { code
       requestAnimationFrame(() => { t.selectionStart = t.selectionEnd = a + 2; });
     }
   };
-  const close = async () => { if (!changed || await ask('Los cambios de este diagrama no se han aplicado a la pieza.', 'Cerrar y perderlos', 'Hay cambios sin aplicar')) onClose(); };
+  const close = async () => { if (!changed || await ask(tr('Los cambios de este diagrama no se han aplicado a la pieza.'), tr('Cerrar y perderlos'), tr('Hay cambios sin aplicar'))) onClose(); };
 
   return (
-    <div className="dg-editor" role="dialog" aria-modal="true" aria-label="Editor de diagramas" onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); void close(); } }}>
+    <div className="dg-editor" role="dialog" aria-modal="true" aria-label={tr('Editor de diagramas')} onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); void close(); } }}>
       <header className="dg-bar">
-        <b>Editor de diagramas</b>
-        <label className="dg-kind"><span className="faint">Clase</span>
+        <b>{tr('Editor de diagramas')}</b>
+        <label className="dg-kind"><span className="faint">{tr('Clase')}</span>
           <select value={picked ?? ''} onChange={(e) => pick(e.target.value as DiagramKind)}>
-            {suggested.length > 0 && <optgroup label="Sugeridas aquí">{suggested.map((c) => <option key={c.kind} value={c.kind}>{c.label}</option>)}</optgroup>}
-            <optgroup label={suggested.length ? 'Todas las demás' : 'Todas'}>{offered.slice(suggested.length).map((c) => <option key={c.kind} value={c.kind}>{c.label}</option>)}</optgroup>
+            {suggested.length > 0 && <optgroup label={tr('Sugeridas aquí')}>{suggested.map((c) => <option key={c.kind} value={c.kind}>{c.label}</option>)}</optgroup>}
+            <optgroup label={suggested.length ? tr('Todas las demás') : tr('Todas')}>{offered.slice(suggested.length).map((c) => <option key={c.kind} value={c.kind}>{c.label}</option>)}</optgroup>
           </select>
         </label>
         {std && <span className="faint dg-q">{std.question}</span>}
         <span className="grow" />
-        <div className="seg" role="group" aria-label="Cómo se edita">
-          <button type="button" aria-pressed={mode === 'canvas'} disabled={!onCanvas(picked)} title={onCanvas(picked) ? 'Dibujarlo en el lienzo' : 'Esta clase se escribe como texto'} onClick={() => toCanvas()}><Waypoints />Lienzo</button>
-          <button type="button" aria-pressed={mode === 'text'} onClick={() => setMode('text')}><Code2 />Texto</button>
+        <div className="seg" role="group" aria-label={tr('Cómo se edita')}>
+          <button type="button" aria-pressed={mode === 'canvas'} disabled={!onCanvas(picked)} title={onCanvas(picked) ? tr('Dibujarlo en el lienzo') : tr('Esta clase se escribe como texto')} onClick={() => toCanvas()}><Waypoints />{tr('Lienzo')}</button>
+          <button type="button" aria-pressed={mode === 'text'} onClick={() => setMode('text')}><Code2 />{tr('Texto')}</button>
         </div>
-        {std && mode === 'text' && <button type="button" className="btn sm" onClick={async () => { if (!code.trim() || await ask('La plantilla sustituye todo el texto del diagrama.', 'Usar la plantilla', 'Sustituir el texto')) setCode(std.template.trim()); }}><FileText />Plantilla</button>}
-        <button type="button" className="btn sm" onClick={close}><X />Cerrar</button>
-        <button ref={apply} type="button" className="btn sm primary" aria-disabled={!changed || undefined} aria-keyshortcuts="Meta+Enter Control+Enter" onClick={() => changed && onApply(code)}><Check />Aplicar</button>
+        {std && mode === 'text' && <button type="button" className="btn sm" onClick={async () => { if (!code.trim() || await ask(tr('La plantilla sustituye todo el texto del diagrama.'), tr('Usar la plantilla'), tr('Sustituir el texto'))) setCode(std.template.trim()); }}><FileText />{tr('Plantilla')}</button>}
+        <button type="button" className="btn sm" onClick={close}><X />{tr('Cerrar')}</button>
+        <button ref={apply} type="button" className="btn sm primary" aria-disabled={!changed || undefined} aria-keyshortcuts="Meta+Enter Control+Enter" onClick={() => changed && onApply(code)}><Check />{tr('Aplicar')}</button>
       </header>
-      {why && <div className="notice warn dg-why" role="status"><TriangleAlert /><span>No se abre en el lienzo: {why}. Sigue en texto.</span><button type="button" className="btn sm" onClick={() => setWhy(undefined)}>Entendido</button></div>}
+      {why && <div className="notice warn dg-why" role="status"><TriangleAlert /><span>{tr('No se abre en el lienzo:')}{' '}{why}{tr('. Sigue en texto.')}</span><button type="button" className="btn sm" onClick={() => setWhy(undefined)}>{tr('Entendido')}</button></div>}
       {mode === 'canvas' && drawing && picked ? (
-        <Suspense fallback={<div className="dg-loading">Abriendo el lienzo…</div>}>
+        <Suspense fallback={<div className="dg-loading">{tr('Abriendo el lienzo…')}</div>}>
           <ExcalidrawCanvas model={drawing} kind={picked} kinds={offered.filter((c) => onCanvas(c.kind as DiagramKind)).map((c) => ({ value: c.kind, label: c.label }))} onChangeKind={pick}
             issues={issues.map((i) => ({ text: authored.find((c) => c.kind === picked)?.rules.find((r) => r.id === i.rule)?.text ?? i.text, severity: i.severity }))}
             onChange={(d) => { setDrawing(d); setCode(textOf(d)); }} />
@@ -104,24 +105,24 @@ export function DiagramEditor({ code: initial, kinds, onApply, onClose }: { code
       ) : (
       <div className="dg-panes">
         <div className="dg-code">
-          <textarea ref={area} className="mono" value={code} onChange={(e) => setCode(e.target.value)} onKeyDown={keys} spellCheck={false} aria-label="Texto del diagrama" aria-describedby="dg-keys" placeholder="flowchart LR&#10;  a[Inicio] --> b[Fin]" />
-          <p id="dg-keys" className="dg-keys faint"><kbd>Tab</kbd> sangra · <kbd>⇧ Tab</kbd> o <kbd>Esc</kbd> salen del texto · <kbd>⌘ ↵</kbd> aplica</p>
+          <textarea ref={area} className="mono" value={code} onChange={(e) => setCode(e.target.value)} onKeyDown={keys} spellCheck={false} aria-label={tr('Texto del diagrama')} aria-describedby="dg-keys" placeholder={tr('flowchart LR\n  a[Inicio] --> b[Fin]')} />
+          <p id="dg-keys" className="dg-keys faint"><kbd>Tab</kbd>{' '}{tr('sangra ·')}{' '}<kbd>⇧ Tab</kbd>{' '}{tr('o')}{' '}<kbd>Esc</kbd>{' '}{tr('salen del texto ·')}{' '}<kbd>⌘ ↵</kbd>{' '}{tr('aplica')}</p>
         </div>
         <div className="dg-view" aria-live="polite">
-          {drawn.trim() ? <Diagram code={drawn} kind={picked} /> : <p className="empty">Escribe el diagrama a la izquierda, o empieza por la plantilla de su clase.</p>}
+          {drawn.trim() ? <Diagram code={drawn} kind={picked} /> : <p className="empty">{tr('Escribe el diagrama a la izquierda, o empieza por la plantilla de su clase.')}</p>}
         </div>
       </div>
       )}
       {std && (
-        <footer className="dg-rules" aria-label={`Reglas de ${std.label}`}>
+        <footer className="dg-rules" aria-label={tr('Reglas de {label}', { label: std.label })}>
           <span className={`dg-sum ${issues.some((i) => i.severity === 'error') ? 'err' : issues.length ? 'warn' : 'ok'}`}>
             {issues.some((i) => i.severity === 'error') ? <CircleAlert /> : issues.length ? <TriangleAlert /> : <Check />}
-            {issues.length ? `${issues.length} ${issues.length === 1 ? 'regla sin cumplir' : 'reglas sin cumplir'}` : 'Cumple las reglas que se pueden comprobar'}
+            {issues.length ? `${issues.length} ${issues.length === 1 ? tr('regla sin cumplir') : tr('reglas sin cumplir')}` : tr('Cumple las reglas que se pueden comprobar')}
           </span>
           <ul>
             {std.rules.map((r) => {
               const bad = failing.has(r.id);
-              return <li key={r.id} className={bad ? (r.severity === 'error' ? 'err' : 'warn') : r.check ? 'ok' : 'todo'} title={r.check ? undefined : 'Esta regla no se comprueba sola: léela tú'}>{bad ? <X /> : r.check ? <Check /> : <span className="dg-dot">·</span>}{r.text}</li>;
+              return <li key={r.id} className={bad ? (r.severity === 'error' ? 'err' : 'warn') : r.check ? 'ok' : 'todo'} title={r.check ? undefined : tr('Esta regla no se comprueba sola: léela tú')}>{bad ? <X /> : r.check ? <Check /> : <span className="dg-dot">·</span>}{r.text}</li>;
             })}
           </ul>
         </footer>

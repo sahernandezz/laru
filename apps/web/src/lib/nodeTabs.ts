@@ -4,6 +4,7 @@
  */
 import type { FlowInfo, Indexed, KnowledgeData, MapNode } from '../api.ts';
 import { eventsOf } from './contracts.ts';
+import { tr } from './i18n.ts';
 
 export type NodeTab = 'endpoints' | 'events' | 'contract' | 'content' | 'links' | 'data' | 'vars' | 'libs' | 'tests' | 'flows' | 'docs';
 
@@ -29,14 +30,14 @@ export function nodeParts(g: Indexed, node: MapNode, k?: KnowledgeData, flows?: 
   const mine = flows ? through(flows, node.id) : [];
   const tabs: Array<{ key: NodeTab; label: string; n?: number }> = [
     ...(svc ? [{ key: 'endpoints' as const, label: 'Endpoints', n: endpoints.length }] : []),
-    ...(svc && events.size ? [{ key: 'events' as const, label: 'Eventos', n: events.size }] : []),
-    ...(node.type === 'external' ? [{ key: 'contract' as const, label: 'Contrato' }] : []),
-    ...(node.type === 'datastore' ? [{ key: 'content' as const, label: 'Contenido', n: held.length }] : []),
-    { key: 'links', label: 'Conexiones', n: links.length },
-    ...(svc ? [{ key: 'data' as const, label: 'Datos', n: tables.size }, { key: 'vars' as const, label: 'Variables', n: vars.length }, { key: 'libs' as const, label: 'Librerías', n: libs.length }] : []),
-    ...(svc ? [{ key: 'tests' as const, label: 'Pruebas', n: Object.values(tests).reduce((a, b) => a + b, 0) }] : []),
-    { key: 'flows', label: 'Flujos', n: flows ? mine.length : undefined },
-    { key: 'docs', label: 'Documentación' },
+    ...(svc && events.size ? [{ key: 'events' as const, label: tr('Eventos'), n: events.size }] : []),
+    ...(node.type === 'external' ? [{ key: 'contract' as const, label: tr('Contrato') }] : []),
+    ...(node.type === 'datastore' ? [{ key: 'content' as const, label: tr('Contenido'), n: held.length }] : []),
+    { key: 'links', label: tr('Conexiones'), n: links.length },
+    ...(svc ? [{ key: 'data' as const, label: tr('Datos'), n: tables.size }, { key: 'vars' as const, label: tr('Variables'), n: vars.length }, { key: 'libs' as const, label: tr('Librerías'), n: libs.length }] : []),
+    ...(svc ? [{ key: 'tests' as const, label: tr('Pruebas'), n: Object.values(tests).reduce((a, b) => a + b, 0) }] : []),
+    { key: 'flows', label: tr('Flujos'), n: flows ? mine.length : undefined },
+    { key: 'docs', label: tr('Documentación') },
   ];
   // a service with no HTTP endpoints (a consumer) opens on its events
   const first: NodeTab = svc ? (out.some((f) => f.p === 'exposes') || !out.some((f) => f.p === 'publishes' || f.p === 'consumes') ? 'endpoints' : 'events') : node.type === 'datastore' ? 'content' : 'contract';

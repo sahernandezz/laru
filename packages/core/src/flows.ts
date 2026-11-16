@@ -4,6 +4,7 @@
  * renamed in flow.md and not in the spec is drift) and the spec inside Laru's e2e standard (`guide:flujos-e2e`):
  * the story is what a person does on screen, the API only prepares what another flow proves there.
  */
+import { parseScreen } from './limit.ts';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join, posix } from 'node:path';
 import type { Row } from './knowledge/piece.ts';
@@ -525,7 +526,7 @@ function moduleDoes(from: string, read: Read, memo: Map<string, Does | null>): D
   return does;
 }
 
-export type FlowCheckKey = 'flow-spec-missing' | 'flow-steps-drift' | 'flow-e2e-case' | 'flow-e2e-api' | 'flow-e2e-invisible' | 'flow-e2e-wait' | 'flow-e2e-prepare' | 'flow-e2e-validation' | 'flow-e2e-fake' | 'flow-e2e-hidden' | 'flow-e2e-todo' | 'flow-message-unchecked';
+export type FlowCheckKey = 'flow-spec-missing' | 'flow-steps-drift' | 'flow-e2e-case' | 'flow-e2e-api' | 'flow-e2e-invisible' | 'flow-e2e-wait' | 'flow-e2e-prepare' | 'flow-e2e-validation' | 'flow-e2e-fake' | 'flow-e2e-hidden' | 'flow-e2e-todo' | 'flow-message-unchecked' | 'flow-e2e-screen' | 'flow-e2e-navigation';
 export interface FlowCheck { id: string; spec: string; line?: number; level: 'error' | 'warning'; key: FlowCheckKey; message: string }
 const UNDER_WHAT = 'the API, fetch, a request context, or a session the script sets';
 
@@ -537,7 +538,7 @@ const UNDER_WHAT = 'the API, fetch, a request context, or a session the script s
  * does, its own imports followed: what the person sees or gets, a check, something underneath, a fake, a failure it
  * swallows, the forms it fills.
  */
-export function lintSpec(src: string, p: Pick<Loaded, 'id' | 'fields'>, proves: (id: string, data: string) => boolean, read: Read = () => undefined, validates: (id: string) => Set<string> | undefined = () => undefined): Array<{ line: number; key: FlowCheckKey; message: string }> {
+export function lintSpec(src: string, p: Pick<Loaded, 'id' | 'fields'> & { meta?: Loaded['meta'] }, proves: (id: string, data: string) => boolean, read: Read = () => undefined, validates: (id: string) => Set<string> | undefined = () => undefined): Array<{ line: number; key: FlowCheckKey; message: string }> {
   const out: Array<{ line: number; key: FlowCheckKey; message: string }> = [];
   const lineAt = (at: number) => src.slice(0, at).split('\n').length;
   const add = (at: number, key: FlowCheckKey, message: string) => out.push({ line: lineAt(at), key, message });
@@ -604,6 +605,34 @@ export function lintSpec(src: string, p: Pick<Loaded, 'id' | 'fields'>, proves: 
     if (!row) add(r.at, 'flow-e2e-prepare', `prepare('${r.title}') is not a row of Precondiciones: declare it there`);
     else if (hit(code, r, under) >= 0 && !(row.proven && row.proven !== p.id && proves(String(row.proven), String(row.data)))) add(r.at, 'flow-e2e-prepare', `prepare('${r.title}') acts underneath and no other flow walks that path on screen: name in «Probado en» a flow that makes it through the interface (not underneath itself, and relying only on flows that do the same), or make it through the interface`);
   }
+  // The screens: each at its kind's size, so its video is whole and the screens of one kind look alike, in the studio and in the exported video.
+  const flowScreen = parseScreen(p.meta?.screen) ?? { width: 1280, height: 720 };
+  for (const i of positions(code, /\.\s*setViewportSize\s*\(/g)) add(i, 'flow-e2e-screen', `setViewportSize() changes the window mid-flow while its video keeps the first size: what no longer fits is recorded as gray bands, in the studio and in the exported video. The story's window is \`screen\` in flow.md (${flowScreen.width}x${flowScreen.height} now); another screen's, its kind: otherScreen(name, 'phone')`);
+  for (const i of positions(code, /(?<![\w$.])(?:browser|chromium|firefox|webkit)\s*\.\s*(?:newContext|newPage|launch|launchPersistentContext)\s*\(/g)) add(i, 'flow-e2e-screen', "a browser of the spec's own is not a screen of the flow: Playwright records it at its default size, scaled down between gray bands, Laru does not put it on the clock nor in the exported video, and the tap cannot tell whose its requests are. Open it with otherScreen('<name>') (a pc like the story's), 'phone' or 'tablet'");
+  for (const m of src.matchAll(/(?<![\w$.])otherScreen\s*\(\s*(['"`])([\w-]+)\1\s*,\s*([^)]*)\)/g)) {
+    if (code[m.index] === ' ') continue; // in a comment or a string
+    const arg = m[3].trim(), kind = /^(['"`])(\w+)\1$/.exec(arg)?.[2];
+    if (kind && !['pc', 'phone', 'tablet'].includes(kind)) { add(m.index, 'flow-e2e-screen', `otherScreen('${m[2]}', '${kind}'): a screen is 'pc' (the flow's size, the default), 'phone' or 'tablet'`); continue; }
+    const w = Number(/width\s*:\s*(\d+)/.exec(arg)?.[1]), h = Number(/height\s*:\s*(\d+)/.exec(arg)?.[1]);
+    // a pc (wider than tall) of another size than the story's is drawn smaller or larger beside it; a phone or a tablet goes by its kind
+    if (w && h && w >= h && (w !== flowScreen.width || h !== flowScreen.height)) add(m.index, 'flow-e2e-screen', `otherScreen('${m[2]}', ${w}x${h}) is a pc of another size than the story's ${flowScreen.width}x${flowScreen.height}: beside it, it is shown and exported smaller (or larger) and the two do not look alike. A pc takes the flow's size: otherScreen('${m[2]}')`);
+    else if (w && h && w < h) add(m.index, 'flow-e2e-screen', `otherScreen('${m[2]}', ${w}x${h}) is a phone or a tablet by its shape: say which, otherScreen('${m[2]}', 'phone') or 'tablet', so it takes that device's size like every other`);
+  }
+  // The navigation: a person opens the app once, by its address (the start or the sign-in page), and from there goes where
+  // the front takes them (a menu, a link, a button); typing a deep route mid-story, or reloading, shows nothing a person does.
+  const entered = new Set<string>();
+  for (const m of code.matchAll(/([\w$]+)\s*\.\s*goto\s*\(\s*(['"`])?/g)) {
+    // a route written in the spec ('/admin', `/files/${id}`, the base URL); a link the app gave (an email's, a page's) is
+    // what a person follows, and goes
+    const literal = Boolean(m[2]) && /^['"`](?:\/|https?:|\$\{\s*baseURL)/.test(src.slice(m.index + m[0].length - 1, m.index + m[0].length + 12));
+    if (!literal) continue;
+    if (!entered.has(m[1])) { entered.add(m[1]); continue; }
+    add(m.index, 'flow-e2e-navigation', `${m[1]}.goto() of a route again: a person opens the app once by its address and then gets around the way the front takes them. Reach this page through the interface (the menu, the link or the button a person would use), not by its route; a link the app gives (an email's) is followed with goto, that is fine. If no part of the front leads there, that is worth a step of its own and a word in the flow`);
+  }
+  // reloading is what a step about it does («Recargar y ver que se mantiene»); anywhere else the front shows the change
+  const reloading = steps.filter((st) => /recarg|refresc|actualiza la p[aá]gina|reload|refresh|F5/i.test(st.title));
+  for (const i of positions(code, /\.\s*reload\s*\(/g)) if (!reloading.some((st) => i > st.at && i < st.end)) add(i, 'flow-e2e-navigation', 'reload() outside a step about reloading: a person does not reload to see a change, the front shows it (or the step waits for what appears). Wait for what the person sees instead; to prove a change is kept, give that its own step («Recargar y ver que se mantiene»). If the app needs a reload to show it, that is a deviation: expect.soft on what it should show, with its // app: comment');
+  for (const i of positions(code, /\blocation\s*(?:\.\s*(?:href\s*=(?!=)|assign\s*\(|replace\s*\())|\blocation\s*=(?!=)/g)) add(i, 'flow-e2e-navigation', 'setting location moves the page by its address from inside the script: a person gets there through the interface (the menu, the link, the button)');
   for (const t of apart) add(t.at, 'flow-e2e-case', `${t.kind}('${t.title}') is a short case beside the story, and a flow is one recorded story: make it a step() of the story, with its row in Pasos (Tipo validation when it validates a form)`);
   // Each form the story fills has its validation steps: one it fills itself, here; one it fills through an imported
   // helper, a validation step that tests that same form (`validatedForms`), here or in a flow «Validaciones en» names.

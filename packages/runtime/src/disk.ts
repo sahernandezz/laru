@@ -67,9 +67,11 @@ const rawMedia = (run: string): Array<{ path: string; bytes: number }> => {
 /** A run as retention sees it: its folder's size, the runner's raw media in out/ and the served media in flows/. */
 export interface RunRow {
   id: string; env: string; status: string; startedAt: string; flows: number; running: boolean; bytes: number;
+  /** the flows the run played (run.json's `flows`) */
+  slugs: string[];
   /** out/results/**.webm|png, relative to the run's folder: the runner's own copies, never served */
   raw: Array<{ path: string; bytes: number }>;
-  /** flows/<slug>/video.webm, replay.json|mp4 and s<n>.png: the evidence's video, its rrweb recording and screenshots */
+  /** flows/<slug>/video.webm and s<n>.png: the evidence's video and screenshots */
   media: Array<{ path: string; bytes: number }>;
   results: Record<string, { status: string; cachedFrom?: string }>;
   pruned?: { at: string; what: string };
@@ -84,8 +86,8 @@ export function runRows(ws: Pick<Workspace, 'root'>): RunRow[] {
     let r;
     try { r = JSON.parse(readFileSync(f, 'utf8')); } catch { return []; }
     return [{
-      id, env: r.env, status: r.status, startedAt: r.startedAt, flows: (r.flows ?? []).length, running: r.status === 'running' && alive(r.pid), bytes: dirBytes(join(dir, id)),
-      raw: rawMedia(join(dir, id)), media: files(join(dir, id), 'flows', /^(video\.webm|replay\.(json|mp4)|s\d+\.png|trace(-\d+)?\.zip)$/),
+      id, env: r.env, status: r.status, startedAt: r.startedAt, flows: (r.flows ?? []).length, slugs: r.flows ?? [], running: r.status === 'running' && alive(r.pid), bytes: dirBytes(join(dir, id)),
+      raw: rawMedia(join(dir, id)), media: files(join(dir, id), 'flows', /^(video\.webm|s\d+\.png|trace(-\d+)?\.zip)$/),
       results: r.results ?? {}, ...(r.pruned ? { pruned: r.pruned } : {}),
     }];
   });
@@ -94,20 +96,38 @@ export function runRows(ws: Pick<Workspace, 'root'>): RunRow[] {
 export interface PruneAction { run: string; what: 'raw' | 'media' | 'run'; bytes: number; paths: string[] }
 
 /**
+ * What retention keeps of a workspace's runs, and why. Per flow: its last passed (or cached) run, its pivot, which is
+ * never removed; and its last `keepRuns` runs. Older runs of a flow go. A run counts for every flow it played; one that
+ * names none (it failed before any) counts with the others that name none.
+ */
+export function retained(runs: Array<{ id: string; flows: string[] }>, index: Array<{ run: string; flow: string; status: string }>, keepRuns: number): { pivot: Map<string, string[]>; recent: Map<string, string[]> } {
+  const flowsOf = new Map(runs.map((r) => [r.id, new Set(r.flows)]));
+  for (const x of index) flowsOf.get(x.run)?.add(x.flow);
+  const byFlow = new Map<string, string[]>();
+  for (const r of [...runs].sort((a, b) => Number(a.id) - Number(b.id))) for (const f of flowsOf.get(r.id)!.size ? flowsOf.get(r.id)! : ['']) byFlow.set(f, [...(byFlow.get(f) ?? []), r.id]);
+  const add = (m: Map<string, string[]>, run: string, flow: string) => { if (flow) m.set(run, [...(m.get(run) ?? []), flow]); else if (!m.has(run)) m.set(run, []); };
+  const recent = new Map<string, string[]>(), pivot = new Map<string, string[]>();
+  for (const [flow, ids] of byFlow) for (const id of ids.slice(Math.max(0, ids.length - keepRuns))) add(recent, id, flow);
+  const lastPass = new Map<string, string>();
+  for (const x of index) if ((x.status === 'passed' || x.status === 'cached') && flowsOf.has(x.run)) lastPass.set(x.flow, x.run);
+  for (const [flow, id] of lastPass) add(pivot, id, flow);
+  return { pivot, recent };
+}
+
+/**
  * What retention removes, in order: the runner's raw media of finished runs; the video and screenshots of runs older
- * than `videoDays`; runs older than `runDays`; the oldest runs while the rest weighs more than `maxGB`. Kept whole: per
- * flow its last passed (or cached) and last failed run, every run a surviving result's `cachedFrom` points at, and
- * running runs. Pure: the same rows give the same plan, so a dry run lists exactly what an execution removes.
+ * than `videoDays`; every run that is no longer among the last `keepRuns` of any of its flows; the oldest of the rest
+ * while they weigh more than `maxGB`. Never touched: each flow's last passed (or cached) run, whole with its video (its
+ * pivot), every run a surviving result's `cachedFrom` points at, and running runs. Pure: the same rows give the same
+ * plan, so a dry run lists exactly what an execution removes.
  */
 export function planPrune(rows: RunRow[], index: Array<{ run: string; flow: string; status: string }>, policy: Retention, now: number): PruneAction[] {
-  const keep = new Set<string>(rows.filter((r) => r.running).map((r) => r.id));
-  const lastPass = new Map<string, string>(), lastFail = new Map<string, string>();
-  for (const x of index) { if (x.status === 'passed' || x.status === 'cached') lastPass.set(x.flow, x.run); else if (x.status === 'failed') lastFail.set(x.flow, x.run); }
-  for (const id of [...lastPass.values(), ...lastFail.values()]) keep.add(id);
+  const { pivot, recent } = retained(rows.map((r) => ({ id: r.id, flows: r.slugs })), index, policy.keepRuns);
+  const keep = new Set<string>([...rows.filter((r) => r.running).map((r) => r.id), ...pivot.keys()]);
   const days = (r: RunRow) => (now - Date.parse(r.startedAt)) / 86_400_000;
   const decide = () => {
     const media = new Set(rows.filter((r) => !keep.has(r.id) && !r.running && r.media.length && days(r) > policy.videoDays).map((r) => r.id));
-    const gone = new Set(rows.filter((r) => !keep.has(r.id) && !r.running && days(r) > policy.runDays).map((r) => r.id));
+    const gone = new Set(rows.filter((r) => !keep.has(r.id) && !r.running && !recent.has(r.id)).map((r) => r.id));
     const left = (r: RunRow) => r.bytes - sum(r.raw) - (media.has(r.id) ? sum(r.media) : 0);
     let total = rows.filter((r) => !gone.has(r.id)).reduce((n, r) => n + left(r), 0);
     for (const r of [...rows].sort((x, y) => x.startedAt.localeCompare(y.startedAt))) {
@@ -167,7 +187,7 @@ function forgetMedia(dir: string): void {
     try { v = JSON.parse(readFileSync(f, 'utf8')); } catch { return; }
     writeFileSync(f, change(v));
   };
-  const bare = ({ video: _v, pwTrace: _p, replay: _r, ...t }: any) => ({ ...t, ...(Array.isArray(t.steps) ? { steps: t.steps.map(({ screenshot: _s, ...st }: any) => st) } : {}) });
+  const bare = ({ video: _v, pwTrace: _p, ...t }: any) => ({ ...t, ...(Array.isArray(t.steps) ? { steps: t.steps.map(({ screenshot: _s, ...st }: any) => st) } : {}) });
   const flows = join(dir, 'flows');
   for (const slug of existsSync(flows) ? readdirSync(flows) : []) {
     rewrite(join(flows, slug, 'trace.json'), (t) => JSON.stringify(bare(t)));
@@ -176,6 +196,15 @@ function forgetMedia(dir: string): void {
   rewrite(join(dir, 'run.json'), (r) => JSON.stringify({
     ...r, results: Object.fromEntries(Object.entries(r.results ?? {}).map(([k, { video: _v, ...x }]: [string, any]) => [k, x])), pruned: { at: new Date().toISOString(), what: 'media' },
   }, null, 2));
+}
+
+/** What retention keeps of this workspace's runs now, and why (see `retained`): read from each run.json and the index. */
+export function retainedOf(ws: Pick<Workspace, 'root'>, keepRuns: number) {
+  const dir = runsOf(ws);
+  const runs = existsSync(dir) ? readdirSync(dir).filter((d) => /^\d+$/.test(d)).flatMap((id) => {
+    try { return [{ id, flows: (JSON.parse(readFileSync(join(dir, id, 'run.json'), 'utf8')).flows ?? []) as string[] }]; } catch { return []; }
+  }) : [];
+  return retained(runs, indexOf(ws), keepRuns);
 }
 
 const indexOf = (ws: Pick<Workspace, 'root'>) => {

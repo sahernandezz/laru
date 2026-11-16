@@ -1249,13 +1249,6 @@ export function kindsOfLayer(layer: Layer): DiagramKind[] {
 export const DERIVED_KINDS: DiagramKind[] = DIAGRAM_KINDS.filter((k) => DIAGRAM_STANDARDS[k].origin === 'derived');
 
 /** The Mermaid dialect of a block, read from its first line with content. */
-export function detectDialect(code: string): string {
-  // Mermaid accepts a frontmatter of its own (`---\ntitle: …\n---`) before the dialect.
-  const withoutFrontmatter = /^\s*---\n[\s\S]*?\n---\n/.test(code) ? code.replace(/^\s*---\n[\s\S]*?\n---\n/, '') : code;
-  const first = withoutFrontmatter.split('\n').map((l) => l.trim()).find((l) => l && !l.startsWith('%%')) ?? '';
-  const m = /^(C4Context|C4Container|C4Component|C4Dynamic|C4Deployment|classDiagram|erDiagram|sequenceDiagram|stateDiagram-v2|stateDiagram|gitGraph|flowchart|graph|architecture-beta|mindmap|timeline|journey|pie|quadrantChart|gantt|requirementDiagram|sankey-beta|xychart-beta|block-beta)\b/.exec(first);
-  return m?.[1] ?? 'unknown';
-}
 
 /** The class of diagram a dialect corresponds to, when it is unambiguous. */
 export function kindOfDialect(dialect: string): DiagramKind | undefined {

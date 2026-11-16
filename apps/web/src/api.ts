@@ -1,10 +1,11 @@
 /** The local service's API. Types come from the core and the runtime as type-only imports: one definition, never a copy. */
-import { useCallback, useEffect, useReducer } from 'react';
+import { useCallback, useEffect, useReducer, useSyncExternalStore } from 'react';
 import { toast } from './components/ui.tsx';
-import { apiUrlFor, wsOf } from './lib/route.ts';
+import { apiUrlFor, queryOf, wsOf } from './lib/route.ts';
 import type { Impact, TopicContract, LiveData, OwedItem, SheetNote, DocNote, ConventionResult, Fact, FileIssue, Finding, FindingType, Freshness, Issue, knowledgeShape, Loaded, MapNode, PieceType, RepoConfig, RepoStatus, StageCoverage, SystemMap, WriteInput, WriteResult } from '@laru/core';
 import type { Mounted, Fidelity, Applied, Scenario, ScenarioState, Shown, Address, Admission, Browse, Column, Connection, DestroyReport, DiskReport, EnvEvent, EnvSpec, PruneReport, EnvStatus, FaultRule, Filter, FlowSpec, kafka, Level, MockContract, MockOperation, MockSpec, mongo, rabbit, redis, RowUpdate, ServiceStatus, storage, Store, Table, TapRoute, TapRules, TrafficRecord, VarIssue, VarRow, WorkspacesDisk } from '@laru/runtime';
 import type { Exchange, FlowLast, KafkaLine, LogLine, RunInfo, RunnerEvent, Sample, Seen, SeenEndpoint, SeenTopic, Step, Trace } from '@laru/trace';
+import { tr } from './lib/i18n.ts';
 type S3Entry = storage.S3Entry;
 
 export type { Impact, TopicContract, Fact, Finding, FindingType, Issue, MapNode, PieceType, RepoStatus, StageCoverage, SystemMap, WriteInput, WriteResult };
@@ -49,7 +50,7 @@ export interface EnvShape { projects?: string[]; join?: string[]; share?: Record
 export type EnvSummary = EnvStatus & EnvShape & { op: EnvOp | null };
 export type EnvDetail = EnvSummary & { spec: EnvSpec | null; specError: string | null; dir: string };
 /** A run with where it lives on this machine and how much it weighs. */
-export type RunDetail = RunInfo & { dir: string; bytes: number; projects?: string[]; retention?: { policy: { videoDays: number; runDays: number; maxGB: number }; keptFor?: { flow: string; status: string } } };
+export type RunDetail = RunInfo & { dir: string; bytes: number; projects?: string[]; retention?: { policy: { videoDays: number; keepRuns: number; maxGB: number }; keptFor?: { why: 'pivot' | 'recent'; flows: string[] } } };
 export interface VarsData { env: string; read: boolean; rows: VarRow[]; issues: VarIssue[] }
 export interface Check { name: string; ok: boolean; note: string }
 export interface FlowEnvData { instance: string; exists: boolean; base?: string; services: string[]; status?: EnvStatus; op: (EnvOp & { admission?: { kind: 'maxEnvs' | 'memory'; max?: number; needBytes?: number; totalBytes?: number; foreignBytes?: number; offer?: { app: string; env: string; memBytes: number }; others: Array<{ app: string; env: string; memBytes?: number }> } }) | null }
@@ -81,8 +82,21 @@ export interface SheetData { name: string; rows: string[][]; truncated: boolean;
 
 /** The workspace this page serves (`/w/<id>/`); none on the home page. */
 export const WS = wsOf(location.pathname);
+/**
+ * A data screen on a run's recording (`#/data/local?run=21&flujo=x`): what it reads is the run's, never the env's.
+ * Every read of those screens carries the run, so the service answers it from the recording (and refuses any change).
+ */
+const DATA = /^\/api\/(db|mongo|redis|custom|brokers|queues?|rabbit|sqs|storage|mail|vars|mocks)(\/|\?|$)/;
+export const recordedRun = (hash = location.hash): string | null => { const r = queryOf(hash).get('run'); return r && /^\d+$/.test(r) ? r : null; };
+export const withRun = (p: string, run = recordedRun()) => (!run || !DATA.test(p) || /[?&]run=/.test(p) ? p : `${p}${p.includes('?') ? '&' : '?'}run=${run}`);
+const onHash = (f: () => void) => { addEventListener('hashchange', f); return () => removeEventListener('hashchange', f); };
+/** The run whose recording the screen shows, or null when it shows the env live; follows the address. */
+export const useRecorded = () => useSyncExternalStore(onHash, () => recordedRun());
+/** The flow a recording is of (`flujo=`), for the menu and the band. */
+export const recordedFlow = (hash = location.hash) => queryOf(hash).get('flujo');
+
 /** Every per-workspace URL goes through here: fetches, event streams, video and file links. */
-export const apiUrl = (p: string) => apiUrlFor(WS, p);
+export const apiUrl = (p: string) => apiUrlFor(WS, withRun(p));
 
 /** `workspace`: the id the service no longer knows (404). */
 export class ApiError extends Error {
@@ -94,18 +108,29 @@ export class ApiError extends Error {
 /** GETs on their way: views that ask for the same thing at once (a page has several that read /api/envs) share one. */
 const inflight = new Map<string, Promise<unknown>>();
 
-export function api<T>(path: string, init?: { method?: 'GET' | 'POST'; body?: unknown }): Promise<T> {
+export function api<T>(asked: string, init?: { method?: 'GET' | 'POST'; body?: unknown }): Promise<T> {
+  const path = withRun(asked);
   if (init?.method === 'POST') return request<T>(path, init);
   const p = inflight.get(path) ?? request<T>(path).finally(() => inflight.delete(path));
   inflight.set(path, p);
   return p as Promise<T>;
 }
 
+/**
+ * What each GET last answered, with its tag: asked again, the service answers 304 when nothing changed and the page
+ * keeps this very object, neither downloaded nor parsed again (a big workspace's documentation is megabytes).
+ */
+const tagged = new Map<string, { tag: string; body: unknown }>();
+
 async function request<T>(path: string, init?: { method?: 'GET' | 'POST'; body?: unknown }): Promise<T> {
-  const post = init?.method === 'POST';
-  const res = await fetch(apiUrl(path), { method: init?.method ?? 'GET', headers: post ? { 'content-type': 'application/json' } : undefined, body: post ? JSON.stringify(init?.body ?? {}) : undefined });
+  const post = init?.method === 'POST', had = post ? undefined : tagged.get(path);
+  const headers: Record<string, string> = { ...(post ? { 'content-type': 'application/json' } : {}), ...(had ? { 'if-none-match': had.tag } : {}) };
+  const res = await fetch(apiUrl(path), { method: init?.method ?? 'GET', headers, body: post ? JSON.stringify(init?.body ?? {}) : undefined, cache: 'no-store' });
+  if (res.status === 304 && had) return had.body as T;
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new ApiError((body as { error?: string }).error ?? `${res.status}`, res.status, (body as { workspace?: string }).workspace);
+  const tag = res.headers.get('etag');
+  if (!post && tag) tagged.set(path, { tag, body });
   return body as T;
 }
 
@@ -115,7 +140,7 @@ async function request<T>(path: string, init?: { method?: 'GET' | 'POST'; body?:
  * A refresh keeps the data on screen while it runs and when it fails (a toast says so, once); a path never shows another
  * path's data (another env's, another run's).
  */
-type Entry = { data?: unknown; error?: ApiError; busy?: boolean; again?: boolean; subs: Set<() => void> };
+type Entry = { data?: unknown; error?: ApiError; busy?: boolean; again?: boolean; at?: number; subs: Set<() => void> };
 const known = new Map<string, Entry>();
 const entryOf = (path: string) => known.get(path) ?? known.set(path, { subs: new Set() }).get(path)!;
 function refresh(path: string): void {
@@ -124,23 +149,29 @@ function refresh(path: string): void {
   if (e.busy) { e.again = true; return; }
   e.busy = true;
   const done = () => { e.busy = false; e.subs.forEach((f) => f()); if (e.again) { e.again = false; refresh(path); } };
-  api(path).then((data) => { e.data = data; e.error = undefined; done(); }, (err: ApiError) => {
-    if (e.data !== undefined) toast(`No se pudo actualizar: ${err.message}`); else e.error = err;
+  api(path).then((data) => { e.data = data; e.error = undefined; e.at = Date.now(); done(); }, (err: ApiError) => {
+    if (e.data !== undefined) toast(tr('No se pudo actualizar: {message}', { message: err.message })); else e.error = err;
     done();
   });
 }
+
+const FRESH_MS = 2000;
 
 /**
  * A GET that loads on mount and can be reloaded; it comes back again when the service answers after a break or the
  * workspace changed from outside (`laru:back`, `laru:changed`).
  */
-export function useApi<T>(path: string | null) {
+export function useApi<T>(asked: string | null) {
   const [, rerender] = useReducer((n: number) => n + 1, 0);
+  // the same screen on a recording and live are two answers, never one cached for the other
+  const run = useRecorded(), path = asked && withRun(asked, run);
   useEffect(() => {
     if (!path) return;
     const e = entryOf(path), load = () => refresh(path);
     e.subs.add(rerender);
-    load();
+    // what arrived a moment ago (another view of the same screen asked for it) is not asked for again on mounting;
+    // a change on disk still reaches it (laru:changed), and so does the next screen
+    if (!(e.data !== undefined && Date.now() - (e.at ?? 0) < FRESH_MS)) load();
     for (const ev of ['laru:back', 'laru:changed']) addEventListener(ev, load);
     return () => { e.subs.delete(rerender); for (const ev of ['laru:back', 'laru:changed']) removeEventListener(ev, load); };
   }, [path]);

@@ -6,6 +6,8 @@
 import type { Exchange, LogLine, Participant, ParticipantType, Step, Trace } from '@laru/trace';
 import { actorOf, isConsume, isStream, type Act, type Chain } from '@laru/trace/chain';
 import { shortId } from '@laru/trace/summarize';
+import { tr } from './i18n.ts';
+import { participantName } from './es.ts';
 
 export const LANE_W = 128, HEAD_H = 52, ROW_H = 28, BAND_H = 26, PAD = 16;
 /** how long an instant row (a SQL statement, an event, a response) stays highlighted */
@@ -53,7 +55,7 @@ const rank = (p: Participant) => {
     case 'external': return 8;
   }
 };
-const SUB: Record<ParticipantType, string> = { browser: 'navegador', runner: 'prueba', host: 'tu máquina', service: 'servicio', tap: 'interceptor', datastore: 'almacén', external: 'externo' };
+const SUB: Record<ParticipantType, string> = { browser: tr('navegador'), runner: tr('prueba'), host: tr('tu máquina'), service: tr('servicio'), tap: tr('interceptor'), datastore: tr('almacén'), external: tr('externo') };
 
 /**
  * Browser, runner, host; services with the front first and the gateway next; then stores, then externals.
@@ -82,7 +84,7 @@ export function layoutSeq(trace: Pick<Trace, 'participants' | 'steps' | 'exchang
   const known = new Set(trace.participants.map((p) => p.id));
   const extra = [...new Set(trace.exchanges.flatMap((e) => [e.from, e.to]))].filter((id) => !known.has(id)).map((id): Participant => ({ id, name: id, type: 'service' }));
   const lanes: Lane[] = laneOrder([...trace.participants, ...extra], trace.exchanges).map((p, i) => ({
-    id: p.id, name: p.name, type: p.type, sub: p.where === 'host' ? 'en tu máquina' : p.kind || SUB[p.type], x: PAD + i * LANE_W + LANE_W / 2, ...(p.project ? { project: p.project } : {}),
+    id: p.id, name: participantName(p), type: p.type, sub: p.where === 'host' ? tr('en tu máquina') : p.kind || SUB[p.type], x: PAD + i * LANE_W + LANE_W / 2, ...(p.project ? { project: p.project } : {}),
   }));
   // One header per run of lanes of the same project, drawn only when the trace has more than one.
   const projects: ProjectBand[] = [];
@@ -105,7 +107,7 @@ export function layoutSeq(trace: Pick<Trace, 'participants' | 'steps' | 'exchang
     const replies = (ex.kind === 'http' || ex.kind === 'ws') && !ex.asset && ex.t1 !== undefined;
     const base = { ex, async, derived, x1: x.get(a)!, x2: x.get(b)! };
     push({ ...base, type: 'row', t: ex.t0, label: ex.label, reply: false, bad: !ex.ok && !replies, fault: ex.fault });
-    if (replies) push({ ...base, type: 'row', t: ex.t1!, x1: base.x2, x2: base.x1, label: ex.status ? String(ex.status) : ex.error ?? 'sin respuesta', reply: true, bad: !ex.ok });
+    if (replies) push({ ...base, type: 'row', t: ex.t1!, x1: base.x2, x2: base.x1, label: ex.status ? String(ex.status) : ex.error ?? tr('sin respuesta'), reply: true, bad: !ex.ok });
   }
   drafts.sort((p, q) => p.t - q.t || p.seq - q.seq);
 
@@ -145,9 +147,9 @@ export function expectedTrace(flow: { steps: Array<Record<string, string>> }): P
   // An actor named like a service (antivirus-service) is that service's lane.
   const actorOf = (name: string) => [...lane.values()].find((p) => p.name === name)?.id ?? `actor:${name}`;
   for (const s of flow.steps) if (s.actor && !lane.has(actorOf(s.actor))) lane.set(actorOf(s.actor), { id: actorOf(s.actor), name: s.actor, type: 'browser', kind: 'actor' });
-  const steps: Step[] = flow.steps.map((s, i) => ({ n: i + 1, title: s.step ?? `Paso ${i + 1}`, t0: i * 1000, t1: (i + 1) * 1000, status: 'todo', expected: s.expected }));
+  const steps: Step[] = flow.steps.map((s, i) => ({ n: i + 1, title: s.step ?? tr('Paso {p0}', { p0: i + 1 }), t0: i * 1000, t1: (i + 1) * 1000, status: 'todo', expected: s.expected }));
   const exchanges: Exchange[] = flow.steps.flatMap((s, i): Exchange[] => (s.service ? [{
-    id: `expected:${i + 1}`, kind: 'http', from: s.actor ? actorOf(s.actor) : s.service, to: s.service, t0: i * 1000 + 1, step: i + 1, label: s.expected ? `Se espera: ${s.expected}` : 'Se espera', ok: true, origin: 'derived',
+    id: `expected:${i + 1}`, kind: 'http', from: s.actor ? actorOf(s.actor) : s.service, to: s.service, t0: i * 1000 + 1, step: i + 1, label: s.expected ? tr('Se espera: {expected}', { expected: s.expected }) : tr('Se espera'), ok: true, origin: 'derived',
   }] : []));
   return { participants: [...lane.values()], steps, exchanges, durationMs: flow.steps.length * 1000 };
 }
@@ -248,7 +250,7 @@ export function curl(ex: Exchange): string | null {
   const parts = [`curl -X ${ex.method} ${sh(`http://${ex.to}${ex.path ?? '/'}${ex.query ? `?${ex.query}` : ''}`)}`];
   for (const [k, v] of Object.entries(ex.reqHeaders ?? {})) if (!skip.has(k.toLowerCase())) parts.push(`-H ${sh(`${k}: ${v}`)}`);
   if (ex.req?.text) parts.push(`--data-raw ${sh(ex.req.text)}`);
-  else if (ex.req?.note) parts.push(`# cuerpo no capturado: ${ex.req.note}`);
+  else if (ex.req?.note) parts.push(tr('# cuerpo no capturado: {note}', { note: ex.req.note }));
   return parts.join(' \\\n  ');
 }
 

@@ -1,7 +1,7 @@
 /** The interface: one shell, one route per screen, and the map loaded once for all of them. */
 import { Database, GitBranch, Globe, Server, Waypoints } from 'lucide-react';
 import { Component, createElement, lazy, Suspense, useEffect, useMemo, type ComponentType, type ReactNode } from 'react';
-import { indexMap, useApi, type EnvSummary, type FlowInfo, type Indexed, type KnowledgeData, type RunInfo, type StandardData, type SystemMap, type WorkspaceInfo } from './api.ts';
+import { indexMap, recordedFlow, useApi, useRecorded, type EnvSummary, type FlowInfo, type Indexed, type KnowledgeData, type RunInfo, type StandardData, type SystemMap, type WorkspaceInfo } from './api.ts';
 import { NAV, Shell, type Jump } from './components/Shell.tsx';
 import { Skeleton } from './components/ui.tsx';
 import { FINDING, pieceLabel } from './lib/es.ts';
@@ -11,6 +11,7 @@ import { FromFlow } from './components/FromFlow.tsx';
 import { frontNodes } from './lib/fronts.ts';
 import { appMenuOf, iconOf, TABS_OF } from './lib/pieceMenu.ts';
 import { homeOf } from './lib/sysmap.ts';
+import { tr } from './lib/i18n.ts';
 
 /**
  * Each screen's code is its own file: the first page loads only its own, and the rest come in behind once it is drawn,
@@ -30,6 +31,7 @@ const Data = page(() => import('./pages/Data.tsx'), 'Data');
 const Envs = page(() => import('./pages/Envs.tsx'), 'Envs');
 const Files = page(() => import('./pages/Files.tsx'), 'Files');
 const Theme = page(() => import('./pages/Theme.tsx'), 'Theme');
+const Language = page(() => import('./pages/Language.tsx'), 'Language');
 const Live = page(() => import('./pages/Live.tsx'), 'Live');
 const Scenarios = page(() => import('./pages/Scenarios.tsx'), 'Scenarios');
 const MapView = page(() => import('./pages/MapView.tsx'), 'MapView');
@@ -47,9 +49,10 @@ const FlowList = page(() => import('./pages/FlowList.tsx'), 'FlowList');
 const Storage = page(() => import('./pages/Storage.tsx'), 'Storage');
 const Vars = page(() => import('./pages/Vars.tsx'), 'Vars');
 const Docs = page(() => import('./pages/Docs.tsx'), 'Docs');
+const RunData = page(() => import('./pages/RunData.tsx'), 'RunData');
 
 /** Path words that name a view rather than a thing: `#/docs/flow:x/map`. */
-const VIEW: Record<string, string> = { map: 'Mapa', seq: 'Secuencia', op: 'Operación' };
+const VIEW: Record<string, string> = { map: tr('Mapa'), seq: tr('Secuencia'), op: tr('Operación') };
 
 export function App() {
   const route = useRoute();
@@ -59,14 +62,15 @@ export function App() {
   const pieces = useApi<KnowledgeData>('/api/knowledge');
   const g = useMemo(() => (map.data ? indexMap(map.data) : null), [map.data]);
   // The browser tab, from the specific to the general: «invoices · public · postgres · local · Bases · Comercio — Laru».
-  const screenName = NAV.flatMap(([, items]) => items).find((i) => i.route === screen)?.label ?? ({ flows: 'Flujos', scenarios: 'Escenarios', envs: 'Entornos', data: 'Bases de datos', queues: 'Colas', storage: 'Almacenamiento', live: 'En vivo', studio: 'Estudio' } as Record<string, string>)[screen] ?? screen;
+  const screenName = NAV.flatMap(([, items]) => items).find((i) => i.route === screen)?.label ?? ({ flows: tr('Flujos'), scenarios: tr('Escenarios'), envs: tr('Entornos'), data: tr('Bases de datos'), queues: tr('Colas'), storage: tr('Almacenamiento'), live: tr('En vivo'), studio: tr('Estudio'), flowdata: tr('Datos del último run') } as Record<string, string>)[screen] ?? screen;
   // Parts that are words rather than names read in Spanish: «Variable sin uso», «Decisión · Nueva pieza», «Editar».
   // «Paso a paso»'s stop moves, and goes, without a hashchange: the tab names the screen, not the stop it opened on
   const parts = splitStop(route.slice(1))[0];
-  const said = screen === 'docs' && parts[0] === 'new' ? ['Nueva pieza', pieceLabel(parts[1] ?? ''), ...parts.slice(2).filter((p) => p !== '-')]
+  const said = screen === 'docs' && parts[0] === 'new' ? [tr('Nueva pieza'), pieceLabel(parts[1] ?? ''), ...parts.slice(2).filter((p) => p !== '-')]
     : screen === 'standard' || screen === 'diagrams' ? parts.map(pieceLabel)
     : screen === 'docs' && parts[1] === 't' ? [parts[0], Object.values(TABS_OF).flat().find(([key]) => key === parts[2])?.[1] ?? parts[2]]
-    : screen === 'docs' && parts[1] === 'edit' ? [parts[0], 'Editar']
+    : screen === 'docs' && parts[1] === 'edit' ? [parts[0], tr('Editar')]
+    : screen === 'flowdata' ? [parts[0], ({ data: tr('Bases de datos'), queues: tr('Colas'), storage: tr('Almacenamiento'), mail: tr('Correo y mensajes'), vars: tr('Variables y secretos') } as Record<string, string>)[parts[1] ?? 'data'] ?? parts[1]]
     : parts.map((p) => VIEW[p] ?? p);
   const title = [...said.reverse(), screenName, ws.data?.title].filter(Boolean).join(' · ');
   useEffect(() => { document.title = `${title} — Laru`; }, [title]);
@@ -76,13 +80,13 @@ export function App() {
   useEffect(() => g ? addRouteFix(([s, id]) => { const home = s === 'map' && id ? homeOf(g, id) : id; return home !== id ? href('map', home) : null; }) : undefined, [g]);
   const fronts = g ? frontNodes(g).length : 0;
   const nav = useMenu(route, g, pieces.data, fronts);
-  if (ws.gone) return <div className="page"><div className="notice" role="alert"><div><b>Este workspace ya no está registrado en esta máquina.</b> <a className="rowlink" href={HOME}>Ir a todos los workspaces</a></div></div></div>;
+  if (ws.gone) return <div className="page"><div className="notice" role="alert"><div><b>{tr('Este workspace ya no está registrado en esta máquina.')}</b> <a className="rowlink" href={HOME}>{tr('Ir a todos los workspaces')}</a></div></div></div>;
   if (ws.error) return <div className="page"><div className="notice">{ws.error}</div></div>;
   const jumps: Jump[] = g ? g.map.nodes.flatMap((n): Jump[] => {
-    if (n.type === 'service') return [{ label: n.name, hint: 'Servicio', icon: Server, to: href('map', n.id) }];
-    if (n.type === 'repository') return [{ label: n.name, hint: 'Repositorio', icon: GitBranch, to: `#/repos/${n.name}` }];
+    if (n.type === 'service') return [{ label: n.name, hint: tr('Servicio'), icon: Server, to: href('map', n.id) }];
+    if (n.type === 'repository') return [{ label: n.name, hint: tr('Repositorio'), icon: GitBranch, to: `#/repos/${n.name}` }];
     if (n.type === 'endpoint') return [{ label: `${n.name}`, hint: g.nodes.get(n.service ?? '')?.name, icon: Waypoints, to: href('map', n.service ?? '') }];
-    if (n.type === 'datastore' || n.type === 'external' || n.type === 'table' || n.type === 'topic') return [{ label: n.name, hint: n.type === 'table' ? 'Tabla' : n.type === 'topic' ? 'Tema' : n.kind, icon: n.type === 'external' ? Globe : Database, to: href('map', homeOf(g, n.id)) }];
+    if (n.type === 'datastore' || n.type === 'external' || n.type === 'table' || n.type === 'topic') return [{ label: n.name, hint: n.type === 'table' ? tr('Tabla') : n.type === 'topic' ? tr('Tema@@Kafka') : n.kind, icon: n.type === 'external' ? Globe : Database, to: href('map', homeOf(g, n.id)) }];
     return [];
   }) : [];
   // Each piece, and each tab of the classes that have their own sheet: «Compartir › Pruebas».
@@ -105,6 +109,7 @@ export function App() {
   else if (screen === 'flows') body = <FlowList />;
   else if (screen === 'envs') body = <Envs selected={arg} g={g} />;
   else if (screen === 'data') body = <Data parts={route.slice(1)} g={g} />;
+  else if (screen === 'flowdata') body = <RunData slug={arg ?? ''} kind={route[2] ?? 'data'} />;
   else if (screen === 'runs') body = <Runs parts={route.slice(1)} g={g} />;
   else if (screen === 'live') body = <Live parts={route.slice(1)} g={g} />;
   else if (screen === 'scenarios') body = <Scenarios />;
@@ -112,15 +117,16 @@ export function App() {
   else if (screen === 'settings') body = <Settings />;
   else if (screen === 'files') body = <Files />;
   else if (screen === 'theme') body = <Theme />;
+  else if (screen === 'language') body = <Language />;
   else if (map.loading && !map.data) body = <div className="page"><Skeleton lines={6} /></div>;
   else if (!g) body = <NoMap />;
   else if (screen === 'map') body = <MapView g={g} selected={arg} tabArg={route[2] === 't' ? route[3] : undefined} />;
-  else body = <div className="page"><div className="notice">No existe la pantalla «{screen}». <a className="rowlink" href="#/overview">Ir al resumen</a></div></div>;
+  else body = <div className="page"><div className="notice">{tr('No existe la pantalla «')}{screen}». <a className="rowlink" href="#/overview">{tr('Ir al resumen')}</a></div></div>;
 
   // The studio is a screen of its own, on the whole window: no shell, no menu, nothing of the page it came from.
   if (screen === 'studio') return <div className="studio-page"><Guard at={route.join('/')}><Suspense fallback={<div className="page"><Skeleton lines={10} /></div>}><Studio parts={route.slice(1)} g={g} /></Suspense></Guard></div>;
   const explorer = ['data', 'queues', 'storage', 'vars', 'mail'].includes(screen);
-  return <Shell app={ws.data?.title ?? '…'} nav={nav} counts={counts} jumps={[...docJumps, ...jumps]} menu={pieces.data ? appMenuOf(pieces.data, fronts) : undefined}>{explorer && /^f-./.test(arg ?? '') && <FromFlow />}<Guard at={route.join('/')}><Suspense fallback={<div className="page"><Skeleton lines={6} /></div>}>{body}</Suspense></Guard></Shell>;
+  return <Shell app={ws.data?.title ?? '…'} nav={nav} counts={counts} jumps={[...docJumps, ...jumps]} menu={pieces.data ? appMenuOf(pieces.data, fronts) : undefined}>{explorer && arg && <FromFlow />}<Guard at={route.join('/')}><Suspense fallback={<div className="page"><Skeleton lines={6} /></div>}>{body}</Suspense></Guard></Shell>;
 }
 
 /** A screen that throws says so in its place; the shell keeps working, and going elsewhere clears it. */
@@ -130,22 +136,24 @@ class Guard extends Component<{ at: string; children: ReactNode }, { error?: Err
   componentDidUpdate(prev: { at: string }) { if (prev.at !== this.props.at && this.state.error) this.setState({ error: undefined }); }
   render() {
     if (!this.state.error) return this.props.children;
-    return <div className="page"><div className="notice" role="alert"><div><b>Esta pantalla falló al dibujarse.</b> <span className="mono">{this.state.error.message}</span><div className="faint notice-sub">El resto de Laru sigue funcionando. Vuelve a cargar la página para intentarlo otra vez.</div></div></div></div>;
+    return <div className="page"><div className="notice" role="alert"><div><b>{tr('Esta pantalla falló al dibujarse.')}</b> <span className="mono">{this.state.error.message}</span><div className="faint notice-sub">{tr('El resto de Laru sigue funcionando. Vuelve a cargar la página para intentarlo otra vez.')}</div></div></div></div>;
   }
 }
 
 const NoMap = () => (
-  <div className="page"><section className="panel"><div className="empty">Todavía no se ha leído el código. Pulsa «Releer el código» en <a className="rowlink" href="#/repos">Proyectos</a>, o ejecuta <code>laru map</code>.</div></section></div>
+  <div className="page"><section className="panel"><div className="empty">{tr('Todavía no se ha leído el código. Pulsa «Releer el código» en')}{' '}<a className="rowlink" href="#/repos">{tr('Proyectos')}</a>{tr(', o ejecuta')}{' '}<code>laru map</code>.</div></section></div>
 );
 
 /** The menu of the address, from what the page has loaded: the reads are the shared cache's, so they cost nothing twice. */
 function useMenu(route: string[], g: Indexed | null, k: KnowledgeData | undefined, fronts: number): Menu {
   const [screen, a] = route;
   const thing = Boolean(a) && screen !== 'runs';
-  const flows = useApi<FlowInfo[]>(thing && (screen === 'docs' || screen === 'map' || EXPLORERS.includes(screen)) ? '/api/flows' : null);
+  const flows = useApi<FlowInfo[]>(thing && (screen === 'docs' || screen === 'map' || screen === 'flowdata' || EXPLORERS.includes(screen)) ? '/api/flows' : null);
+  // a data screen on a run's recording keeps its flow's menu (the address says which flow)
+  const recording = useRecorded() ? recordedFlow() ?? undefined : undefined;
   const envs = useApi<EnvSummary[]>(thing && (screen === 'envs' || EXPLORERS.includes(screen)) ? '/api/envs' : null);
   const runs = useApi<RunInfo[]>(thing && (screen === 'envs' || screen === 'live' || EXPLORERS.includes(screen)) ? '/api/runs' : null);
   const std = useApi<StandardData>(thing && screen === 'standard' ? '/api/standard' : null);
   const session = useApi<{ id: string; env: string }>(thing && screen === 'live' ? `/api/run?id=${encodeURIComponent(a)}` : null);
-  return menuOf(route, { k, g, flows: flows.data, envs: envs.data, runs: runs.data, session: session.data, std: std.data, fronts });
+  return menuOf(route, { k, g, flows: flows.data, envs: envs.data, runs: runs.data, session: session.data, std: std.data, fronts, recording });
 }

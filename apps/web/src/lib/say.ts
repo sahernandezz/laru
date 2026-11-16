@@ -9,7 +9,11 @@ import { actorOf, chain as chainOf, isConsume, isHello, isStream, type Act, type
 import { endpointOf } from '@laru/trace/summarize';
 import type { DocPiece, Fact, MapNode } from '../api.ts';
 import { entitiesOf, errorsOf, eventsOf, listed, norm, opsOf } from './contracts.ts';
+/** An object key as a request carried it: one with a stray % (the app's own key) is shown as it came, never breaking the narration. */
+const decodedPath = (k: string) => { try { return decodeURIComponent(k); } catch { return k; } };
 import type { Row, Stop } from './seq.ts';
+import { LANG, LOCALE, tr } from './i18n.ts';
+import { faultLabel, participantName } from './es.ts';
 
 export type { Stop };
 export type SayTrace = Pick<Trace, 'exchanges' | 'steps' | 'participants' | 'failure'> & { actions?: Action[] };
@@ -43,7 +47,7 @@ export function sayCtx(o: { trace: SayTrace; rows: Row[]; chain?: Chain; map?: {
   const nodes = o.map?.nodes ?? [], facts = o.map?.facts ?? [], pieces = o.pieces ?? [];
   const match = endpointMatcher(nodes);
   const byId = new Map(nodes.map((n) => [n.id, n]));
-  const names = new Map(o.trace.participants.map((p) => [p.id, p.name]));
+  const names = new Map(o.trace.participants.map((p) => [p.id, participantName(p)]));
   const ops = opsOf(pieces), entities = entitiesOf(pieces), events = eventsOf(pieces);
   const svc = (s: string) => s.replace(/^svc:/, '');
   return {
@@ -70,9 +74,9 @@ export function sayCtx(o: { trace: SayTrace; rows: Row[]; chain?: Chain; map?: {
 }
 
 const STATUS: Record<number, string> = {
-  200: 'correcto', 201: 'creado', 202: 'aceptado', 204: 'sin contenido', 301: 'redirige', 302: 'redirige', 304: 'sin cambios', 400: 'petición incorrecta', 401: 'sin sesión',
-  403: 'prohibido', 404: 'no existe', 409: 'conflicto', 422: 'no procesable', 429: 'demasiadas peticiones', 500: 'error interno', 502: 'pasarela sin respuesta válida',
-  503: 'no disponible', 504: 'pasarela sin respuesta a tiempo',
+  200: tr('correcto'), 201: tr('creado'), 202: tr('aceptado'), 204: tr('sin contenido'), 301: tr('redirige'), 302: tr('redirige'), 304: tr('sin cambios'), 400: tr('petición incorrecta'), 401: tr('sin sesión'),
+  403: tr('prohibido'), 404: tr('no existe'), 409: tr('conflicto'), 422: tr('no procesable'), 429: tr('demasiadas peticiones'), 500: tr('error interno'), 502: tr('pasarela sin respuesta válida'),
+  503: tr('no disponible'), 504: tr('pasarela sin respuesta a tiempo'),
 };
 /** 201 (creado); a code without a phrase, the number alone. */
 export const statusText = (s: number) => (STATUS[s] ? `${s} (${STATUS[s]})` : String(s));
@@ -83,7 +87,7 @@ const short = (s: string) => s.replace(UUID, (u) => `${u.slice(0, 4)}…`);
 const json = (s?: string): unknown => { try { return s ? JSON.parse(s) : undefined; } catch { return undefined; } };
 const obj = (v: unknown): Record<string, unknown> | undefined => (v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : undefined);
 const prim = (v: unknown) => typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean';
-const list = (xs: string[]) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} y ${xs.at(-1)}`);
+const list = (xs: string[]) => new Intl.ListFormat(LOCALE, { type: 'conjunction' }).format(xs);
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 const stop = (s: string) => (/[.!?…»]$/.test(s) ? s : `${s}.`);
 /** 0:01.730; before the video's first frame (a case's calls can start before it), 0:00.000, as `clock` does */
@@ -97,9 +101,9 @@ const BY = new WeakMap<Exchange[], Map<string, Exchange>>();
 /** The trace's exchanges by id, built once per trace: every sentence of a tree asks for it. */
 const by = (ctx: SayCtx) => { let m = BY.get(ctx.trace.exchanges); if (!m) BY.set(ctx.trace.exchanges, (m = new Map(ctx.trace.exchanges.map((e) => [e.id, e])))); return m; };
 /** The browser, the test and the host as a sentence names them; a service by its name. */
-const who = (ctx: SayCtx, id: string) => (id === 'browser' ? 'el navegador' : id.startsWith('browser:') ? `el navegador de ${id.slice(8)}` : id === 'runner' ? 'la prueba' : id === 'host' ? 'tu máquina' : ctx.name(id));
+const who = (ctx: SayCtx, id: string) => (id === 'browser' ? tr('el navegador') : id.startsWith('browser:') ? tr('el navegador de {slice}', { slice: id.slice(8) }) : id === 'runner' ? tr('la prueba') : id === 'host' ? tr('tu máquina') : ctx.name(id));
 /** «al navegador», or «al navegador de luis» for another screen of the test. */
-const toBrowser = (id: string) => (id === 'browser' ? 'al navegador' : `al navegador de ${id.slice(8)}`);
+const toBrowser = (id: string) => (id === 'browser' ? tr('al navegador') : tr('al navegador de {slice}', { slice: id.slice(8) }));
 /** The same, starting a sentence: a service keeps its name as written. */
 const Who = (ctx: SayCtx, id: string) => (['runner', 'host'].includes(id) || isBrowser(id) ? cap(who(ctx, id)) : ctx.name(id));
 /** The call a request is, as far down as it was forwarded: the deepest forward's endpoint, else its label. */
@@ -126,8 +130,8 @@ function fields(body: unknown): { n?: number; vals: string[] } {
 // ---- acts ----
 
 const ROLE: Record<string, [string, string]> = {
-  button: ['el botón', 'un botón sin nombre'], link: ['el enlace', 'un enlace sin nombre'], textbox: ['el campo', 'un campo sin nombre'],
-  checkbox: ['la casilla', 'una casilla sin nombre'], tab: ['la pestaña', 'una pestaña sin nombre'], menuitem: ['la opción', 'una opción sin nombre'],
+  button: [tr('el botón'), tr('un botón sin nombre')], link: [tr('el enlace'), tr('un enlace sin nombre')], textbox: [tr('el campo'), tr('un campo sin nombre')],
+  checkbox: [tr('la casilla'), tr('una casilla sin nombre')], tab: [tr('la pestaña'), tr('una pestaña sin nombre')], menuitem: [tr('la opción'), tr('una opción sin nombre')],
 };
 /**
  * What a locator points at, by its last naming segment: `getByRole('button', { name: 'X' })` and
@@ -150,7 +154,7 @@ export function targetOf(loc?: string): { role?: string; name?: string } {
 const thing = (loc?: string) => {
   const t = targetOf(loc);
   if (t.name) return t.role && ROLE[t.role] ? `${ROLE[t.role][0]} «${t.name}»` : `«${t.name}»`;
-  return t.role && ROLE[t.role] ? ROLE[t.role][1] : 'un elemento sin nombre';
+  return t.role && ROLE[t.role] ? ROLE[t.role][1] : tr('un elemento sin nombre');
 };
 /** The file an act picked: its multipart request's first file, else «un fichero». */
 function picked(ctx: SayCtx, a: Act): string {
@@ -159,27 +163,27 @@ function picked(ctx: SayCtx, a: Act): string {
     const f = (obj(json(ex.get(id)?.req?.text))?.files as Array<{ filename?: string; size?: number }> | undefined)?.[0];
     if (f?.filename) return `${f.filename}${f.size !== undefined ? ` (${f.size} B)` : ''}`;
   }
-  return 'un fichero';
+  return tr('un fichero');
 }
-/** «de el campo» is «del campo». */
-const de = (o: string) => (o.startsWith('el ') ? `del ${o.slice(3)}` : `de ${o}`);
+/** «de el campo» is «del campo»; in English the preposition the verb asks for (`en`: «in», «over»). */
+const de = (o: string, en: string) => (LANG === 'en' ? `${en} ${o}` : o.startsWith('el ') ? `del ${o.slice(3)}` : `de ${o}`);
 /** A mark as a verb and what it acts on. */
 function markWords(ctx: SayCtx, a: Act, m: Action): [string, string] {
   switch (m.kind) {
-    case 'click': return m.target ? ['pulsa', thing(m.target)] : ['pulsa', 'en un punto de la página'];
-    case 'dblclick': return ['pulsa dos veces', thing(m.target)];
-    case 'tap': return ['toca', thing(m.target)];
-    case 'fill': case 'type': { const t = targetOf(m.target); return ['escribe', t.name ? `en «${t.name}»` : `en ${thing(m.target)}`]; }
-    case 'press': return m.key ? ['pulsa la tecla', m.key] : ['pulsa una tecla', ''];
-    case 'check': return ['marca', thing(m.target)];
-    case 'uncheck': return ['desmarca', thing(m.target)];
-    case 'select': return ['elige una opción', de(thing(m.target))];
-    case 'hover': return ['pasa por encima', de(thing(m.target))];
-    case 'files': return ['elige', picked(ctx, a)];
-    case 'navigate': return ['abre', m.path ?? 'una página'];
-    case 'back': return ['vuelve', 'atrás'];
-    case 'reload': return ['recarga', 'la página'];
-    case 'drag': return ['arrastra', thing(m.target)];
+    case 'click': return m.target ? [tr('pulsa'), thing(m.target)] : [tr('pulsa'), tr('en un punto de la página')];
+    case 'dblclick': return [tr('pulsa dos veces'), thing(m.target)];
+    case 'tap': return [tr('toca'), thing(m.target)];
+    case 'fill': case 'type': { const t = targetOf(m.target); return [tr('escribe'), t.name ? tr('en «{name}»', { name: t.name }) : tr('en {thing}', { thing: thing(m.target) })]; }
+    case 'press': return m.key ? [tr('pulsa la tecla'), m.key] : [tr('pulsa una tecla'), ''];
+    case 'check': return [tr('marca'), thing(m.target)];
+    case 'uncheck': return [tr('desmarca'), thing(m.target)];
+    case 'select': return [tr('elige una opción'), de(thing(m.target), 'in')];
+    case 'hover': return [tr('pasa por encima'), de(thing(m.target), 'over')];
+    case 'files': return [tr('elige'), picked(ctx, a)];
+    case 'navigate': return [tr('abre'), m.path ?? tr('una página')];
+    case 'back': return [tr('vuelve'), tr('atrás')];
+    case 'reload': return [tr('recarga'), tr('la página')];
+    case 'drag': return [tr('arrastra'), thing(m.target)];
   }
 }
 /** One mark said: «escribe en «Ingresa tu usuario»», «pulsa el botón «Subir»». */
@@ -201,17 +205,17 @@ function sayAct(a: Act, ctx: SayCtx): string {
   const first = roots.find((r) => !ctx.chain.noise.has(r.id)) ?? roots[0];
   const step = ctx.trace.steps.find((s) => s.n === a.step);
   switch (a.kind) {
-    case 'setup': return `La prueba prepara datos por la API antes del primer paso: ${list([...new Set(roots.map((r) => what(ctx, r)))])}.`;
+    case 'setup': return tr('La prueba prepara datos por la API antes del primer paso: {list}.', { list: list([...new Set(roots.map((r) => what(ctx, r)))]) });
     case 'check': {
       const x = `${what(ctx, first)}${a.n ? ` ×${a.n}` : ''}`;
-      return ctx.trace.steps.length ? `La prueba comprueba por la API: ${x} (no lo hace la persona).` : `El caso llama a la API: ${x}.`;
+      return ctx.trace.steps.length ? tr('La prueba comprueba por la API: {x} (no lo hace la persona).', { x }) : tr('El caso llama a la API: {x}.', { x });
     }
-    case 'page': return `La página pide ${what(ctx, first)} por su cuenta: la persona no hizo nada en el último segundo.`;
+    case 'page': return tr('La página pide {what} por su cuenta: la persona no hizo nada en el último segundo.', { what: what(ctx, first) });
     case 'burst': {
-      const where = step ? ` (paso ${step.n}, «${step.title}»)` : '';
-      return isPage(first) ? `El navegador abre ${first.path}${where}.` : `El navegador envía ${what(ctx, first)}${where}.`;
+      const where = step ? tr(' (paso {n}, «{title}»)', { n: step.n, title: step.title }) : '';
+      return isPage(first) ? tr('El navegador abre {path}{where}.', { path: first.path, where }) : tr('El navegador envía {what}{where}.', { what: what(ctx, first), where });
     }
-    case 'person': return `La persona ${marksSaid(ctx, a)}.${a.roots.length ? '' : ' No sale ninguna petición: solo cambia la página.'}`;
+    case 'person': return tr('La persona {marksSaid}.{p1}', { marksSaid: marksSaid(ctx, a), p1: a.roots.length ? '' : tr(' No sale ninguna petición: solo cambia la página.') });
   }
 }
 
@@ -231,27 +235,28 @@ export function actSummary(a: Act, ctx: SayCtx): string {
     if (actor && type.get(actor) === 'service' && !(e.kind === 'sse' && ctx.chain.cause.get(e.id)?.how === 'relay')) services.add(actor);
     if (e.kind === 'sql' && e.table) {
       const v = e.label.split(' ')[0], ent = ctx.entity(e.table)?.entity;
-      if (v === 'INSERT') count(writes, e.to, ent ? `guarda «${ent}»` : 'guarda');
-      else if (v === 'UPDATE') count(writes, e.to, 'actualiza');
-      else if (v === 'DELETE') count(writes, e.to, 'borra');
+      if (v === 'INSERT') count(writes, e.to, ent ? `insert:${ent}` : 'insert');
+      else if (v === 'UPDATE') count(writes, e.to, 'update');
+      else if (v === 'DELETE') count(writes, e.to, 'delete');
     }
-    if (e.kind === 'http' && ctx.storeKind(e.to) === 'file') count(objects, e.to, e.reqHeaders?.['x-amz-copy-source'] ? 'copia' : e.method === 'PUT' ? 'sube' : e.method === 'DELETE' ? 'borra' : 'lee');
+    if (e.kind === 'http' && ctx.storeKind(e.to) === 'file') count(objects, e.to, e.reqHeaders?.['x-amz-copy-source'] ? 'copy' : e.method === 'PUT' ? 'put' : e.method === 'DELETE' ? 'delete' : 'read');
     if (e.kind === 'kafka') { const s = topics.get(e.label) ?? topics.set(e.label, new Set()).get(e.label)!; if (isConsume(e)) s.add(e.to); }
     if (e.kind === 'sse' && isBrowser(e.from) && !isHello(e)) notices.add(evName(e));
   }
   // «guarda 2 filas de «Usuario» y 1 de «Fichero»»: «fila» agrees in number, so an entity's gender never has to
+  const VERB: Record<string, string> = { insert: tr('guarda'), update: tr('actualiza'), delete: tr('borra'), copy: tr('copia'), put: tr('sube'), read: tr('lee') };
   const counts = (m: Map<string, number>) => {
-    const ins = [...m].filter(([w]) => w.startsWith('guarda «'));
-    const rows = list(ins.map(([w, n], i) => `${n}${i ? '' : n === 1 ? ' fila' : ' filas'} de ${w.slice(7)}`));
-    return [...m].flatMap(([w, n]) => (!w.startsWith('guarda «') ? [`${w} ${n}`] : w === ins[0][0] ? [`guarda ${rows}`] : [])).join(', ');
+    const ins = [...m].filter(([w]) => w.startsWith('insert:'));
+    const rows = list(ins.map(([w, n], i) => (i ? tr('{n} de «{ent}»', { n, ent: w.slice(7) }) : n === 1 ? tr('1 fila de «{ent}»', { ent: w.slice(7) }) : tr('{n} filas de «{ent}»', { n, ent: w.slice(7) }))));
+    return [...m].flatMap(([w, n]) => (!w.startsWith('insert:') ? [`${VERB[w]} ${n}`] : w === ins[0][0] ? [`${VERB.insert} ${rows}`] : [])).join(', ');
   };
   const bad = mine.filter((e) => !e.ok).length;
   return [
-    services.size ? `Recorre ${list([...services])}` : '',
+    services.size ? tr('Recorre {list}', { list: list([...services]) }) : '',
     ...[...writes].map(([s, m]) => `${s}: ${counts(m)}`), ...[...objects].map(([s, m]) => `${s}: ${counts(m)}`),
-    topics.size ? `publica ${[...topics].map(([t, c]) => `${t}${c.size ? ` (→ ${[...c].join(', ')})` : ''}`).join(', ')}` : '',
-    notices.size ? `llega al navegador: ${[...notices].join(', ')}` : '',
-    `${bad} ${bad === 1 ? 'fallo' : 'fallos'}`,
+    topics.size ? tr('publica {topics}', { topics: [...topics].map(([t, c]) => `${t}${c.size ? ` (→ ${[...c].join(', ')})` : ''}`).join(', ') }) : '',
+    notices.size ? tr('llega al navegador: {join}', { join: [...notices].join(', ') }) : '',
+    bad === 1 ? tr('1 fallo') : tr('{bad} fallos', { bad }),
   ].filter(Boolean).join(' · ');
 }
 
@@ -261,19 +266,19 @@ function faults(e: Exchange, ctx: SayCtx): string[] {
   const from = who(ctx, e.from), to = ctx.name(e.to);
   return (e.fault ?? '').split(', ').filter(Boolean).map((f) => {
     let m: RegExpExecArray | null;
-    if ((m = /^latencia \+(\d+) ms inyectada$/.exec(f))) return `Laru retrasa esta llamada ${m[1]} ms antes de pasarla a ${to}.`;
-    if ((m = /^estado (\d+) inyectado$/.exec(f))) return `Laru no deja pasar esta llamada y responde ${m[1]} en nombre de ${to}.`;
-    if (f === 'abortado') return `Laru corta la conexión: ${from} se queda sin respuesta.`;
-    if (f === 'sin respuesta') return `Laru retiene la llamada sin responder: ${from} espera hasta su tiempo límite.`;
-    if ((m = /^ancho de banda (\d+) B\/s(?: tras (\d+) B)?$/.exec(f))) return `Laru limita la respuesta a ${m[1]} B/s${m[2] ? ` a partir del byte ${m[2]}` : ''}.`;
-    return `Laru: ${f}.`;
+    if ((m = /^latencia \+(\d+) ms inyectada$/.exec(f))) return tr('Laru retrasa esta llamada {p0} ms antes de pasarla a {to}.', { p0: m[1], to });
+    if ((m = /^estado (\d+) inyectado$/.exec(f))) return tr('Laru no deja pasar esta llamada y responde {p0} en nombre de {to}.', { p0: m[1], to });
+    if (f === 'abortado') return tr('Laru corta la conexión: {from} se queda sin respuesta.', { from });
+    if (f === 'sin respuesta') return tr('Laru retiene la llamada sin responder: {from} espera hasta su tiempo límite.', { from });
+    if ((m = /^ancho de banda (\d+) B\/s(?: tras (\d+) B)?$/.exec(f))) return tr('Laru limita la respuesta a {p0} B/s{p1}.', { p0: m[1], p1: m[2] ? tr(' a partir del byte {p0}', { p0: m[2] }) : '' });
+    return tr('Laru: {fault}.', { fault: faultLabel(f) });
   });
 }
 function mockSaid(e: Exchange, ctx: SayCtx): string[] {
   if (e.mock === 'sink' || e.mock === 'callback') return []; // a mailbox is said by its own sentence
   return [
-    ...(e.mock === 'miss' ? ['El mock no tiene respuesta para esto.'] : e.mock ? [`Responde el mock de Laru (${e.mock}), no ${ctx.name(e.to)} real.`] : []),
-    ...(e.drift?.length ? [`No cumple el contrato del mock: ${e.drift[0]}.`] : []),
+    ...(e.mock === 'miss' ? [tr('El mock no tiene respuesta para esto.')] : e.mock ? [tr('Responde el mock de Laru ({mock}), no {name} real.', { mock: e.mock, name: ctx.name(e.to) })] : []),
+    ...(e.drift?.length ? [tr('No cumple el contrato del mock: {p0}.', { p0: e.drift[0] })] : []),
   ];
 }
 
@@ -282,57 +287,57 @@ function objectSaid(e: Exchange, ctx: SayCtx): string | undefined {
   if (ctx.storeKind(e.to) !== 'file' && !Object.keys(e.reqHeaders ?? {}).some((k) => /^x-amz-(?!target)/i.test(k))) return;
   const from = who(ctx, e.from), to = ctx.name(e.to);
   const [, bucket = '', ...rest] = (e.path ?? '').split('/');
-  const key = short(decodeURIComponent(rest.join('/')));
+  const key = short(decodedPath(rest.join('/')));
   const copy = e.reqHeaders?.['x-amz-copy-source'];
-  if (e.method === 'PUT' && copy) return `${from} copia ${short(decodeURIComponent(copy.replace(/^\//, '')))} a ${bucket}/${key}.`;
-  if (!key) return `${from} comprueba el bucket ${bucket} de ${to}.`;
-  if (e.method === 'PUT') return `${from} sube ${key} al bucket ${bucket} de ${to} (${e.req?.bytes ?? 0} B).`;
-  if (e.method === 'GET' || e.method === 'HEAD') return `${from} lee ${key} del bucket ${bucket} de ${to}.`;
-  if (e.method === 'DELETE') return `${from} borra ${key} del bucket ${bucket} de ${to}.`;
+  if (e.method === 'PUT' && copy) return tr('{from} copia {source} a {bucket}/{key}.', { from, source: short(decodedPath(copy.replace(/^\//, ''))), bucket, key });
+  if (!key) return tr('{from} comprueba el bucket {bucket} de {to}.', { from, bucket, to });
+  if (e.method === 'PUT') return tr('{from} sube {key} al bucket {bucket} de {to} ({p4} B).', { from, key, bucket, to, p4: e.req?.bytes ?? 0 });
+  if (e.method === 'GET' || e.method === 'HEAD') return tr('{from} lee {key} del bucket {bucket} de {to}.', { from, key, bucket, to });
+  if (e.method === 'DELETE') return tr('{from} borra {key} del bucket {bucket} de {to}.', { from, key, bucket, to });
 }
-const DYNAMO: Array<[RegExp, string]> = [[/^(Get|BatchGet|Query|Scan)/, 'lee de'], [/^(Put|BatchWrite)/, 'escribe en'], [/^Update/, 'actualiza en'], [/^Delete/, 'borra de'], [/^(Execute|BatchExecute)/, 'ejecuta PartiQL sobre']];
+const DYNAMO: Array<[RegExp, string]> = [[/^(Get|BatchGet|Query|Scan)/, tr('lee de')], [/^(Put|BatchWrite)/, tr('escribe en')], [/^Update/, tr('actualiza en')], [/^Delete/, tr('borra de')], [/^(Execute|BatchExecute)/, tr('ejecuta PartiQL sobre')]];
 
 function httpRequest(e: Exchange, ctx: SayCtx): string {
   const from = who(ctx, e.from), to = ctx.name(e.to);
-  if (e.asset) return `${e.asset} ${e.asset === 1 ? 'recurso estático' : 'recursos estáticos'} (JS, CSS, imágenes) en ${(e.t1 ?? e.t0) - e.t0} ms.`;
-  if (e.kind === 'ws') return `${Who(ctx, e.from)} abre un WebSocket con ${to} en ${e.path}.`;
-  if (isStream(e)) return `${Who(ctx, e.from)} abre el canal de avisos con ${to} (SSE, ${e.path}).`;
-  if (isBrowser(e.from) && isPage(e)) return `${cap(who(ctx, e.from))} pide la página ${e.path} a ${to}.`;
+  if (e.asset) return tr('{asset} {p1} (JS, CSS, imágenes) en {p2} ms.', { asset: e.asset, p1: e.asset === 1 ? tr('recurso estático') : tr('recursos estáticos'), p2: (e.t1 ?? e.t0) - e.t0 });
+  if (e.kind === 'ws') return tr('{Who} abre un WebSocket con {to} en {path}.', { Who: Who(ctx, e.from), to, path: e.path });
+  if (isStream(e)) return tr('{Who} abre el canal de avisos con {to} (SSE, {path}).', { Who: Who(ctx, e.from), to, path: e.path });
+  if (isBrowser(e.from) && isPage(e)) return tr('{cap} pide la página {path} a {to}.', { cap: cap(who(ctx, e.from)), path: e.path, to });
   if (isBrowser(e.from) || e.from === 'runner') {
     const d = deepest(ctx, e), ep = ctx.endpointOf(d), op = opOf(ctx, d), h = ep && ctx.handler(ep);
-    return `${Who(ctx, e.from)} llama a ${what(ctx, e)}${op?.summary ? `: «${op.summary}»` : ''}. La atiende ${ctx.name(d.to)}${h ? ` (${h})` : ''}.`;
+    return tr('{Who} llama a {what}{p2}. La atiende {name}{p4}.', { Who: Who(ctx, e.from), what: what(ctx, e), p2: op?.summary ? `: «${op.summary}»` : '', name: ctx.name(d.to), p4: h ? ` (${h})` : '' });
   }
   const c = ctx.chain.cause.get(e.id);
   if (c?.how === 'forward') {
     const proxy = ctx.proxy(e.from, e.to);
-    if (proxy) return `${from} la pasa tal cual a ${to} (proxy ${proxy}).`;
+    if (proxy) return tr('{from} la pasa tal cual a {to} (proxy {proxy}).', { from, to, proxy });
     const rule = ctx.endpointOf(by(ctx).get(c.parent)!), ep = ctx.endpointOf(e), h = ep && ctx.handler(ep);
-    return `${[`${from} la reenvía a ${to}`, rule && `por la regla ${tpl(rule)}`, h && `que la atiende con ${h}`].filter(Boolean).join(', ')}.`;
+    return `${[tr('{from} la reenvía a {to}', { from, to }), rule && tr('por la regla {tpl}', { tpl: tpl(rule) }), h && tr('que la atiende con {h}', { h })].filter(Boolean).join(', ')}.`;
   }
   const obj = objectSaid(e, ctx);
   if (obj) return obj;
   const op = /^DynamoDB(?:Streams)?_\d+\.(\w+)$/.exec(e.reqHeaders?.['x-amz-target'] ?? '')?.[1];
-  if (op) return `${from} ${DYNAMO.find(([re]) => re.test(op))?.[1] ?? 'llama a'} la tabla ${e.table ?? '?'} de ${to} (${op}).`;
+  if (op) return tr('{from} {p1} la tabla {p2} de {to} ({op}).', { from, p1: DYNAMO.find(([re]) => re.test(op))?.[1] ?? tr('llama a'), p2: e.table ?? '?', to, op });
   const ep = ctx.endpointOf(e), contract = opOf(ctx, e);
   const service = ctx.trace.participants.find((p) => p.id === e.to)?.type === 'service';
-  return `${from} llama a ${to}: ${ep ? tpl(ep) : e.label}${contract?.summary ? ` — «${contract.summary}»` : ''}${!ep && service ? ` (${to} no tiene ese endpoint entre los extraídos del código)` : ''}.`;
+  return tr('{from} llama a {to}: {what}{summary}{missing}.', { from, to, what: ep ? tpl(ep) : e.label, summary: contract?.summary ? ` — «${contract.summary}»` : '', missing: !ep && service ? tr(' ({to} no tiene ese endpoint entre los extraídos del código)', { to }) : '' });
 }
 
 function httpResponse(e: Exchange, ctx: SayCtx): string {
   const to = ctx.name(e.to);
-  if (e.error) return `La llamada falla sin respuesta: ${stop(e.error)}`;
-  if (e.status === undefined) return `${to} no responde.`;
+  if (e.error) return tr('La llamada falla sin respuesta: {stop}', { stop: stop(e.error) });
+  if (e.status === undefined) return tr('{to} no responde.', { to });
   const body = json(e.res?.text);
   if (e.status >= 400 || !e.ok) {
     const b = obj(body), msg = b && ['error', 'message', 'detail', 'title'].map((k) => b[k]).find((v) => typeof v === 'string');
     const op = opOf(ctx, e);
     const err = op?.errors.find((x) => x.status === String(e.status)) ?? op?.errors.find((x) => listed(String(e.status), [x]));
-    const hint = !op ? '' : err ? ` El contrato «${op.contract}» lo prevé${err.when ? `: «${err.when}»` : ''}.` : ' El contrato no lo lista entre sus errores.';
-    return `${to} responde ${statusText(e.status)}${msg ? `: «${msg}»` : ''}.${hint}`;
+    const hint = !op ? '' : err ? tr(' El contrato «{contract}» lo prevé{p1}.', { contract: op.contract, p1: err.when ? `: «${err.when}»` : '' }) : tr(' El contrato no lo lista entre sus errores.');
+    return tr('{to} responde {status}{msg}.{hint}', { to, status: statusText(e.status), msg: msg ? `: «${msg}»` : '', hint });
   }
   const f = fields(body);
-  const tail = f.n !== undefined ? `, con ${f.n} ${f.n === 1 ? 'elemento' : 'elementos'}${f.vals.length ? `: ${f.vals.join(', ')}` : ''}` : f.vals.length ? `, con ${list(f.vals)}` : '';
-  return `${to} responde ${statusText(e.status)} en ${(e.t1 ?? e.t0) - e.t0} ms${tail}.`;
+  const tail = f.n !== undefined ? tr(', con {n} {p1}{p2}', { n: f.n, p1: f.n === 1 ? tr('elemento') : tr('elementos'), p2: f.vals.length ? `: ${f.vals.join(', ')}` : '' }) : f.vals.length ? tr(', con {list}', { list: list(f.vals) }) : '';
+  return tr('{to} responde {statusText} en {p2} ms{tail}.', { to, statusText: statusText(e.status), p2: (e.t1 ?? e.t0) - e.t0, tail });
 }
 
 /** An UPDATE's status-like `col = value` pairs; the values only when every placeholder has its parameter. */
@@ -349,15 +354,15 @@ function setSaid(text = ''): string | undefined {
 
 function sqlRow(e: Exchange, ctx: SayCtx): string {
   const from = who(ctx, e.from), to = ctx.name(e.to);
-  if (e.error) return `${to} rechaza la sentencia: ${stop(e.error.split('\n')[0])}`;
+  if (e.error) return tr('{to} rechaza la sentencia: {stop}', { to, stop: stop(e.error.split('\n')[0]) });
   const verb = e.label.split(' ')[0], t = e.table, ent = t ? ctx.entity(t) : undefined;
-  const owner = ent?.owner && ent.owner !== e.from ? `, tabla de ${ent.owner}` : '';
+  const owner = ent?.owner && ent.owner !== e.from ? tr(', tabla de {owner}', { owner: ent.owner }) : '';
   switch (verb) {
-    case 'SELECT': return ent ? `${from} lee «${ent.entity}» (${t}${owner}).` : `${from} lee de ${t ?? to}.`;
-    case 'INSERT': return `${from} guarda una fila nueva${ent ? ` de «${ent.entity}»` : ''} en ${t ?? to}${owner}.`;
-    case 'UPDATE': { const set = setSaid(e.req?.text); return `${from} actualiza ${ent ? `«${ent.entity}»` : t ?? to}${set ? ` y deja ${set}` : ''}.`; }
-    case 'DELETE': return `${from} borra ${ent ? `«${ent.entity}»` : 'filas'} en ${t ?? to}.`;
-    default: return `${from} ejecuta ${verb || 'una sentencia'} en ${to}.`;
+    case 'SELECT': return ent ? tr('{from} lee «{entity}» ({t}{owner}).', { from, entity: ent.entity, t, owner }) : tr('{from} lee de {p1}.', { from, p1: t ?? to });
+    case 'INSERT': return tr('{from} guarda una fila nueva{p1} en {p2}{owner}.', { from, p1: ent ? tr(' de «{entity}»', { entity: ent.entity }) : '', p2: t ?? to, owner });
+    case 'UPDATE': { const set = setSaid(e.req?.text); return tr('{from} actualiza {what}{set}.', { from, what: ent ? `«${ent.entity}»` : t ?? to, set: set ? tr(' y deja {set}', { set }) : '' }); }
+    case 'DELETE': return tr('{from} borra {p1} en {p2}.', { from, p1: ent ? `«${ent.entity}»` : tr('filas'), p2: t ?? to });
+    default: return tr('{from} ejecuta {p1} en {to}.', { from, p1: verb || tr('una sentencia'), to });
   }
 }
 
@@ -367,24 +372,24 @@ function kafkaRow(e: Exchange, ctx: SayCtx): string {
     const first = (ctx.chain.effects.get(e.id) ?? []).map((id) => by(ctx).get(id)!)[0];
     // its work may start up to TOL_MS before the delivery's time (two clocks): that is at once, never «-1 ms más tarde»
     const late = first ? first.t0 - e.t0 : 0;
-    return `${ctx.name(e.to)} recibe ${e.label}${l ? ` en ${l}` : ''}. Lo dice el código: la entrega no se ve en la red. ${!first ? 'No se ve que haga nada después en esta prueba.' : late > 0 ? `Lo primero que hace después se ve ${late} ms más tarde.` : 'Lo primero que hace se ve en ese mismo momento.'}`;
+    return tr('{name} recibe {label}{p2}. Lo dice el código: la entrega no se ve en la red. {p3}', { name: ctx.name(e.to), label: e.label, p2: l ? tr(' en {l}', { l }) : '', p3: !first ? tr('No se ve que haga nada después en esta prueba.') : late > 0 ? tr('Lo primero que hace después se ve {late} ms más tarde.', { late }) : tr('Lo primero que hace se ve en ese mismo momento.') });
   }
-  if (e.from === AMBIGUOUS) { const p = ctx.publishers(e.label); return `Alguien publica ${e.label}: el código tiene ${p.length} publicadores (${p.join(', ')}) y la traza no dice cuál.`; }
+  if (e.from === AMBIGUOUS) { const p = ctx.publishers(e.label); return tr('Alguien publica {label}: el código tiene {length} publicadores ({join}) y la traza no dice cuál.', { label: e.label, length: p.length, join: p.join(', ') }); }
   const body = obj(json(e.req?.text));
   const keys = body ? Object.keys(body) : (ctx.payload(e.label) ?? []);
   const st = body && Object.entries(body).find(([k, v]) => STATUSY.test(k) && prim(v));
-  const named = keys.length > 5 ? `${keys.slice(0, 4).join(', ')} y ${keys.length - 4} más` : list(keys);
-  return `${ctx.name(e.from)} publica ${e.label} en ${ctx.name(e.to)}${keys.length ? `: ${named}` : ''}${st ? `, con ${st[0]} ${st[1]}` : ''}.`;
+  const named = keys.length > 5 ? tr('{join} y {p1} más', { join: keys.slice(0, 4).join(', '), p1: keys.length - 4 }) : list(keys);
+  return tr('{name} publica {label} en {name2}{p3}{p4}.', { name: ctx.name(e.from), label: e.label, name2: ctx.name(e.to), p3: keys.length ? `: ${named}` : '', p4: st ? tr(', con {p0} {p1}', { p0: st[0], p1: st[1] }) : '' });
 }
 
 function sseRow(e: Exchange, ctx: SayCtx): string {
   const ev = evName(e), relay = ctx.chain.cause.get(e.id)?.how === 'relay';
   // only the hop that opens the channel greets; the ones nearer the browser pass its greeting on
-  if (isHello(e)) return relay ? `${ctx.name(e.to)} pasa el saludo «${ev}» ${isBrowser(e.from) ? toBrowser(e.from) : `a ${ctx.name(e.from)}`}.` : `Se abre el canal: ${ctx.name(e.to)} saluda con «${ev}».`;
-  if (isBrowser(e.from)) return `El aviso ${ev} llega ${toBrowser(e.from)}.`;
-  if (relay) return `${ctx.name(e.to)} pasa el aviso a ${ctx.name(e.from)}.`;
+  if (isHello(e)) return relay ? tr('{name} pasa el saludo «{ev}» {p2}.', { name: ctx.name(e.to), ev, p2: isBrowser(e.from) ? toBrowser(e.from) : `a ${ctx.name(e.from)}` }) : tr('Se abre el canal: {name} saluda con «{ev}».', { name: ctx.name(e.to), ev });
+  if (isBrowser(e.from)) return tr('El aviso {ev} llega {toBrowser}.', { ev, toBrowser: toBrowser(e.from) });
+  if (relay) return tr('{name} pasa el aviso a {name2}.', { name: ctx.name(e.to), name2: ctx.name(e.from) });
   const b = obj(json(e.res?.text)), name = b && ['fileName', 'name', 'title'].map((k) => b[k]).find((v) => typeof v === 'string');
-  return `${ctx.name(e.to)} envía el aviso ${ev} por el canal abierto${name ? `: ${name}` : ''}.`;
+  return tr('{name} envía el aviso {ev} por el canal abierto{p2}.', { name: ctx.name(e.to), ev, p2: name ? `: ${name}` : '' });
 }
 
 /** A message a sink kept, or the status call it made about it: said as what it is, and that nothing left the machine. */
@@ -392,9 +397,9 @@ function messageRow(e: Exchange, ctx: SayCtx): string | undefined {
   const m = e.msg;
   if (!m) return;
   const from = ctx.name(e.from), to = ctx.name(e.to);
-  if (m.cb) return `${from} avisa a ${to} de que el SMS ${m.cb === 'delivered' ? 'se entregó' : m.cb === 'sent' ? 'salió' : m.cb === 'received' ? 'llegó desde un teléfono' : `quedó ${m.cb}`}${e.status ? ` (${to} responde ${e.status})` : ''}.`;
-  const sent = m.kind === 'mail' ? `un correo a ${m.to}${m.subject ? `, «${m.subject}»` : ''}` : `un SMS a ${m.to}`;
-  return `${from} manda ${sent}: ${e.status && e.status >= 400 ? `el buzón responde ${e.status}` : 'queda en el buzón del entorno'} y no sale de tu máquina.`;
+  if (m.cb) return tr('{from} avisa a {to} de que el SMS {p2}{p3}.', { from, to, p2: m.cb === 'delivered' ? tr('se entregó') : m.cb === 'sent' ? tr('salió') : m.cb === 'received' ? tr('llegó desde un teléfono') : tr('quedó {cb}', { cb: m.cb }), p3: e.status ? tr(' ({to} responde {status})', { to, status: e.status }) : '' });
+  const sent = m.kind === 'mail' ? tr('un correo a {to}{p1}', { to: m.to, p1: m.subject ? `, «${m.subject}»` : '' }) : tr('un SMS a {to}', { to: m.to });
+  return tr('{from} manda {sent}: {p2} y no sale de tu máquina.', { from, sent, p2: e.status && e.status >= 400 ? tr('el buzón responde {status}', { status: e.status }) : tr('queda en el buzón del entorno') });
 }
 
 function tcpRow(e: Exchange, ctx: SayCtx): string {
@@ -402,11 +407,11 @@ function tcpRow(e: Exchange, ctx: SayCtx): string {
   if (said) return said;
   const from = ctx.name(e.from), to = ctx.name(e.to), up = e.req?.bytes ?? 0;
   const found = /^stream: (.+) FOUND\.?$/.exec(e.label);
-  const scan = `${from} manda ${up} B a ${to} para analizarlo y ${to} responde`;
-  if (/^stream: OK\.?$/.test(e.label)) return `${scan}: limpio.`;
-  if (found) return `${scan}: infectado (${found[1]}).`;
-  if (/ERROR/.test(e.label)) return `${scan} con error: ${e.label}.`;
-  return `${from} abre una conexión con ${to}: ${up} B enviados, ${e.res?.bytes ?? 0} B recibidos${/^\d+ B ↑ \d+ B ↓$/.test(e.label) ? '' : `; la respuesta empieza por «${e.label}»`}.`;
+  const scan = tr('{from} manda {up} B a {to} para analizarlo y {to} responde', { from, up, to });
+  if (/^stream: OK\.?$/.test(e.label)) return tr('{scan}: limpio.', { scan });
+  if (found) return tr('{scan}: infectado ({virus}).', { scan, virus: found[1] });
+  if (/ERROR/.test(e.label)) return tr('{scan} con error: {label}.', { scan, label: e.label });
+  return tr('{from} abre una conexión con {to}: {up} B enviados, {p3} B recibidos{p4}.', { from, to, up, p3: e.res?.bytes ?? 0, p4: /^\d+ B ↑ \d+ B ↓$/.test(e.label) ? '' : tr('; la respuesta empieza por «{label}»', { label: e.label }) });
 }
 
 function sayRow(r: Row, ctx: SayCtx): string {
@@ -416,7 +421,7 @@ function sayRow(r: Row, ctx: SayCtx): string {
   if (e.kind === 'sse') return sseRow(e, ctx);
   if (r.reply) return [httpResponse(e, ctx), ...mockSaid(e, ctx)].join(' ');
   const base = e.msg ? messageRow(e, ctx)! : e.kind === 'tcp' ? tcpRow(e, ctx) : httpRequest(e, ctx);
-  const silent = e.kind === 'http' && e.t1 === undefined && !e.error && !isStream(e) ? [`${ctx.name(e.to)} no responde dentro de la ventana de la prueba.`] : [];
+  const silent = e.kind === 'http' && e.t1 === undefined && !e.error && !isStream(e) ? [tr('{name} no responde dentro de la ventana de la prueba.', { name: ctx.name(e.to) })] : [];
   const replies = (e.kind === 'http' || e.kind === 'ws') && !e.asset && e.t1 !== undefined;
   return [base, ...faults(e, ctx), ...(replies ? [] : mockSaid(e, ctx)), ...silent].join(' ');
 }
@@ -432,17 +437,17 @@ function failTime(ctx: SayCtx): number {
 }
 function sayFail(ctx: SayCtx): string {
   const f = ctx.trace.failure;
-  if (!f) return 'La prueba no falló.';
+  if (!f) return tr('La prueba no falló.');
   const step = ctx.trace.steps.find((s) => s.n === f.step);
-  const lines = [step ? `Aquí falla la prueba, en el paso ${step.n} «${step.title}»: ${stop(f.message)}` : `Aquí falla el caso: ${stop(f.message)}`];
-  if (step?.expected) lines.push(`Se esperaba: ${stop(step.expected)}`);
+  const lines = [step ? tr('Aquí falla la prueba, en el paso {n} «{title}»: {stop}', { n: step.n, title: step.title, stop: stop(f.message) }) : tr('Aquí falla el caso: {stop}', { stop: stop(f.message) })];
+  if (step?.expected) lines.push(tr('Se esperaba: {stop}', { stop: stop(step.expected) }));
   const bad = ctx.rows.filter((r) => r.ex.id === f.exchange).sort((a, b) => Number(b.bad) - Number(a.bad))[0];
-  lines.push(bad ? `El primer salto que falló: ${sayRow(bad, ctx)}` : 'Ningún salto entre servicios falló: el fallo está en la página.');
+  lines.push(bad ? tr('El primer salto que falló: {sayRow}', { sayRow: sayRow(bad, ctx) }) : tr('Ningún salto entre servicios falló: el fallo está en la página.'));
   const t = failTime(ctx);
   const last = ctx.rows.filter((r) => r.t <= t && isBrowser(r.ex.from) && !ctx.chain.noise.has(r.ex.id) && (r.reply || r.ex.kind === 'sse')).at(-1);
   if (last) {
     const fl = fields(json(last.ex.res?.text));
-    lines.push(`Lo último que recibió el navegador antes del fallo: ${last.ex.kind === 'sse' ? `el aviso ${evName(last.ex)}` : `${what(ctx, last.ex)} → ${last.ex.status ?? last.ex.error}${fl.vals.length ? ` con ${list(fl.vals)}` : ''}`} (${at(last.t)}).`);
+    lines.push(tr('Lo último que recibió el navegador antes del fallo: {p0} ({at}).', { p0: last.ex.kind === 'sse' ? tr('el aviso {evName}', { evName: evName(last.ex) }) : `${what(ctx, last.ex)} → ${last.ex.status ?? last.ex.error}${fl.vals.length ? tr(' con {list}', { list: list(fl.vals) }) : ''}`, at: at(last.t) }));
   }
   return lines.join('\n');
 }
@@ -454,19 +459,19 @@ function sayFail(ctx: SayCtx): string {
 export function brief(e: Exchange, ctx: SayCtx): { what: string; note?: string } {
   if (e.kind === 'sql') {
     const verb = e.label.split(' ')[0], t = e.table, ent = t ? ctx.entity(t)?.entity : undefined, obj = ent ? `«${ent}»` : t ?? ctx.name(e.to);
-    return { what: `${({ SELECT: 'lee', INSERT: 'guarda', UPDATE: 'actualiza', DELETE: 'borra' } as Record<string, string>)[verb] ?? verb.toLowerCase()} ${obj}` };
+    return { what: `${({ SELECT: tr('lee'), INSERT: tr('guarda'), UPDATE: tr('actualiza'), DELETE: tr('borra') } as Record<string, string>)[verb] ?? verb.toLowerCase()} ${obj}` };
   }
-  if (e.kind === 'kafka') return { what: `${isConsume(e) ? 'recibe' : 'publica'} ${e.label}` };
-  if (e.kind === 'sse') return { what: isHello(e) ? `saludo «${evName(e)}»` : `aviso ${evName(e)}` };
-  if (e.msg) return { what: e.msg.cb ? `estado del SMS: ${e.msg.cb}` : `${e.msg.kind === 'mail' ? 'correo' : 'SMS'} a ${e.msg.to}` };
+  if (e.kind === 'kafka') return { what: `${isConsume(e) ? tr('recibe') : tr('publica')} ${e.label}` };
+  if (e.kind === 'sse') return { what: isHello(e) ? tr('saludo «{evName}»', { evName: evName(e) }) : tr('aviso {name}', { name: evName(e) }) };
+  if (e.msg) return { what: e.msg.cb ? tr('estado del SMS: {cb}', { cb: e.msg.cb }) : e.msg.kind === 'mail' ? tr('correo a {to}', { to: e.msg.to }) : tr('SMS a {to}', { to: e.msg.to }) };
   if (e.kind === 'tcp') {
     const found = /^stream: (.+) FOUND\.?$/.exec(e.label);
-    return { what: /^stream: OK\.?$/.test(e.label) ? 'analiza: limpio' : found ? `analiza: infectado (${found[1]})` : e.label };
+    return { what: /^stream: OK\.?$/.test(e.label) ? tr('analiza: limpio') : found ? tr('analiza: infectado ({p0})', { p0: found[1] }) : e.label };
   }
-  if (e.asset) return { what: `${e.asset} ${e.asset === 1 ? 'recurso estático' : 'recursos estáticos'}` };
+  if (e.asset) return { what: e.asset === 1 ? tr('1 recurso estático') : tr('{n} recursos estáticos', { n: e.asset }) };
   if (e.kind === 'ws') return { what: `WebSocket ${e.path ?? ''}`.trim() };
-  if (isStream(e)) return { what: 'abre el canal de avisos', note: e.path };
-  if (isBrowser(e.from) && isPage(e)) return { what: `página ${e.path}` };
+  if (isStream(e)) return { what: tr('abre el canal de avisos'), note: e.path };
+  if (isBrowser(e.from) && isPage(e)) return { what: tr('página {path}', { path: e.path }) };
   const d = deepest(ctx, e), op = opOf(ctx, d) ?? opOf(ctx, e);
   return { what: what(ctx, e), ...(op?.summary ? { note: op.summary } : {}) };
 }
@@ -478,11 +483,11 @@ export function say(s: Stop, ctx: SayCtx): string {
 
 // ---- causes ----
 
-const CERTAINTY = { sure: 'seguro', inferred: 'deducido', possible: 'posible' } as const;
+const CERTAINTY = { sure: tr('seguro'), inferred: tr('deducido'), possible: tr('posible') };
 /** «seguro», «deducido», «posible · también encaja en: GET /api/files/stats, GET /api/files/folders» */
 export function chip(c: Cause, ctx: SayCtx): string {
   const ex = by(ctx);
-  return c.certainty === 'possible' && c.alt?.length ? `posible · también encaja en: ${c.alt.map((id) => (ex.get(id) ? named(ctx, ex.get(id)!) : id)).join(', ')}` : CERTAINTY[c.certainty];
+  return c.certainty === 'possible' && c.alt?.length ? tr('posible · también encaja en: {join}', { join: c.alt.map((id) => (ex.get(id) ? named(ctx, ex.get(id)!) : id)).join(', ') }) : CERTAINTY[c.certainty];
 }
 
 function reason(c: Cause, ctx: SayCtx): string {
@@ -490,12 +495,12 @@ function reason(c: Cause, ctx: SayCtx): string {
   if (!w) return '';
   if (w.by === 'shape') {
     const anchor = ex.get(w.like), under = anchor && ex.get(ctx.chain.cause.get(anchor.id)?.parent ?? '');
-    return ` · misma sentencia que en ${under ? named(ctx, under) : '?'}${anchor ? ` (${at(anchor.t0)})` : ''}`;
+    return tr(' · misma sentencia que en {p0}{p1}', { p0: under ? named(ctx, under) : '?', p1: anchor ? ` (${at(anchor.t0)})` : '' });
   }
-  if (w.by === 'id') return ` · por el identificador ${w.id.slice(0, 4)}…, que solo trae ${ex.get(c.parent) ? named(ctx, ex.get(c.parent)!) : c.parent}`;
-  if (w.by === 'write') return ' · una lectura (GET) no escribe';
+  if (w.by === 'id') return tr(' · por el identificador {slice}…, que solo trae {p1}', { slice: w.id.slice(0, 4), p1: ex.get(c.parent) ? named(ctx, ex.get(c.parent)!) : c.parent });
+  if (w.by === 'write') return tr(' · una lectura (GET) no escribe');
   const [store, pid] = w.conn.split('#');
-  return ` · misma conexión a ${store} (pid ${pid})`;
+  return tr(' · misma conexión a {store} (pid {pid})', { store, pid });
 }
 
 /** «Lo provocó»: why this exchange happened, with the reason an ambiguous link was narrowed; for a root, its act. */
@@ -504,14 +509,14 @@ export function sayCause(e: Exchange, ctx: SayCtx): string {
   if (!c) return rootSaid(e, ctx);
   const p = by(ctx).get(c.parent)!;
   const s = {
-    forward: () => `La misma petición, reenviada por ${who(ctx, e.from)}`,
-    message: () => `La entrega del mensaje que publicó ${ctx.name(p.from)} (mismo tema, partición y offset)`,
-    relay: () => 'El mismo aviso, un tramo antes',
-    stream: () => (c.certainty === 'sure' ? 'La apertura del canal' : `La apertura del canal de ${ctx.name(e.from)}: su fila sale al cerrarse y no se cerró en la prueba`),
-    inside: () => `Ocurre mientras ${ctx.name(p.to)} atendía ${named(ctx, p)}`,
-    consume: () => `${ctx.name(p.to)} lo hace al procesar ${p.label}`,
-    reaction: () => `La página reacciona al aviso ${evName(p)} que acaba de llegar`,
-    callback: () => `El aviso de estado del SMS que ${ctx.name(p.from)} mandó antes (${p.label})`,
+    forward: () => tr('La misma petición, reenviada por {who}', { who: who(ctx, e.from) }),
+    message: () => tr('La entrega del mensaje que publicó {name} (mismo tema, partición y offset)', { name: ctx.name(p.from) }),
+    relay: () => tr('El mismo aviso, un tramo antes'),
+    stream: () => (c.certainty === 'sure' ? tr('La apertura del canal') : tr('La apertura del canal de {name}: su fila sale al cerrarse y no se cerró en la prueba', { name: ctx.name(e.from) })),
+    inside: () => tr('Ocurre mientras {name} atendía {named}', { name: ctx.name(p.to), named: named(ctx, p) }),
+    consume: () => tr('{name} lo hace al procesar {label}', { name: ctx.name(p.to), label: p.label }),
+    reaction: () => tr('La página reacciona al aviso {evName} que acaba de llegar', { evName: evName(p) }),
+    callback: () => tr('El aviso de estado del SMS que {name} mandó antes ({label})', { name: ctx.name(p.from), label: p.label }),
   }[c.how]();
   return `${s}${reason(c, ctx)}.`;
 }
@@ -521,14 +526,14 @@ function rootSaid(e: Exchange, ctx: SayCtx): string {
   const orphan = ctx.chain.orphans.find((o) => o.id === e.id);
   if (orphan || !a) return orphan ? sayOrphan(orphan, ctx) : '';
   switch (a.kind) {
-    case 'person': { const m = a.marks.filter((x) => x.t0 <= e.t0); return `Lo pide el navegador tras «${marksSaid(ctx, a, m.length ? m : a.marks)}».`; }
-    case 'page': return 'Lo pide la página por su cuenta.';
+    case 'person': { const m = a.marks.filter((x) => x.t0 <= e.t0); return tr('Lo pide el navegador tras «{marksSaid}».', { marksSaid: marksSaid(ctx, a, m.length ? m : a.marks) }); }
+    case 'page': return tr('Lo pide la página por su cuenta.');
     case 'burst': {
       const n = ctx.chain.acts.filter((x) => x.kind === 'burst' && x.step === a.step && x.t0 <= a.t0).length;
-      return `Lo pide el navegador (tanda ${n}${a.step !== undefined ? ` del paso ${a.step}` : ''}).`;
+      return tr('Lo pide el navegador (tanda {n}{p1}).', { n, p1: a.step !== undefined ? tr(' del paso {step}', { step: a.step }) : '' });
     }
-    case 'setup': return 'Lo pide la prueba para preparar datos.';
-    case 'check': return ctx.trace.steps.length ? 'Lo pide la prueba para comprobar, no la persona.' : 'Lo pide el caso.';
+    case 'setup': return tr('Lo pide la prueba para preparar datos.');
+    case 'check': return ctx.trace.steps.length ? tr('Lo pide la prueba para comprobar, no la persona.') : tr('Lo pide el caso.');
   }
 }
 
@@ -536,9 +541,9 @@ function rootSaid(e: Exchange, ctx: SayCtx): string {
 export function sayOrphan(o: Chain['orphans'][number], ctx: SayCtx): string {
   const e = by(ctx).get(o.id)!;
   switch (o.reason) {
-    case 'unknown-ip': return `Viene de ${e.from}: una dirección que el entorno no conoce.`;
-    case 'ambiguous-publisher': { const p = ctx.publishers(e.label); return `Alguien publica ${e.label}: el código tiene ${p.length} publicadores (${p.join(', ')}) y la traza no dice cuál.`; }
-    case 'host': return 'Tráfico de tu máquina durante la prueba: no es de esta prueba.';
-    case 'no-cause': return `${ctx.name(actorOf(e))} lo hace sin una petición ni un mensaje que lo explique en esta prueba (¿una tarea programada?).`;
+    case 'unknown-ip': return tr('Viene de {from}: una dirección que el entorno no conoce.', { from: e.from });
+    case 'ambiguous-publisher': { const p = ctx.publishers(e.label); return tr('Alguien publica {label}: el código tiene {length} publicadores ({join}) y la traza no dice cuál.', { label: e.label, length: p.length, join: p.join(', ') }); }
+    case 'host': return tr('Tráfico de tu máquina durante la prueba: no es de esta prueba.');
+    case 'no-cause': return tr('{name} lo hace sin una petición ni un mensaje que lo explique en esta prueba (¿una tarea programada?).', { name: ctx.name(actorOf(e)) });
   }
 }

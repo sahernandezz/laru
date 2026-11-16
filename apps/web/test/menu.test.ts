@@ -20,13 +20,20 @@ test('a piece of the application lights its kind up in the main menu; a module\'
   assert.equal(m.kind === 'scope' && m.active, 'p-guide');
 });
 
-test('a flow\'s pages and its own environment\'s data share the flow\'s menu, before its data has loaded too', () => {
+test('a flow\'s data are its last run\'s recording, in the flow\'s menu; its environment\'s live data keep the environment\'s menu', () => {
   const doc = menuOf(['docs', 'flow:buy', 't', 'live'], { k });
   assert.equal(doc.kind === 'scope' && doc.card.title, 'Comprar');
   assert.equal(doc.kind === 'scope' && doc.active, 'live');
-  const data = menuOf(['queues', 'f-buy'], {});
-  assert.equal(data.kind === 'scope' && data.card.title, 'buy', 'the slug from the address while nothing is loaded');
-  assert.equal(data.kind === 'scope' && data.active, 'queues');
+  assert.deepEqual(doc.kind === 'scope' && doc.sections.filter((x) => x.group).map((x) => x.to), ['#/flowdata/buy/data', '#/flowdata/buy/queues', '#/flowdata/buy/storage', '#/flowdata/buy/mail', '#/flowdata/buy/vars']);
+  const recorded = menuOf(['flowdata', 'buy', 'queues'], {});
+  assert.equal(recorded.kind === 'scope' && recorded.card.title, 'buy', 'the slug from the address while nothing is loaded');
+  assert.equal(recorded.kind === 'scope' && recorded.active, 'queues');
+  const live = menuOf(['queues', 'f-buy'], {});
+  assert.equal(live.kind === 'scope' && live.card.title, 'f-buy');
+  // the same screen on a run's recording of the flow (`?run=…&flujo=buy`) keeps the flow's menu
+  const onRecording = menuOf(['data', 'local'], { recording: 'buy' });
+  assert.equal(onRecording.kind === 'scope' && onRecording.card.title, 'buy');
+  assert.equal(onRecording.kind === 'scope' && onRecording.active, 'data');
   const env = menuOf(['data', 'local'], {});
   assert.equal(env.kind === 'scope' && env.card.title, 'local');
 });

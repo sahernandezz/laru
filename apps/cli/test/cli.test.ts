@@ -180,3 +180,44 @@ test('--fix turns systemd on in /etc/wsl.conf inside the [boot] there is, never 
   chmodSync(locked, 0o600);
   assert.equal(readWslConf(locked), '[network]\nhostname=x\n');
 });
+
+test('docs write names each warning with where it is, not just how many', async () => {
+  const fx = makeFixture();
+  const root = join(fx.tmp, 'ws');
+  const c = capture();
+  assert.equal(await run(['init', root, '--app', 'comercio'], c.io), 0);
+  const file = join(fx.tmp, 'app.json');
+  writeFileSync(file, JSON.stringify({ type: 'application', title: 'Comercio', kind: 'product', status: 'active', summary: 'Una tienda que vende y devuelve pedidos pagados.', fields: { purpose: 'Probablemente vende cosas, etc.', users: [{ actor: 'Cliente', need: 'Comprar' }], scope: ['Pagos'] } }));
+  const w = capture();
+  assert.equal(await run(['docs', 'write', file], w.io, root), 0);
+  assert.match(w.out[0], /wrote app:comercio .*\(\d+ warnings\)/);
+  assert.ok(w.out.some((l) => /^ {2}fields\.purpose: .*probablemente/i.test(l)), w.out.join('\n'));
+});
+
+test('laru rules prints the person\'s instructions: all, those about a moment, those about a task', async () => {
+  const fx = makeFixture();
+  const root = join(fx.tmp, 'ws');
+  assert.equal(await run(['init', root, '--app', 'comercio'], capture().io), 0);
+  const ws = loadWorkspace(root);
+  const none = capture();
+  assert.equal(await run(['rules'], none.io, root), 0);
+  assert.match(none.out.join('\n'), /No instructions yet/);
+  assert.ok(knowledgeWrite(ws, { type: 'application', title: 'Comercio', kind: 'product', status: 'active', summary: 'Una tienda que vende y devuelve pedidos pagados.', fields: { purpose: 'Vender.', users: [{ actor: 'Cliente', need: 'Comprar' }], scope: ['Pagos'] } }).ok);
+  assert.ok(knowledgeWrite(ws, { type: 'agreement', in: 'app:comercio', title: 'Mi forma', status: 'active', summary: 'Cómo quiero que trabaje el agente aquí.', fields: { never: ['Publicar sin preguntar'], notes: '## PR\nTítulo con la HU.\n\n## Pruebas\nLos flujos afectados antes de entregar.' } }).ok);
+  const pr = capture();
+  assert.equal(await run(['rules', 'pr'], pr.io, root), 0);
+  assert.match(pr.out.join('\n'), /^### PR\nTítulo con la HU\.$/);
+  const task = capture();
+  assert.equal(await run(['rules', '--for', 'corre las pruebas'], task.io, root), 0);
+  assert.match(task.out.join('\n'), /### Pruebas/);
+  assert.equal(await run(['rules', 'deploy'], capture().io, root), 2);
+});
+
+test('laru start gives an agent with no hooks the view a session starts with', async () => {
+  const fx = makeFixture();
+  const root = join(fx.tmp, 'ws');
+  assert.equal(await run(['init', root, '--app', 'comercio'], capture().io), 0);
+  const c = capture();
+  assert.equal(await run(['start'], c.io, root), 0);
+  assert.match(c.out.join('\n'), /Laru workspace «[^»]*» \(comercio\)[\s\S]*How things are done here, with Laru/);
+});

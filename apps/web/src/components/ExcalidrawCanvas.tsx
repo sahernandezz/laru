@@ -12,6 +12,7 @@ import { fromScene, toScene } from '../lib/excalidrawScene.ts';
 import { isLight } from '../lib/theme.ts';
 import type { Templates } from '../lib/libraryScene.ts';
 import { sceneToSequence, sequenceToScene } from '../lib/sequenceScene.ts';
+import { tr } from '../lib/i18n.ts';
 
 /** A sequence travels as its own model with the class on it. */
 export type Drawing = DiagramModel | (SequenceModel & { kind: 'sequence' });
@@ -92,11 +93,11 @@ export default function ExcalidrawCanvas({ model, kind, kinds, onChangeKind, iss
         >
           <MainMenu>
             {!isSequence(model) && SKINS[kind as keyof typeof SKINS] && (
-              <MainMenu.Item onSelect={() => onChange(propose(structuredClone(model), { kind, skin: SKINS[kind as keyof typeof SKINS]! }).model)} icon={<Sparkles size={16} />}>Proponer la colocación</MainMenu.Item>
+              <MainMenu.Item onSelect={() => onChange(propose(structuredClone(model), { kind, skin: SKINS[kind as keyof typeof SKINS]! }).model)} icon={<Sparkles size={16} />}>{tr('Proponer la colocación')}</MainMenu.Item>
             )}
             <MainMenu.Separator />
             {issues.length === 0
-              ? <MainMenu.Item onSelect={() => undefined} icon={<Check size={16} />}>Cumple las reglas de su clase</MainMenu.Item>
+              ? <MainMenu.Item onSelect={() => undefined} icon={<Check size={16} />}>{tr('Cumple las reglas de su clase')}</MainMenu.Item>
               : issues.slice(0, 8).map((i, n) => <MainMenu.Item key={n} onSelect={() => setShowIssues(true)} icon={<AlertTriangle size={16} />}>{i.text}</MainMenu.Item>)}
             <MainMenu.Separator />
             <MainMenu.DefaultItems.ChangeCanvasBackground />
@@ -105,10 +106,10 @@ export default function ExcalidrawCanvas({ model, kind, kinds, onChangeKind, iss
           </MainMenu>
           <Footer>
             <div className="exc-footer">
-              <select aria-label="Clase del diagrama" value={kind} onChange={(e) => onChangeKind(e.target.value as DiagramKind)}>
+              <select aria-label={tr('Clase del diagrama')} value={kind} onChange={(e) => onChangeKind(e.target.value as DiagramKind)}>
                 {kinds.map((k) => <option key={k.value} value={k.value}>{k.label}</option>)}
               </select>
-              <span>{isSequence(model) ? `${model.participants.length} participantes, ${model.rows.length} filas` : `${model.nodes.length} piezas, ${model.edges.length} flechas`}</span>
+              <span>{isSequence(model) ? tr('{length} participantes, {length2} filas', { length: model.participants.length, length2: model.rows.length }) : tr('{length} piezas, {length2} flechas', { length: model.nodes.length, length2: model.edges.length })}</span>
               {issues.length > 0 && <button type="button" className={errors ? 'err-ink' : 'warn-ink'} aria-expanded={showIssues} onClick={() => setShowIssues((v) => !v)}><AlertTriangle size={13} aria-hidden="true" />{issues.length}</button>}
             </div>
           </Footer>

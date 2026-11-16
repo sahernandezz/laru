@@ -9,6 +9,13 @@ import { test as base, expect, type APIRequestContext, type BrowserContext, type
 
 export { expect };
 
+/**
+ * A screen's window by its kind, from the runner's config (KS_SCREENS, set from RUNNER_DEFAULTS there). This file
+ * imports nothing of its own package: inside the runner a spec loads it as CommonJS, and Node then refuses a sibling
+ * .ts module of this package (`"type": "module"`), so no flow could start.
+ */
+const SCREENS = JSON.parse(process.env.KS_SCREENS ?? '{}') as Record<string, { width: number; height: number }>;
+
 interface Fixtures {
   /** applies the flow's own time limit before the test starts; never used by name */
   _limit: void;
@@ -26,8 +33,13 @@ interface Fixtures {
   mail: Mail;
   /** the same, for the texts the app sends */
   sms: Sms;
-  /** another screen of the same test, by name (`otherScreen('luis')`): a second person's browser, with its own video on the same clock and its own lane in the trace; `size` makes it a phone (its window and its video; by default the flow's `screen`, else 1280×720) */
-  otherScreen: (name: string, size?: { width: number; height: number }) => Promise<Page>;
+  /**
+   * another screen of the same test, by name (`otherScreen('luis')`): a second person's browser, with its own video on the
+   * same clock and its own lane in the trace. Its kind sets its window and its video: `'pc'` (the default) is the flow's
+   * own `screen`, the same as the story's, so two pcs never differ; `'phone'` 390×844, `'tablet'` 820×1180. A size of its
+   * own only for a device none of those is.
+   */
+  otherScreen: (name: string, kind?: 'pc' | 'phone' | 'tablet' | { width: number; height: number }) => Promise<Page>;
 }
 /** The state a flow starts from: its scenario and who its setup left able to sign in. */
 export interface Given { scenario?: string; identities: Identity[]; identity(name?: string): Identity }
@@ -176,6 +188,8 @@ async function drawMarker(page: Page): Promise<number> {
   await page.waitForTimeout(250);
   const drawn = await page.evaluate(() => new Promise<number>((done) => requestAnimationFrame(() => { document.body.style.background = '#ff00ff'; requestAnimationFrame(() => done(Date.now())); })));
   await page.waitForTimeout(120);
+  // back to black once recorded: left on, the magenta filled the video until the story opened the app
+  await page.evaluate(() => { document.body.style.background = '#000'; });
   return drawn;
 }
 
@@ -202,8 +216,6 @@ const perFlow = JSON.parse(process.env.KS_BASE_URLS_JSON ?? '{}') as Record<stri
 const limits = JSON.parse(process.env.KS_FLOW_TIMEOUTS_JSON ?? '{}') as Record<string, number>;
 /** A flow's browser window (`screen` in its flow.md), by the name of its spec file: the page and its video take that size, whole. */
 const screens = JSON.parse(process.env.KS_FLOW_SCREENS_JSON ?? '{}') as Record<string, { width: number; height: number }>;
-/** rrweb's recorder, mounted by the host (runnerArgs): a story without it keeps only its video */
-const RRWEB = '/ks/rrweb-record.js';
 /**
  * story and scenario declare their test in this file, so Playwright's `info.file` is flow.ts: each keeps the
  * name of the spec that called it as a `spec` annotation, read from the call's stack while the spec loads.
@@ -233,32 +245,8 @@ export const test = base.extend<Fixtures>({
     const context = await browser.newContext(story ? { recordVideo: { dir: info.outputPath('screen-main'), ...(viewport ? { size: viewport } : {}) } } : {});
     const pages: Page[] = [];
     context.on('page', (p) => pages.push(p));
-    // The story's first page also recorded as data (rrweb): the DOM and its changes, replayed and inspected later, a
-    // video made from it on demand. A secret field's value never leaves the page; the host masks vault values after.
-    const replay: unknown[] = [];
-    if (story && existsSync(RRWEB)) {
-      await context.exposeBinding('__laruReplay', ({ page, frame }, e: unknown) => { if (page === pages[0] && frame === page.mainFrame()) replay.push(e); });
-      await context.addInitScript({ path: RRWEB });
-      await context.addInitScript(() => {
-        // the top document only: rrweb takes the page's own iframes along, and one recorder per iframe would replace the page by a 0×0 one
-        if (window !== window.top) return;
-        const secret = /pass|contrase[ñn]a|clave|token|secret|\bpin\b|otp|c[oó]digo/i;
-        const w = window as unknown as { rrwebRecord: { record(o: object): void }; __laruReplay(e: unknown): void };
-        w.rrwebRecord.record({
-          emit: (e: unknown) => w.__laruReplay(e), inlineImages: true, recordCanvas: false, sampling: { mousemove: 50, scroll: 100, input: 'last' },
-          // rrweb asks maskInputFn only about the kinds maskInputOptions names: every field is asked, and a password is always masked
-          maskInputOptions: { input: true, textarea: true },
-          maskInputFn: (text: string, el: HTMLElement) => ((el as HTMLInputElement).type === 'password' || secret.test([el.getAttribute('name'), el.getAttribute('id'), el.getAttribute('placeholder'), el.getAttribute('aria-label'), el.getAttribute('autocomplete')].join(' ')) ? '•'.repeat(text.length) : text),
-        });
-      });
-    }
     await use(context);
     await context.close();
-    if (replay.length) {
-      const path = info.outputPath('replay.json');
-      writeFileSync(path, JSON.stringify(replay));
-      info.attachments.push({ name: 'replay', path, contentType: 'application/json' });
-    }
     let n = 0;
     for (const v of pages.map((p) => p.video()).filter((v) => v !== null)) {
       const path = info.outputPath(`video${n++ ? `-${n - 1}` : ''}.webm`);
@@ -278,8 +266,10 @@ export const test = base.extend<Fixtures>({
   },
   otherScreen: async ({ browser, baseURL, viewport }, use, info) => {
     const made: Array<{ name: string; page: Page; context: BrowserContext; t0: number; marker?: number }> = [];
-    await use(async (name, size = viewport ?? { width: 1280, height: 720 }) => {
+    await use(async (name, kind = 'pc') => {
       if (!/^[\w-]{1,32}$/.test(name)) throw new Error(`a screen's name is letters, digits, _ and - (up to 32): ${name}`);
+      const size = kind === 'pc' ? viewport ?? undefined : typeof kind === 'string' ? SCREENS[kind] : kind;
+      if (!size) throw new Error(`a screen is 'pc', 'phone' or 'tablet' (or a size of its own): ${String(kind)}`);
       const had = made.find((m) => m.name === name);
       if (had) return had.page;
       const story = info.project.name === 'story';

@@ -345,3 +345,10 @@ test('every row, act, cause and failure of every fixture says something, and nev
     }
   }
 });
+
+test('an object key with a stray % (the app\'s own name) is told as it came, never breaking the narration', () => {
+  const minio = limpio.exchanges.find((e) => e.to === 'minio' && e.method === 'PUT')!;
+  const t = { ...limpio, exchanges: [...limpio.exchanges, { ...minio, id: 'stray', path: '/files/100%25%zz.pdf' }] };
+  const text = row(ctxOf(t), t.exchanges.at(-1)!);
+  assert.match(text, /100%25%zz\.pdf/);
+});

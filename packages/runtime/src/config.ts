@@ -7,8 +7,12 @@ import { join } from 'node:path';
 import { Document, parseDocument } from 'yaml';
 import { laruHome } from '@laru/core';
 
-/** Applied per workspace: videos and screenshots older than videoDays go, then runs older than runDays, then the oldest until under maxGB. */
-export interface Retention { videoDays: number; runDays: number; maxGB: number }
+/**
+ * Applied per workspace: each flow keeps its last `keepRuns` runs and, always, its last passed one (its pivot, never
+ * removed); older runs go. Videos and screenshots older than videoDays go (never the pivot's), then the oldest runs
+ * until under maxGB.
+ */
+export interface Retention { videoDays: number; keepRuns: number; maxGB: number }
 export interface MachineConfig {
   /** how many persistent envs may run at once on this machine */
   maxEnvs: number;
@@ -19,13 +23,15 @@ export interface MachineConfig {
   workers: number;
   /** how long a recorded story holds the screen still at the end of each step, so its video can be followed */
   stepHoldMs: number;
+  /** a recorded story's pause before each action (Playwright's slowMo); unset, the runner's own (300 ms) */
+  storyPaceMs?: number;
   /** mask secrets in what Laru records and shows; off by default: it runs locally, and what it shows is what passed (an env's next up applies it) */
   mask: boolean;
   /** Laru's build cache (its own builder's; Docker's, shared with other projects, is never touched) is trimmed to this after each up, least recently used first; 0: left alone */
   buildCacheGB: number;
 }
 
-export const CONFIG_DEFAULTS: MachineConfig = { maxEnvs: 0, videoOffsetMs: 0, retention: { videoDays: 7, runDays: 30, maxGB: 5 }, workers: 0, stepHoldMs: 0, mask: false, buildCacheGB: 20 };
+export const CONFIG_DEFAULTS: MachineConfig = { maxEnvs: 0, videoOffsetMs: 0, retention: { videoDays: 7, keepRuns: 5, maxGB: 5 }, workers: 0, stepHoldMs: 0, mask: false, buildCacheGB: 20 };
 const file = () => join(laruHome(), 'config.yaml');
 const num = (v: unknown, dflt: number) => (typeof v === 'number' && Number.isFinite(v) ? v : typeof v === 'string' && v.trim() && Number.isFinite(Number(v)) ? Number(v) : dflt);
 
@@ -33,8 +39,8 @@ export function readConfig(): MachineConfig {
   const raw = (existsSync(file()) ? parseDocument(readFileSync(file(), 'utf8')).toJS() : null) as Record<string, any> | null;
   const r = raw?.retention ?? {}, d = CONFIG_DEFAULTS;
   return {
-    maxEnvs: num(raw?.maxEnvs, d.maxEnvs), videoOffsetMs: num(raw?.videoOffsetMs, d.videoOffsetMs), workers: num(raw?.workers, d.workers), stepHoldMs: Math.max(0, num(raw?.stepHoldMs, d.stepHoldMs)), mask: raw?.mask === true, buildCacheGB: Math.max(0, num(raw?.buildCacheGB, d.buildCacheGB)),
-    retention: { videoDays: num(r.videoDays, d.retention.videoDays), runDays: num(r.runDays, d.retention.runDays), maxGB: num(r.maxGB, d.retention.maxGB) },
+    maxEnvs: num(raw?.maxEnvs, d.maxEnvs), videoOffsetMs: num(raw?.videoOffsetMs, d.videoOffsetMs), workers: num(raw?.workers, d.workers), stepHoldMs: Math.max(0, num(raw?.stepHoldMs, d.stepHoldMs)), ...(raw?.storyPaceMs !== undefined ? { storyPaceMs: Math.max(0, num(raw.storyPaceMs, 0)) } : {}), mask: raw?.mask === true, buildCacheGB: Math.max(0, num(raw?.buildCacheGB, d.buildCacheGB)),
+    retention: { videoDays: num(r.videoDays, d.retention.videoDays), keepRuns: Math.max(0, Math.floor(num(r.keepRuns, d.retention.keepRuns))), maxGB: num(r.maxGB, d.retention.maxGB) },
   };
 }
 

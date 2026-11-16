@@ -16,6 +16,7 @@ import { CONTAINERS, FLOW_TABS, iconOf, sectionsOf, TABS_OF } from './pieceMenu.
 import { href, pageOf, splitStop } from './route.ts';
 import { inProgress } from './service.ts';
 import { homeOf } from './sysmap.ts';
+import { tr } from './i18n.ts';
 
 export interface Section { key: string; label: string; to: string; n?: number; icon?: LucideIcon; group?: string }
 export interface ScopeMenu {
@@ -31,7 +32,10 @@ export type Menu = MainMenu | ScopeMenu;
 
 /** What the menu reads besides the address; each may still be loading. */
 /** `session`: the run a live session's address names, read on its own (an old one is past the runs list). */
-export interface MenuData { k?: KnowledgeData; flows?: FlowInfo[]; envs?: EnvSummary[]; runs?: RunInfo[]; session?: { id: string; env: string }; g?: Indexed | null; std?: StandardData; fronts?: number }
+export interface MenuData {
+  /** the flow whose run's recording the data screen shows (`?run=…&flujo=<slug>`): its menu, not the env's */
+  recording?: string;
+  k?: KnowledgeData; flows?: FlowInfo[]; envs?: EnvSummary[]; runs?: RunInfo[]; session?: { id: string; env: string }; g?: Indexed | null; std?: StandardData; fronts?: number }
 
 export const EXPLORERS = ['data', 'queues', 'storage', 'mail', 'vars'];
 const NODE_ICON: Record<string, LucideIcon> = { service: Server, datastore: Database, external: Globe };
@@ -60,22 +64,22 @@ export function ownerOf(p: DocPiece, byId: Map<string, DocPiece>): DocPiece | un
 }
 
 function flowMenu(id: string, active: string, d: MenuData): ScopeMenu {
-  const slug = id.replace(/^flow:/, ''), env = `f-${slug}`;
+  const slug = id.replace(/^flow:/, '');
   const p = d.k?.pieces.find((x) => x.id === id), info = d.flows?.find((f) => f.id === id);
   const app = d.k?.pieces.find((x) => x.type === 'application');
-  const at = (screen: string) => href(screen, env);
+  const at = (kind: string) => href('flowdata', slug, kind);
   return {
     kind: 'scope',
-    back: { label: 'Todos los flujos', to: app ? href('docs', app.id, 't', 'flows') : href('docs') },
-    card: { icon: Workflow, kind: 'Flujo', title: p?.title ?? slug, sub: info ? lastWord(info)[1] : undefined, state: info ? flowDot(info) : undefined },
+    back: { label: tr('Todos los flujos'), to: app ? href('docs', app.id, 't', 'flows') : href('docs') },
+    card: { icon: Workflow, kind: tr('Flujo'), title: p?.title ?? slug, sub: info ? lastWord(info)[1] : undefined, state: info ? flowDot(info) : undefined },
     sections: [
       ...FLOW_TABS.map(([key, label]) => ({ key, label, to: key === 'summary' ? href('docs', id) : href('docs', id, 't', key), icon: { summary: FileText, live: Radio, doc: BookText }[key] })),
-      // each flow runs isolated in its own environment: its data are that environment's, never another's
-      { key: 'data', label: 'Bases de datos', to: at('data'), icon: Database, group: `Datos de ${env}` },
-      { key: 'queues', label: 'Colas', to: at('queues'), icon: ArrowLeftRight, group: `Datos de ${env}` },
-      { key: 'storage', label: 'Almacenamiento', to: at('storage'), icon: HardDrive, group: `Datos de ${env}` },
-      { key: 'mail', label: 'Correo y mensajes', to: at('mail'), icon: Mail, group: `Datos de ${env}` },
-      { key: 'vars', label: 'Variables y secretos', to: at('vars'), icon: KeyRound, group: `Datos de ${env}` },
+      // a flow's data are what its last run left (recorded, with the env off); the env's live data are the env's own menu
+      { key: 'data', label: tr('Bases de datos'), to: at('data'), icon: Database, group: tr('Datos del último run') },
+      { key: 'queues', label: tr('Colas'), to: at('queues'), icon: ArrowLeftRight, group: tr('Datos del último run') },
+      { key: 'storage', label: tr('Almacenamiento'), to: at('storage'), icon: HardDrive, group: tr('Datos del último run') },
+      { key: 'mail', label: tr('Correo y mensajes'), to: at('mail'), icon: Mail, group: tr('Datos del último run') },
+      { key: 'vars', label: tr('Variables y secretos'), to: at('vars'), icon: KeyRound, group: tr('Datos del último run') },
     ],
     active,
   };
@@ -87,16 +91,16 @@ function envMenu(env: string, active: string, d: MenuData, session?: string): Sc
   const live = session ?? open;
   return {
     kind: 'scope',
-    back: { label: 'Todos los entornos', to: href('envs') },
-    card: { icon: Container, kind: /^f-/.test(env) ? 'Entorno de un flujo' : 'Entorno', title: env, sub: !e ? undefined : e.op && !e.op.done ? (e.op.kind === 'up' ? 'Levantando' : 'Destruyendo') : ENV_STATE[e.state] },
+    back: { label: tr('Todos los entornos'), to: href('envs') },
+    card: { icon: Container, kind: /^f-/.test(env) ? tr('Entorno de un flujo') : tr('Entorno'), title: env, sub: !e ? undefined : e.op && !e.op.done ? (e.op.kind === 'up' ? tr('Levantando') : tr('Destruyendo')) : ENV_STATE[e.state] },
     sections: [
-      { key: 'state', label: 'Estado y servicios', to: href('envs', env), icon: Container },
-      { key: 'data', label: 'Bases de datos', to: href('data', env), icon: Database },
-      { key: 'queues', label: 'Colas', to: href('queues', env), icon: ArrowLeftRight },
-      { key: 'storage', label: 'Almacenamiento', to: href('storage', env), icon: HardDrive },
-      { key: 'mail', label: 'Correo y mensajes', to: href('mail', env), icon: Mail },
-      { key: 'vars', label: 'Variables y secretos', to: href('vars', env), icon: KeyRound },
-      ...(live ? [{ key: 'live', label: `Sesión ${live} en vivo`, to: href('live', live), icon: Radio }] : []),
+      { key: 'state', label: tr('Estado y servicios'), to: href('envs', env), icon: Container },
+      { key: 'data', label: tr('Bases de datos'), to: href('data', env), icon: Database },
+      { key: 'queues', label: tr('Colas'), to: href('queues', env), icon: ArrowLeftRight },
+      { key: 'storage', label: tr('Almacenamiento'), to: href('storage', env), icon: HardDrive },
+      { key: 'mail', label: tr('Correo y mensajes'), to: href('mail', env), icon: Mail },
+      { key: 'vars', label: tr('Variables y secretos'), to: href('vars', env), icon: KeyRound },
+      ...(live ? [{ key: 'live', label: tr('Sesión {live} en vivo', { live }), to: href('live', live), icon: Radio }] : []),
     ],
     active,
   };
@@ -106,7 +110,7 @@ function nodeMenu(g: Indexed, node: MapNode, asked: string | undefined, d: MenuD
   const parts = nodeParts(g, node, d.k, d.flows);
   return {
     kind: 'scope',
-    back: { label: 'Mapa y servicios', to: href('map') },
+    back: { label: tr('Mapa y servicios'), to: href('map') },
     card: { icon: NODE_ICON[node.type] ?? Server, kind: pieceLabel(node.type), title: node.name, sub: (KIND[node.kind ?? ''] ?? node.kind) || node.repo },
     sections: parts.tabs.map((t) => ({ key: t.key, label: t.label, n: t.n, to: href('map', node.id, 't', t.key) })),
     active: nodeTab(parts, asked),
@@ -128,7 +132,7 @@ function docsMenu(id: string, rest: string[], d: MenuData): Menu {
   const parent = byId.get(owner.parent ?? '');
   return {
     kind: 'scope',
-    back: parent ? { label: parent.title, to: pageOf(parent.id) } : { label: 'Resumen', to: href('overview') },
+    back: parent ? { label: parent.title, to: pageOf(parent.id) } : { label: tr('Resumen'), to: href('overview') },
     card: { icon: iconOf(owner), kind: pieceLabel(owner.type), title: owner.title },
     sections: sectionsOf(k, byId, owner, active.startsWith('p-') ? active.slice(2) : undefined, d.fronts ?? 0),
     active,
@@ -141,8 +145,8 @@ function standardMenu(type: string, std: StandardData): Menu {
   const order = [...std.types.filter((t) => CONTAINERS.includes(t.type)), ...std.types.filter((t) => !CONTAINERS.includes(t.type))];
   return {
     kind: 'scope',
-    back: { label: 'Todas las piezas', to: href('standard') },
-    card: { icon: ScrollText, kind: 'Cómo se documenta', title: pieceLabel(current.type), sub: current.question },
+    back: { label: tr('Todas las piezas'), to: href('standard') },
+    card: { icon: ScrollText, kind: tr('Cómo se documenta'), title: pieceLabel(current.type), sub: current.question },
     sections: order.map((t) => ({ key: t.type, label: pieceLabel(t.type), to: href('standard', t.type), icon: iconOf({ type: t.type }) })),
     active: current.type,
   };
@@ -155,7 +159,8 @@ export function menuOf(route: string[], d: MenuData): Menu {
   for (const r of d.runs ?? []) if (r.kind === 'session') sessionEnv.set(r.id, r.env);
   if (d.session) sessionEnv.set(d.session.id, d.session.env);
   if (screen === 'docs' && a && a !== 'new') return docsMenu(a, rest.slice(1), d);
-  if (EXPLORERS.includes(screen) && a) return /^f-./.test(a) ? flowMenu(`flow:${a.slice(2)}`, screen, d) : envMenu(a, screen, d);
+  if (screen === 'flowdata' && a) return flowMenu(`flow:${a}`, b ?? 'data', d);
+  if (EXPLORERS.includes(screen) && a) return d.recording ? flowMenu(`flow:${d.recording}`, screen, d) : envMenu(a, screen, d);
   if (screen === 'envs' && a && (!d.envs || d.envs.some((e) => e.env === a))) return envMenu(a, 'state', d);
   if (screen === 'live' && a && sessionEnv.has(a)) return envMenu(sessionEnv.get(a)!, 'live', d, a);
   if (screen === 'map' && a && d.g) {

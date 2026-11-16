@@ -74,3 +74,10 @@ test('a test titled «paso a paso» is a test, not a stop', () => {
   }
   assert.equal(stopIn(withStop(href('runs', '42', 'x', 'paso a paso'), 'fallo')), 'fallo');
 });
+
+test('an address with a stray % (a link written by hand) is read as written, never breaking the page', async () => {
+  const { partsOf, wsOf } = await import('../src/lib/route.ts');
+  assert.deepEqual(partsOf('#/docs/%zz'), ['docs', '%zz']);
+  assert.deepEqual(partsOf('#/docs/mod%3Apagos'), ['docs', 'mod:pagos']);
+  assert.equal(wsOf('/w/%E0%A4%A/'), '%E0%A4%A');
+});

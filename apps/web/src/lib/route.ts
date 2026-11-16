@@ -7,7 +7,9 @@
 import { useSyncExternalStore } from 'react';
 
 /** An address's parts, decoded. */
-export const partsOf = (hash: string) => hash.replace(/^#\/?/, '').split('?')[0].split('/').map(decodeURIComponent).filter(Boolean);
+/** A part of an address as written: one that does not decode (a stray %) is kept as it is, so no address breaks the page. */
+const part = (s: string) => { try { return decodeURIComponent(s); } catch { return s; } };
+export const partsOf = (hash: string) => hash.replace(/^#\/?/, '').split('?')[0].split('/').map(part).filter(Boolean);
 /** The `?a=b` of a hash route (filters, kept in the address): `#/runs?flujo=x&estado=failed`. */
 export const queryOf = (hash: string) => new URLSearchParams(hash.split('?')[1] ?? '');
 
@@ -35,12 +37,26 @@ export function useRoute(): string[] {
   return useSyncExternalStore((f) => { subs.add(f); return () => { subs.delete(f); }; }, current);
 }
 
-export const href = (...parts: string[]) => '#/' + parts.map(encodeURIComponent).join('/');
+/**
+ * A data screen's address keeps the recording it is on (`?run=21&flujo=x`): opening a table, a topic or a mail inside
+ * a run's recording stays in it. Every other address is the same with or without one.
+ */
+const EXPLORER = new Set(['data', 'queues', 'storage', 'mail', 'vars']);
+const keepRecording = (screen: string) => {
+  if (typeof location === 'undefined' || !EXPLORER.has(screen)) return '';
+  const q = queryOf(location.hash), run = q.get('run');
+  return run && /^\d+$/.test(run) ? `?${new URLSearchParams({ run, ...(q.get('flujo') ? { flujo: q.get('flujo')! } : {}) })}` : '';
+};
+export const href = (...parts: string[]) => '#/' + parts.map(encodeURIComponent).join('/') + keepRecording(parts[0] ?? '');
+/** A data screen's address on a run's recording, whatever the address is now. */
+export const recordedHref = (screen: string, env: string, run: string, flow?: string) => `#/${encodeURIComponent(screen)}/${encodeURIComponent(env)}?${new URLSearchParams({ run, ...(flow ? { flujo: flow } : {}) })}`;
+/** A data screen's address live: the same screen without the recording. */
+export const envDataHref = (screen: string, env: string) => `#/${encodeURIComponent(screen)}/${encodeURIComponent(env)}`;
 /** Where a session still open is watched: in the sheet of the flow it was opened from, else on its own screen. */
 export const liveHref = (r: { id: string; flow?: string }) => (r.flow ? href('docs', `flow:${r.flow}`, 't', 'live', r.id) : href('live', r.id));
 
 /** The workspace a page serves, from its path (`/w/<id>/`, then the hash route as always); none on the home page. */
-export const wsOf = (pathname: string) => { const m = /^\/w\/([^/]+)\//.exec(pathname); return m ? decodeURIComponent(m[1]) : undefined; };
+export const wsOf = (pathname: string) => { const m = /^\/w\/([^/]+)\//.exec(pathname); return m ? part(m[1]) : undefined; };
 /** The machine's routes, and a route already under a workspace: never prefixed. */
 const MACHINE = /^\/api\/(ping|workspaces|machine|w)(\/|\?|$)/;
 /** A workspace's API path under its id (`/api/runs` → `/api/w/<id>/runs`); everything else as it is. */

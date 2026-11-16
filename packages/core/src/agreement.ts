@@ -37,6 +37,6 @@ export function agreementText(p: Loaded): string {
     ...items('Branches you never edit code on', 'protected'),
     ...items('Never', 'never'),
     ...items('Ask the person first', 'confirm'),
-    ...(p.fields.notes ? [String(p.fields.notes)] : []),
+    ...(p.fields.notes ? ['Instructions for you (yours to follow in everything you do here):', String(p.fields.notes)] : []),
   ].filter(Boolean).join('\n');
 }

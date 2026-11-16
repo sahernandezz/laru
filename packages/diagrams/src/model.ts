@@ -1691,7 +1691,7 @@ export function mermaidBlocks(body: string): MermaidBlock[] {
 export function detectDialect(code: string): string {
   const withoutFrontmatter = stripFrontmatter(code).code;
   const first = withoutFrontmatter.split('\n').map((l) => l.trim()).find((l) => l && !l.startsWith('%%')) ?? '';
-  const m = /^(C4Context|C4Container|C4Component|C4Dynamic|C4Deployment|classDiagram|erDiagram|sequenceDiagram|stateDiagram-v2|stateDiagram|gitGraph|flowchart|graph|architecture-beta|mindmap|timeline|journey|pie|quadrantChart|requirementDiagram|sankey-beta|xychart-beta|block-beta)\b/.exec(first);
+  const m = /^(C4Context|C4Container|C4Component|C4Dynamic|C4Deployment|classDiagram|erDiagram|sequenceDiagram|stateDiagram-v2|stateDiagram|gitGraph|flowchart|graph|architecture-beta|mindmap|timeline|journey|pie|quadrantChart|gantt|requirementDiagram|sankey-beta|xychart-beta|block-beta)\b/.exec(first);
   return m?.[1] ?? 'unknown';
 }
 
@@ -1723,7 +1723,9 @@ export function kindOfCode(code: string, expected: DiagramKind[] = []): DiagramK
   const cost = (k: DiagramKind) => Object.entries(CHECKS[k])
     .filter(([id, check]) => id !== 'title' && !check(code))
     .reduce((acc, [id]) => acc + (ruleSeverity(k, id) === 'error' ? 3 : 1), 0);
-  return [...list].sort((a, b) => cost(a) - cost(b) || list.indexOf(a) - list.indexOf(b))[0];
+  // a tie goes to the one expected first (the section's own, then the general ones), else the catalogue's order
+  const order = (k: DiagramKind) => (candidates.length ? expected.indexOf(k) : list.indexOf(k));
+  return [...list].sort((a, b) => cost(a) - cost(b) || order(a) - order(b))[0];
 }
 
 /** How severely the core treats a rule, so the tie-break can weigh it. */

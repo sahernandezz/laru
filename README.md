@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Versión" src="https://img.shields.io/badge/versi%C3%B3n-0.1.0--beta.18-22D3EE">
+  <img alt="Versión" src="https://img.shields.io/badge/versi%C3%B3n-0.1.0--beta.19-22D3EE">
   <img alt="Licencia" src="https://img.shields.io/badge/licencia-FSL--1.1--ALv2-0E3B45">
   <img alt="Node" src="https://img.shields.io/badge/node-%E2%89%A5%2024-3c873a">
   <img alt="Local" src="https://img.shields.io/badge/todo%20corre-en%20tu%20m%C3%A1quina-444">
@@ -104,7 +104,9 @@ Cada flujo es una prueba de extremo a extremo con Playwright. Cada run guarda:
 - el vídeo;
 - los pasos;
 - la traza de todo el sistema: cada petición HTTP con su cuerpo, cada consulta SQL con las filas que devolvió,
-  cada mensaje de Kafka, los eventos del servidor y los logs de cada servicio.
+  cada mensaje de Kafka, los eventos del servidor y los logs de cada servicio;
+- los datos que dejó al terminar: las tablas, las colecciones, las claves, las colas, los ficheros, los correos
+  y las variables. Se ven en las mismas pantallas que en vivo, aunque el entorno esté apagado.
 
 Cada flujo elige el tamaño de su pantalla (`screen: 1920x1080` o `390x844` para un móvil en su `flow.md`).
 `laru test --affected` corre solo los flujos que toca tu cambio. Si un flujo se comporta distinto del comportamiento aprobado, Laru te lo dice.
@@ -116,9 +118,6 @@ Todo a la vez, sin hacer scroll:
 - el **Recorrido**: cada petición en orden, bajo la acción que la provocó, con su camino por los servicios y lo que llevó y recibió;
 - la secuencia y el mapa;
 - una línea de tiempo con una pista por servicio.
-
-Además del vídeo, cada flujo graba una **réplica** de la página (prueba de concepto): el HTML y sus cambios, nítida
-a cualquier tamaño y más ligera. Desde ella se saca un MP4 cuando lo pides.
 
 Para moverte: `Espacio` reproduce, `←` `→` pasan de mensaje en mensaje y `P` recorre paso a paso.
 La imagen de arriba del todo es el estudio.
@@ -162,8 +161,8 @@ Tras cada `up`, tras cada run, al arrancar el servicio y cada 6 horas, Laru reco
   compila con el de Docker, y esa caché tampoco se toca.
 
 **Nada que no sea de Laru se borra:** ni imágenes, ni volúmenes, ni contenedores, ni redes, ni caché de otros proyectos.
-- **Runs:** el vídeo y las capturas a los 7 días, los runs a los 30, y los más viejos si pasan de 5 GB.
-  De cada flujo quedan siempre enteros el último que pasó y el último que falló.
+- **Runs:** de cada flujo quedan sus últimos 5 runs y, siempre, el último que pasó, que no se borra nunca, ni su vídeo.
+  Los anteriores se borran. El vídeo y las capturas de los demás, a los 7 días, y los más viejos si pasan de 5 GB.
 - **Instantáneas** del código que ningún entorno usa.
 
 Nunca toca los flujos, el `compose.yml` de cada entorno ni los datos de tus apps. Cada limpieza que libera algo
@@ -175,9 +174,9 @@ Abre `claude` (o Codex) en el workspace y ya sabe dónde está todo:
 - **Servidor MCP:** `.mcp.json` lo declara, con herramientas para el mapa, la documentación, los entornos, los runs y las sesiones en vivo.
 - **Guías del workspace:** `CLAUDE.md` y `AGENTS.md` explican cómo se documenta y cómo se prueba. Se reescriben
   con cada versión de Laru, así una actualización le llega al agente en la siguiente sesión.
-- **Empieza sabiendo dónde está:** al abrir una sesión, un hook le da el workspace, el estado de cada entorno,
-  los flujos con su último resultado y tu forma de trabajo. También se puede abrir en la carpeta de Laru:
-  trabaja sobre el último workspace que abriste.
+- **Empieza sabiendo dónde está:** cada sesión arranca con la aplicación y sus módulos, el estado de cada entorno,
+  los flujos con su último resultado, tu forma de trabajo y cómo se hace cada cosa con Laru (un agente sin hooks
+  lo pide con `laru start`). También se puede abrir en la carpeta de Laru: trabaja sobre el último workspace que abriste.
 - **Contexto:** `laru context <pieza>` da al agente lo justo antes de tocar algo.
 - **Tu forma de trabajo:** para qué usas el workspace, tus ramas, las ramas donde no se edita código, lo que nunca
   se hace y lo que pide confirmación. Es de cada persona y no entra en git; el agente la lee siempre.
@@ -185,6 +184,8 @@ Abre `claude` (o Codex) en el workspace y ya sabe dónde está todo:
   después, se bloquea si las rompe. No puede escribir `docs/` a mano, ni editar en una rama protegida, ni lanzar
   un comando que tu forma de trabajo prohíbe; uno que pide confirmación se detiene a preguntarte. Al terminar,
   se le pide revisar la documentación del código que tocó.
+- **Docker, siempre por Laru:** el agente no usa `docker` desde su terminal (el hook lo impide); Laru lo hace por él: `laru up`, `laru logs`, `laru exec <servicio> -- <orden>`, `laru db query`.
+- **Tus instrucciones, en el momento que tocan:** lo que escribes en «Cómo se trabaja» (cómo quieres que haga un PR, un commit, las pruebas…) le llega al agente con cada petición que habla de ello y antes de cada entrega; cualquier agente las lee con `laru rules`.
 - **El estándar, también para el agente:** `knowledge_shape` le da qué va en cada pieza, los diagramas sugeridos
   y el catálogo entero, con cómo se dibuja cada uno. `knowledge_write` le avisa de lo que no se puede comprobar
   y rechaza un diagrama que no se dibuja o una pieza por debajo de la nota que exige tu política.
@@ -196,6 +197,9 @@ seis oscuras y dos claras, con el contraste medido en todas. Se aplica al moment
 
 <img src="docs/images/temas.png" alt="Ajustes › Tema: una tarjeta de muestra por cada variante de Lusitania">
 
+La interfaz habla español o inglés: Ajustes › Idioma, que de entrada sigue el idioma del navegador y también se
+recuerda en él. Cambia los textos, las fechas y los números; la documentación de cada workspace sigue en el suyo.
+
 ## Cómo correrlo
 
 ### Requisitos
@@ -204,8 +208,7 @@ seis oscuras y dos claras, con el contraste medido en todas. Se aplica al moment
 - **Node.js 24** o superior y **pnpm 10**.
 - **Docker** con Docker Compose.
 - **Git.**
-- **Opcional:** Google Chrome, para usar el aplicativo dentro de Laru en las sesiones en vivo y para sacar
-  un MP4 de la réplica de un flujo.
+- **Opcional:** Google Chrome, para usar el aplicativo dentro de Laru en las sesiones en vivo.
 
 `ffmpeg` no hace falta instalarlo: `pnpm install` descarga uno para tu sistema
 ([ffmpeg-static](https://www.npmjs.com/package/ffmpeg-static)). Laru lo usa para sincronizar el vídeo de cada prueba con su traza,

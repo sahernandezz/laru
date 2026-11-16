@@ -5,6 +5,9 @@
 import { defineConfig } from '@playwright/test';
 import { RUNNER_DEFAULTS as D } from './runner-defaults.ts';
 
+// the screens' sizes reach the fixtures (flow.ts) through the workers' environment, which they inherit from here
+process.env.KS_SCREENS = JSON.stringify(D.screens);
+
 export default defineConfig({
   testDir: '/ks/ws',
   testMatch: ['**/flows/*/*.spec.ts', '**/scenarios/*/*.setup.ts'],
@@ -30,7 +33,7 @@ export default defineConfig({
   },
   // Stories are recorded; scenario setups are not. One worker plays both projects in turn.
   projects: [
-    { name: 'story', grep: /@story/, use: { video: { mode: 'on', size: { width: 1280, height: 720 } } } },
+    { name: 'story', grep: /@story/, use: { video: { mode: 'on', size: { width: 1280, height: 720 } }, launchOptions: { slowMo: Number(process.env.KS_STORY_PACE_MS ?? D.storyPaceMs) } } },
     { name: 'case', grepInvert: /@story/ },
   ],
 });

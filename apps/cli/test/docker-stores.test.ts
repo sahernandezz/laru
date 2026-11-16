@@ -12,12 +12,12 @@ import { test } from 'node:test';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { idOf, loadWorkspace, register } from '@laru/core';
-import { envDir, envMasker, mongo, workspaceKey } from '@laru/runtime';
+import { brokersOf, envDir, envMasker, mongo, workspaceKey } from '@laru/runtime';
 import { writeMaskFile } from '@laru/trace';
 import { dockerUp, guard } from '../../../packages/runtime/test/guard.ts';
 import { run } from '../src/cli.ts';
 import { startDaemon } from '../src/daemon.ts';
-import { brokersOf, pickBroker } from '../src/env-cli.ts';
+import { pickBroker } from '../src/env-cli.ts';
 import { createServer } from '../src/mcp.ts';
 
 const heavy = !dockerUp ? 'Docker is not running' : process.env.LARU_E2E !== '1' ? 'set LARU_E2E=1' : false;

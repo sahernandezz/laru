@@ -5,8 +5,9 @@ import { Status } from '../components/ui.tsx';
 import { checkName, checkNote } from '../lib/es.ts';
 import { HOME, href } from '../lib/route.ts';
 import { plural } from '../lib/es.ts';
+import { tr, LOCALE } from '../lib/i18n.ts';
 
-const gib = (b: number) => `${(b / 2 ** 30).toFixed(1).replace('.', ',')} GiB`;
+const gib = (b: number) => `${(b / 2 ** 30).toLocaleString(LOCALE, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} GiB`;
 
 export function Settings() {
   const doctor = useApi<{ checks: Check[] }>('/api/doctor');
@@ -17,28 +18,28 @@ export function Settings() {
 
   return (
     <div className="page">
-      <div className="head"><div><h1>Información del sistema</h1><p>Lo que esta máquina necesita para levantar entornos. Dónde guarda Laru cada cosa, con su tamaño: <a className="rowlink" href={href('files')}><FolderOpen size={13} aria-hidden="true" style={{ verticalAlign: -2 }} /> Archivos locales</a>. Cuántos entornos pueden correr a la vez: <a className="rowlink" href={HOME}>Esta máquina</a>.</p></div></div>
+      <div className="head"><div><h1>{tr('Información del sistema')}</h1><p>{tr('Lo que esta máquina necesita para levantar entornos. Dónde guarda Laru cada cosa, con su tamaño:')}{' '}<a className="rowlink" href={href('files')}><FolderOpen size={13} aria-hidden="true" style={{ verticalAlign: -2 }} />{' '}{tr('Archivos locales')}</a>{tr('. Cuántos entornos pueden correr a la vez:')}{' '}<a className="rowlink" href={HOME}>{tr('Esta máquina')}</a>.</p></div></div>
 
       <section className="panel block" aria-labelledby="machine-h">
-        <header><h3 id="machine-h">Esta máquina</h3></header>
+        <header><h3 id="machine-h">{tr('Esta máquina')}</h3></header>
         {!m ? <div className="body" style={{ display: 'grid', gap: 14 }}>{[60, 45, 70].map((w) => <div key={w} className="sk" style={{ height: 14, width: `${w}%` }} />)}</div> : (
           <dl className="sysinfo">
-            <div><dt>Laru</dt><dd className="mono">{m.version} · escucha en 127.0.0.1:{m.port}</dd></div>
-            <div><dt>Workspaces</dt><dd>{plural(m.workspaces, 'registrado', 'registrados')}</dd></div>
-            <div><dt>Docker</dt><dd>{m.docker ? `Motor ${m.docker}` : 'No responde'}</dd></div>
-            <div><dt>Recursos</dt><dd>{m.cpus ?? '—'} CPU · {m.memBytes ? gib(m.memBytes) : '—'} de memoria · {m.maxEnvs ? `hasta ${plural(m.maxEnvs, 'entorno', 'entornos')} a la vez` : 'entornos a la vez sin límite'}</dd></div>
-            <div><dt>En marcha</dt><dd>{m.running.length ? m.running.map((r) => `${r.title ?? r.app}/${r.env}`).join(', ') : 'ningún entorno'}</dd></div>
-            <div><dt>Datos de Laru</dt><dd className="mono">{m.home.path}</dd></div>
+            <div><dt>Laru</dt><dd className="mono">{m.version}{' '}{tr('· escucha en 127.0.0.1:')}{m.port}</dd></div>
+            <div><dt>{tr('Workspaces')}</dt><dd>{plural(m.workspaces, tr('registrado'), tr('registrados'))}</dd></div>
+            <div><dt>Docker</dt><dd>{m.docker ? tr('Motor {docker}', { docker: m.docker }) : tr('No responde')}</dd></div>
+            <div><dt>{tr('Recursos')}</dt><dd>{m.cpus ?? '—'}{' '}{tr('CPU ·')}{' '}{m.memBytes ? gib(m.memBytes) : '—'}{' '}{tr('de memoria ·')}{' '}{m.maxEnvs ? tr('hasta {plural} a la vez', { plural: plural(m.maxEnvs, tr('entorno'), tr('entornos')) }) : tr('entornos a la vez sin límite')}</dd></div>
+            <div><dt>{tr('En marcha')}</dt><dd>{m.running.length ? m.running.map((r) => `${r.title ?? r.app}/${r.env}`).join(', ') : tr('ningún entorno')}</dd></div>
+            <div><dt>{tr('Datos de Laru')}</dt><dd className="mono">{m.home.path}</dd></div>
           </dl>
         )}
       </section>
 
       <section className="panel block" aria-labelledby="doctor-h">
         <header>
-          <h3 id="doctor-h">Diagnóstico</h3>
+          <h3 id="doctor-h">{tr('Diagnóstico')}</h3>
           <div className="meta">
-            {doctor.data && <span aria-live="polite">{failing ? `${failing} por revisar` : 'Todo correcto'}</span>}
-            <button className="btn sm" disabled={doctor.loading} onClick={doctor.reload}><RefreshCw className={doctor.loading ? 'spin' : undefined} />Repetir</button>
+            {doctor.data && <span aria-live="polite">{failing ? tr('{failing} por revisar', { failing }) : tr('Todo correcto')}</span>}
+            <button className="btn sm" disabled={doctor.loading} onClick={doctor.reload}><RefreshCw className={doctor.loading ? 'spin' : undefined} />{tr('Repetir')}</button>
           </div>
         </header>
         {doctor.error ? <div className="notice" role="alert" style={{ margin: 16 }}><CircleX />{doctor.error}</div> : !doctor.data ? (
@@ -46,12 +47,12 @@ export function Settings() {
         ) : (
           <div className="scroll-x">
             <table className="t">
-              <thead><tr><th>Comprobación</th><th>Estado</th><th>Detalle</th></tr></thead>
+              <thead><tr><th>{tr('Comprobación')}</th><th>{tr('Estado')}</th><th>{tr('Detalle')}</th></tr></thead>
               <tbody>
                 {checks.map((c) => (
                   <tr key={c.name}>
                     <td style={{ fontWeight: 500 }}>{checkName(c.name)}</td>
-                    <td><Status state={c.ok ? 'ok' : 'err'}>{c.ok ? 'Correcto' : 'Por revisar'}</Status></td>
+                    <td><Status state={c.ok ? 'ok' : 'err'}>{c.ok ? tr('Correcto') : tr('Por revisar')}</Status></td>
                     <td className="wrap muted">{checkNote(c.note)}</td>
                   </tr>
                 ))}

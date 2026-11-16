@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { Exchange } from '@laru/trace';
 import type { Cause } from '@laru/trace/chain';
-import { deviceName, devicesOf, onlyDevice } from '../src/lib/devices.ts';
+import { deviceName, devicesOf, isMagenta, onlyDevice } from '../src/lib/devices.ts';
 
 const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1';
 const MAC = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
@@ -61,4 +61,11 @@ test('the test\'s own calls are the test, whatever client it used', () => {
   const ex = (id: string, from: string, ua: string) => ({ id, kind: 'http', from, to: 'api', t0: 0, label: id, ok: true, origin: 'observed', reqHeaders: { 'user-agent': ua } }) as Exchange;
   const d = devicesOf({ participants: [{ id: 'runner', name: 'Prueba', type: 'runner' }], exchanges: [ex('a', 'runner', 'Playwright/1.64.1'), ex('b', 'browser', MAC)] }, new Map());
   assert.deepEqual(d.list.map((x) => x.name).sort(), ['Chrome en Mac', 'Prueba']);
+});
+
+test('a video\'s opening magenta is told apart from the marker\'s ticking square and from a page', () => {
+  assert.equal(isMagenta(255, 0, 255), true);
+  assert.equal(isMagenta(236, 18, 240), true, 'as VP8 decodes it');
+  assert.equal(isMagenta(34, 34, 34), false, 'the ticking square in the corner');
+  assert.equal(isMagenta(124, 58, 237), false, 'a violet page of the app');
 });

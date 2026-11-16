@@ -2,7 +2,9 @@
 import { Database, Globe, Maximize, Server, User, ZoomIn, ZoomOut, type LucideIcon } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type SVGProps } from 'react';
 import type { MapNode } from '../api.ts';
+import { midCut } from '../lib/es.ts';
 import { LABEL_H, NODE_H, NODE_W, type Layout } from '../lib/sysmap.ts';
+import { tr } from '../lib/i18n.ts';
 
 export const ICON: Record<string, LucideIcon> = { service: Server, datastore: Database, external: Globe };
 
@@ -76,25 +78,39 @@ export function MapCanvas({ lay, label, keep, onBackground, className, children 
           {children}
         </svg>
       </div>
-      <div className="mapzoom" role="group" aria-label="Zoom del mapa">
-        <button type="button" className="icon-btn" aria-label="Alejar" title="Alejar (⌘/Ctrl + rueda)" aria-disabled={z <= ZOOM_MIN} onClick={() => zoomTo(z / 1.25)}><ZoomOut size={15} /></button>
-        <button type="button" className="mapzoom-v" aria-label={`Zoom ${Math.round(z * 100)} %; volver al 100 %`} title="Volver al 100 %" onClick={() => zoomTo(1)}>{Math.round(z * 100)} %</button>
-        <button type="button" className="icon-btn" aria-label="Acercar" title="Acercar (⌘/Ctrl + rueda)" aria-disabled={z >= ZOOM_MAX} onClick={() => zoomTo(z * 1.25)}><ZoomIn size={15} /></button>
-        <button type="button" className="icon-btn" aria-label="Ver el mapa entero" title="Ver el mapa entero" onClick={fit}><Maximize size={15} /></button>
+      <div className="mapzoom" role="group" aria-label={tr('Zoom del mapa')}>
+        <button type="button" className="icon-btn" aria-label={tr('Alejar')} title={tr('Alejar (⌘/Ctrl + rueda)')} aria-disabled={z <= ZOOM_MIN} onClick={() => zoomTo(z / 1.25)}><ZoomOut size={15} /></button>
+        <button type="button" className="mapzoom-v" aria-label={tr('Zoom {round} %; volver al 100 %', { round: Math.round(z * 100) })} title={tr('Volver al 100 %')} onClick={() => zoomTo(1)}>{Math.round(z * 100)} %</button>
+        <button type="button" className="icon-btn" aria-label={tr('Acercar')} title={tr('Acercar (⌘/Ctrl + rueda)')} aria-disabled={z >= ZOOM_MAX} onClick={() => zoomTo(z * 1.25)}><ZoomIn size={15} /></button>
+        <button type="button" className="icon-btn" aria-label={tr('Ver el mapa entero')} title={tr('Ver el mapa entero')} onClick={fit}><Maximize size={15} /></button>
       </div>
     </div>
   );
 }
 
-/** A piece on a map: its icon, its name and one line under it. */
+/** A text cut to what fits in `max` pixels of this font, with «…» where it was cut (measured, as the browser draws it). */
+let pen: CanvasRenderingContext2D | null | undefined;
+export function fitText(text: string, font: string, max: number, middle = true): string {
+  pen ??= typeof document === 'undefined' ? null : document.createElement('canvas').getContext('2d');
+  if (!pen) return text;
+  pen.font = font;
+  if (pen.measureText(text).width <= max) return text;
+  // cut in the middle, by words: the start and the end of a long name are what tell it from its neighbours
+  for (let n = text.length - 1; n > 4; n--) { const cut = middle ? midCut(text, n) : `${text.slice(0, n).trimEnd()}…`; if (pen.measureText(cut).width <= max) return cut; }
+  return text.slice(0, 4) + '…';
+}
+const NAME_FONT = '500 13px Geist, ui-sans-serif, system-ui, sans-serif', SUB_FONT = '11px "Geist Mono", ui-monospace, Menlo, monospace';
+
+/** A piece on a map: its icon, its name and one line under it, each cut to the box (whole on hover). */
 export function NodeBox({ node, x, y, sub, className = '', ...rest }: { node: MapNode; x: number; y: number; sub: string; className?: string } & SVGProps<SVGGElement>) {
   const Icon = node.kind === 'actor' ? User : ICON[node.type] ?? Server;
   return (
     <g className={`n ${className}`} data-node={node.id} transform={`translate(${x},${y})`} {...rest}>
+      <title>{sub ? `${node.name}\n${sub}` : node.name}</title>
       <rect width={NODE_W} height={NODE_H} rx="8" />
       <foreignObject x="12" y="12" width="16" height="16"><Icon size={16} color="var(--ink-2)" /></foreignObject>
-      <text className="t" x="36" y="25">{node.name}</text>
-      <text className="s" x="36" y="43">{sub}</text>
+      <text className="t" x="36" y="25">{fitText(node.name, NAME_FONT, NODE_W - 46)}</text>
+      <text className="s" x="36" y="43">{fitText(sub, SUB_FONT, NODE_W - 46, false)}</text>
     </g>
   );
 }

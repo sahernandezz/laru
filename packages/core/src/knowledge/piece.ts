@@ -29,8 +29,17 @@ export interface Piece {
 
 const esc = (s: string) => s.replace(/\|/g, '\\|').replace(/\r?\n/g, ' ').trim();
 
+/**
+ * A section's own headings sit under the piece's: a `#` or `##` inside a field goes down to `###` (outside code and
+ * diagrams), since a `##` is where the piece's next section starts, and read back it cut the field there.
+ */
+function nested(md: string): string {
+  let fence = false;
+  return md.split('\n').map((l) => { if (/^\s*(```|~~~)/.test(l)) fence = !fence; return !fence && /^#{1,2}\s/.test(l) ? l.replace(/^#{1,2}/, '###') : l; }).join('\n');
+}
+
 function renderField(f: Field, v: FieldValue, lang: Lang): string {
-  if (f.type === 'markdown' || f.type === 'text') return String(v).trim();
+  if (f.type === 'markdown' || f.type === 'text') return nested(String(v).trim());
   if (f.type === 'list') return (v as string[]).map((x) => `- ${x.trim()}`).join('\n');
   if (f.type === 'refs') return (v as string[]).map((x) => `- [[${x.trim()}]]`).join('\n');
   const rows = v as Row[];

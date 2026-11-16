@@ -10,8 +10,9 @@ import { api, useApi, type EnvSummary, type Mounted } from '../api.ts';
 import { plural } from '../lib/es.ts';
 import { href, pageOf } from '../lib/route.ts';
 import { ActionButton, Dialog, Status, toast } from './ui.tsx';
+import { tr } from '../lib/i18n.ts';
 
-const WORD = { seeded: ['ok', 'con datos'], 'no-scenario': ['idle', 'sin escenario: parte de lo que haya'], exclusive: ['run', 'exclusivo: necesita el entorno entero'], failed: ['err', 'falló'] } as const;
+const WORD = { seeded: ['ok', tr('con datos')], 'no-scenario': ['idle', tr('sin escenario: parte de lo que haya')], exclusive: ['run', tr('exclusivo: necesita el entorno entero')], failed: ['err', tr('falló')] } as const;
 
 export function MountAll() {
   const envs = useApi<EnvSummary[]>('/api/envs');
@@ -27,23 +28,23 @@ export function MountAll() {
   // While it works, ask again; when it ends, read what it left (and say if it failed).
   useEffect(() => {
     if (busy) { was.current = true; const t = setInterval(() => envs.reload(), 2500); return () => clearInterval(t); }
-    if (was.current) { was.current = false; if (op?.error) toast(`No se pudo montar: ${op.error}`); else void read()?.then(() => setOpen(true)); }
+    if (was.current) { was.current = false; if (op?.error) toast(tr('No se pudo montar: {error}', { error: op.error })); else void read()?.then(() => setOpen(true)); }
   }, [busy]); // eslint-disable-line react-hooks/exhaustive-deps
   const m = mounted;
   if (!env) return null;
   return (
     <>
-      <ActionButton icon={Boxes} primary disabled={busy} title={`Levanta ${env} si está parado y siembra en él el escenario de cada flujo`}
+      <ActionButton icon={Boxes} primary disabled={busy} title={tr('Levanta {env} si está parado y siembra en él el escenario de cada flujo', { env })}
         run={() => api('/api/env/mount', { method: 'POST', body: { env } }).then(() => envs.reload())}>
-        {busy ? 'Montando…' : 'Montar todo el entorno con datos'}
+        {busy ? tr('Montando…') : tr('Montar todo el entorno con datos')}
       </ActionButton>
-      {m && !busy && <button className="btn" onClick={() => setOpen(true)}>Ver lo montado</button>}
-      {m && !busy && <ActionButton icon={AppWindow} run={() => openStudio(m.env)}>Abrir en el estudio</ActionButton>}
+      {m && !busy && <button className="btn" onClick={() => setOpen(true)}>{tr('Ver lo montado')}</button>}
+      {m && !busy && <ActionButton icon={AppWindow} run={() => openStudio(m.env)}>{tr('Abrir en el estudio')}</ActionButton>}
       {open && m && (
-        <Dialog title={`Todo montado en ${m.env}`} onClose={() => setOpen(false)} wide>
+        <Dialog title={tr('Todo montado en {env}', { env: m.env })} onClose={() => setOpen(false)} wide>
           <div className="dlg-body">
-            <p className="faint">{plural(m.flows.filter((f) => f.state === 'seeded').length, 'flujo con datos', 'flujos con datos')} de {m.flows.length}. Cada flujo tiene sus propias cuentas y filas: entra en la aplicación con ellas y recórrelo. <button type="button" className="ex-go rowlink" onClick={() => { setOpen(false); void openStudio(m.env).catch((e: Error) => toast(e.message)); }}>Abrirlo en el estudio ›</button></p>
-            <div className="scroll-x"><table className="t"><thead><tr><th>Flujo</th><th>Datos</th><th>Quién puede entrar</th></tr></thead><tbody>
+            <p className="faint">{plural(m.flows.filter((f) => f.state === 'seeded').length, tr('flujo con datos'), tr('flujos con datos'))}{' '}{tr('de')}{' '}{m.flows.length}{tr('. Cada flujo tiene sus propias cuentas y filas: entra en la aplicación con ellas y recórrelo.')}{' '}<button type="button" className="ex-go rowlink" onClick={() => { setOpen(false); void openStudio(m.env).catch((e: Error) => toast(e.message)); }}>{tr('Abrirlo en el estudio ›')}</button></p>
+            <div className="scroll-x"><table className="t"><thead><tr><th>{tr('Flujo')}</th><th>{tr('Datos')}</th><th>{tr('Quién puede entrar')}</th></tr></thead><tbody>
               {m.flows.map((f) => (
                 <tr key={f.flow}>
                   <td className="wrap"><a className="rowlink" href={pageOf(`flow:${f.flow}`)} onClick={() => setOpen(false)}>{f.title}</a></td>
@@ -53,7 +54,7 @@ export function MountAll() {
               ))}
             </tbody></table></div>
           </div>
-          <footer><button className="btn primary" data-autofocus onClick={() => setOpen(false)}>Cerrar</button></footer>
+          <footer><button className="btn primary" data-autofocus onClick={() => setOpen(false)}>{tr('Cerrar')}</button></footer>
         </Dialog>
       )}
     </>

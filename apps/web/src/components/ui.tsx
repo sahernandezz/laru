@@ -4,12 +4,13 @@ import { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, typ
 import { api, WS, type ApiError, type Fact } from '../api.ts';
 import { Cancelled, setAskHost } from '../lib/ask.ts';
 import { highlight, statusClass, toLines, type Lang, type Token } from '../lib/syntax.ts';
+import { tr } from '../lib/i18n.ts';
 
 export const ORIGIN: Record<Fact['origin'], { icon: LucideIcon; label: string }> = {
-  declared: { icon: PencilLine, label: 'Declarado' },
-  extracted: { icon: ScanText, label: 'Extraído' },
-  observed: { icon: Activity, label: 'Observado' },
-  derived: { icon: Sigma, label: 'Derivado' },
+  declared: { icon: PencilLine, label: tr('Declarado') },
+  extracted: { icon: ScanText, label: tr('Extraído') },
+  observed: { icon: Activity, label: tr('Observado') },
+  derived: { icon: Sigma, label: tr('Derivado') },
 };
 
 export function Origin({ of, label = true }: { of: Fact['origin']; label?: boolean }) {
@@ -30,9 +31,9 @@ export function toast(message: string) {
   toastTimer = setTimeout(() => el?.remove(), 2600);
 }
 
-export const copy = (value: string, done = 'Copiado') => navigator.clipboard.writeText(value).then(() => toast(done), () => toast('No se pudo copiar'));
+export const copy = (value: string, done = tr('Copiado')) => navigator.clipboard.writeText(value).then(() => toast(done), () => toast(tr('No se pudo copiar')));
 
-export function CopyButton({ value, label = 'Copiar', done }: { value: string; label?: string; done?: string }) {
+export function CopyButton({ value, label = tr('Copiar'), done }: { value: string; label?: string; done?: string }) {
   return <button className="copy" aria-label={label} title={label} onClick={() => copy(value, done)}><Copy /></button>;
 }
 
@@ -43,7 +44,7 @@ export const Logo = () => (
 
 /** A path as people read it: the home folder as ~. Copying always gives the absolute path. */
 export const tilde = (p: string) => p.replace(/^(\/Users\/[^/]+|\/home\/[^/]+)(?=\/|$)/, '~');
-export const FINDER = typeof navigator !== 'undefined' && /Mac/.test(navigator.platform) ? 'Mostrar en Finder' : 'Abrir la carpeta';
+export const FINDER = typeof navigator !== 'undefined' && /Mac/.test(navigator.platform) ? tr('Mostrar en Finder') : tr('Abrir la carpeta');
 
 /**
  * A path on this machine with «Mostrar en Finder» and «Copiar ruta». Showing sends a key (`{what, id}`), never the path:
@@ -51,12 +52,12 @@ export const FINDER = typeof navigator !== 'undefined' && /Mac/.test(navigator.p
  */
 export function PathChip({ path, reveal, ws, hide }: { path: string; reveal?: { what: string; id?: string }; ws?: string | null; hide?: boolean }) {
   const open = () => api(ws ? `/api/w/${encodeURIComponent(ws)}/reveal` : reveal?.what === 'home' && !WS ? '/api/machine/reveal' : '/api/reveal', { method: 'POST', body: reveal })
-    .catch((e: ApiError) => toast(e.status === 404 ? `Ya no existe: ${path}` : e.message));
+    .catch((e: ApiError) => toast(e.status === 404 ? tr('Ya no existe: {path}', { path }) : e.message));
   return (
     <span className="pathchip">
       {!hide && <code title={path}>{tilde(path)}</code>}
       {reveal && <button className="copy" aria-label={`${FINDER}: ${tilde(path)}`} title={FINDER} onClick={open}><FolderOpen /></button>}
-      <CopyButton value={path} label={`Copiar ruta: ${tilde(path)}`} done="Ruta copiada" />
+      <CopyButton value={path} label={tr('Copiar ruta: {tilde}', { tilde: tilde(path) })} done={tr('Ruta copiada')} />
     </span>
   );
 }
@@ -66,7 +67,7 @@ export function Field({ label, value }: { label: string; value?: string }) {
   return (
     <>
       <span className="lbl">{label}</span>
-      <div className="f">{value ? <><code title={value}>{value}</code><CopyButton value={value} label={`Copiar ${label.toLowerCase()}`} /></> : <span className="faint">—</span>}</div>
+      <div className="f">{value ? <><code title={value}>{value}</code><CopyButton value={value} label={tr('Copiar {toLowerCase}', { toLowerCase: label.toLowerCase() })} /></> : <span className="faint">—</span>}</div>
     </>
   );
 }
@@ -132,10 +133,10 @@ export function AskHost() {
   if (!q) return null;
   const reply = (yes: boolean) => { q.answer(yes); setQ(undefined); };
   return (
-    <Dialog title={q.title ?? 'Antes de seguir'} onClose={() => reply(false)}>
+    <Dialog title={q.title ?? tr('Antes de seguir')} onClose={() => reply(false)}>
       <div className="dlg-body" aria-live="polite"><p className="pre-line">{q.text}</p></div>
       <footer>
-        <button type="button" className="btn" data-autofocus onClick={() => reply(false)}>Cancelar</button>
+        <button type="button" className="btn" data-autofocus onClick={() => reply(false)}>{tr('Cancelar')}</button>
         <button type="button" className="btn destroy" onClick={() => reply(true)}>{q.label}</button>
       </footer>
     </Dialog>
@@ -176,19 +177,19 @@ export function Reveal({ name, load, masked }: { name: string; load: () => Promi
     setBusy(true);
     try {
       const v = await load();
-      if (v !== null) { refocus.current = true; setValue(v); setSaid(`${Name}: visible durante 10 segundos`); }
+      if (v !== null) { refocus.current = true; setValue(v); setSaid(tr('{Name}: visible durante 10 segundos', { Name })); }
     } catch (e) { toast((e as Error).message); } finally { setBusy(false); }
   };
   return (
     <span className="revealed" ref={box}>
       <span className="sr-only" aria-live="polite">{said}</span>
       {value === null ? (
-        <>{masked && <code className="faint" aria-hidden="true">••••••••••</code>}<button className="btn sm" data-focus aria-disabled={busy || undefined} aria-label={`Ver ${name} durante 10 segundos`} onClick={show}><Eye className={busy ? 'spin' : undefined} />Ver</button></>
+        <>{masked && <code className="faint" aria-hidden="true">••••••••••</code>}<button className="btn sm" data-focus aria-disabled={busy || undefined} aria-label={tr('Ver {name} durante 10 segundos', { name })} onClick={show}><Eye className={busy ? 'spin' : undefined} />{tr('Ver')}</button></>
       ) : (
         <>
-          <code title={value}>{value === '' ? '(vacío)' : value}</code>
-          <CopyButton value={value} label={`Copiar ${name}`} />
-          <button className="btn sm" data-focus onClick={hide}>Ocultar</button>
+          <code title={value}>{value === '' ? tr('(vacío)') : value}</code>
+          <CopyButton value={value} label={tr('Copiar {name}', { name })} />
+          <button className="btn sm" data-focus onClick={hide}>{tr('Ocultar')}</button>
         </>
       )}
     </span>
@@ -233,6 +234,13 @@ export function Segmented<K extends string>({ label, options, value, onChange, c
     box.current?.querySelectorAll<HTMLElement>('[role="radio"]')[(to + options.length) % options.length]?.focus();
   };
   const current = options.some((o) => o.key === value) ? value : options[0]?.key;
+  // Many choices, or long ones (a workspace's projects): a list to pick from, not a row that wraps into a wall of buttons.
+  const crowded = options.every((o) => typeof o.label === 'string') && (options.length > 6 || options.reduce((n, o) => n + String(o.label).length, 0) > 90);
+  if (crowded) return (
+    <select className="seg-select" aria-label={label} title={label} value={current} onChange={(e) => onChange(e.target.value as K)}>
+      {options.map((o) => <option key={o.key} value={o.key} title={o.title}>{o.label as string}</option>)}
+    </select>
+  );
   return (
     <div className={className} role="radiogroup" aria-label={label} ref={box}>
       {options.map((o, i) => (
@@ -248,7 +256,7 @@ export const shortPath = (p: string) => p.split('/').pop() ?? p;
 
 const cls = (t: Token) => (t.t === 'method' ? `m-${t.x}` : t.t === 'status' ? `st-${t.x}` : t.t === 'level' ? `syn-lv lv-${t.x}` : `syn-${t.t}`);
 
-const span = (t: Token, key: number | string) => (!t.t ? t.v : <span key={key} className={cls(t)} title={t.t === 'mask' ? 'Enmascarado al capturar' : undefined}>{t.v}</span>);
+const span = (t: Token, key: number | string) => (!t.t ? t.v : <span key={key} className={cls(t)} title={t.t === 'mask' ? tr('Enmascarado al capturar') : undefined}>{t.v}</span>);
 
 /** Code as coloured spans. The characters are the text's own; `format` only re-indents JSON and SQL. */
 export const Code = memo(function Code({ text, lang, format = false }: { text: string; lang: Lang; format?: boolean }) {
@@ -273,7 +281,7 @@ export function CodeBlock({ text, lang, format, className = 'json', label, autoF
   return (
     <div className="code-block">
       <pre className={className} tabIndex={0} aria-label={label} data-autofocus={autoFocus || undefined}><Lines text={text} lang={lang} format={format} /></pre>
-      <CopyButton value={text} label="Copiar el original" done="Copiado el original" />
+      <CopyButton value={text} label={tr('Copiar el original')} done={tr('Copiado el original')} />
     </div>
   );
 }

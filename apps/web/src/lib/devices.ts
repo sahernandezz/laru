@@ -5,6 +5,8 @@
  */
 import { isBrowser, type Exchange, type Trace } from '@laru/trace';
 import type { Cause } from '@laru/trace/chain';
+import { tr } from './i18n.ts';
+import { participantName } from './es.ts';
 
 export interface Device { name: string; count: number }
 export interface Devices { of: Map<string, string>; list: Device[]; /** the one Laru's own browser is: the person's (or the test's) actions are its */ actor?: string }
@@ -13,12 +15,12 @@ const outside = (from: string) => isBrowser(from) || from === 'host' || from ===
 
 /** A User-Agent as a person says it: «Safari en iPhone», «Chrome en Windows», «okhttp». */
 export function deviceName(ua?: string): string {
-  if (!ua) return 'Sin identificar';
+  if (!ua) return tr('Sin identificar');
   const os = /iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) ? 'iPad' : /Android/.test(ua) ? 'Android' : /Windows/.test(ua) ? 'Windows'
     : /Macintosh|Mac OS X/.test(ua) ? 'Mac' : /CFNetwork|Darwin/.test(ua) ? 'iOS' : /Linux/.test(ua) ? 'Linux' : '';
-  const app = /HeadlessChrome/.test(ua) ? 'Chromium de Laru' : /Edg[A]?\//.test(ua) ? 'Edge' : /OPR\//.test(ua) ? 'Opera' : /Firefox\/|FxiOS/.test(ua) ? 'Firefox'
+  const app = /HeadlessChrome/.test(ua) ? tr('Chromium de Laru') : /Edg[A]?\//.test(ua) ? 'Edge' : /OPR\//.test(ua) ? 'Opera' : /Firefox\/|FxiOS/.test(ua) ? 'Firefox'
     : /Chrome\/|CriOS/.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : ua.split(/[\s/(]/)[0] || ua;
-  return os ? `${app} en ${os}` : app;
+  return os ? tr('{app} en {os}', { app, os }) : app;
 }
 
 /**
@@ -29,7 +31,7 @@ export function deviceName(ua?: string): string {
 // Known limit: two devices with the same User-Agent (two iPhones on the same Safari) are one; the tap's client IP would split them if it reached the trace.
 export function devicesOf(trace: Pick<Trace, 'exchanges' | 'participants'>, cause: Map<string, Cause>): Devices {
   const byId = new Map(trace.exchanges.map((e) => [e.id, e]));
-  const names = new Map(trace.participants.map((p) => [p.id, p.name]));
+  const names = new Map(trace.participants.map((p) => [p.id, participantName(p)]));
   const uaOf = (e: Exchange) => e.reqHeaders?.['user-agent'] ?? (e.kind === 'sse' ? byId.get(e.id.replace(/\.\d+$/, ''))?.reqHeaders?.['user-agent'] : undefined);
   // each sender behind the gateway → the devices it was, by their User-Agents
   const senders = new Map<string, Set<string>>();
@@ -37,11 +39,11 @@ export function devicesOf(trace: Pick<Trace, 'exchanges' | 'participants'>, caus
   const own = (e: Exchange): string | undefined => {
     if (!outside(e.from)) return undefined;
     if (e.from.startsWith('browser:')) return names.get(e.from) ?? e.from;
-    if (e.from.startsWith('?')) return `Equipo ${e.from.slice(1)}`;
+    if (e.from.startsWith('?')) return tr('Equipo {slice}', { slice: e.from.slice(1) });
     // the test's own calls (`request.post`), not its browser's: the test is the device
-    if (e.from === 'runner') return names.get('runner') ?? 'Prueba';
+    if (e.from === 'runner') return names.get('runner') ?? tr('Prueba');
     const ua = uaOf(e), only = senders.get(e.from);
-    return ua ? deviceName(ua) : only?.size === 1 ? [...only][0] : e.from === 'host' ? 'Tu máquina' : names.get(e.from) ?? e.from;
+    return ua ? deviceName(ua) : only?.size === 1 ? [...only][0] : e.from === 'host' ? tr('Tu máquina') : names.get(e.from) ?? e.from;
   };
   const of = new Map<string, string>();
   for (const e of trace.exchanges) {
@@ -62,3 +64,6 @@ export function onlyDevice<T extends Pick<Trace, 'exchanges' | 'participants'> &
   const used = new Set(exchanges.flatMap((e) => [e.from, e.to]));
   return { ...trace, exchanges, participants: trace.participants.filter((p) => used.has(p.id)), ...(trace.actions && device !== d.actor ? { actions: [] } : {}) };
 }
+
+/** The magenta a screen's video opens with (Playwright's placeholder, Laru's clock marker), as a frame decodes it. */
+export const isMagenta = (r: number, g: number, b: number) => r > 200 && g < 100 && b > 200;

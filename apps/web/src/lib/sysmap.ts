@@ -7,6 +7,7 @@
  */
 import { causes, isConsume } from '@laru/trace/chain';
 import type { Exchange, Fact, FlowInfo, Indexed, MapNode, Trace } from '../api.ts';
+import { tr } from './i18n.ts';
 
 export type EdgeKind = 'call' | 'event' | 'store';
 export interface MapEdge { id: string; from: string; to: string; kind: EdgeKind; label: string; origin: Fact['origin']; facts: Fact[] }
@@ -64,7 +65,7 @@ export function edgesOf(g: Indexed): MapEdge[] {
   return [...by.values()];
 }
 
-export const ACTORS = 'Actores', NO_GROUP = 'Sin grupo', SHARED = 'Compartido';
+export const ACTORS = tr('Actores'), NO_GROUP = tr('Sin grupo'), SHARED = tr('Compartido');
 /**
  * The application each piece belongs to: its repo's group. One with no repo (an external) takes the group of whoever
  * uses it, or «Compartido» when several do. In order: the actors first, the groups as laru.yaml lists their repos,
@@ -101,18 +102,31 @@ export function layout<E extends MapEdge>(g: Indexed, edges: E[], o: { keep?: bo
   const stores = g.map.nodes.filter((n) => (n.type === 'datastore' || n.type === 'external') && (o.keep || edges.some((e) => e.to === n.id || e.from === n.id)));
   const calls = edges.filter((e) => e.kind === 'call');
 
-  // Rank: longest chain of calls reaching the service (cycles are cut where they close).
+  // Rank: longest chain of calls reaching the service. A cycle is cut where a walk from the entrances closes it (the
+  // people first, then the services nobody calls), so whoever they reach first stays ahead; cut where a walk happened to
+  // start, a backend its frontend calls back and forth stood at the entrance.
+  const back = new Set<MapEdge>();
+  const state = new Map<string, 'on' | 'done'>();
+  const walk = (id: string) => {
+    state.set(id, 'on');
+    for (const e of calls.filter((c) => c.from === id)) {
+      if (state.get(e.to) === 'on') back.add(e);
+      else if (!state.has(e.to)) walk(e.to);
+    }
+    state.set(id, 'done');
+  };
+  const entrances = [...services.filter((s) => s.kind === 'actor'), ...services.filter((s) => !calls.some((e) => e.to === s.id))];
+  for (const s of [...entrances, ...services]) if (!state.has(s.id)) walk(s.id);
+  const forward = calls.filter((e) => !back.has(e));
   const rank = new Map<string, number>();
-  const visit = (id: string, stack: Set<string>): number => {
+  const visit = (id: string): number => {
     if (rank.has(id)) return rank.get(id)!;
-    stack.add(id);
-    const callers = calls.filter((e) => e.to === id && !stack.has(e.from));
-    const r = callers.length ? Math.max(...callers.map((e) => visit(e.from, stack) + 1)) : 0;
-    stack.delete(id);
+    const callers = forward.filter((e) => e.to === id);
+    const r = callers.length ? Math.max(...callers.map((e) => visit(e.from) + 1)) : 0;
     rank.set(id, r);
     return r;
   };
-  for (const s of services) visit(s.id, new Set());
+  for (const s of services) visit(s.id);
   // A service nobody calls and that calls nobody sits after whoever publishes what it consumes.
   const lonely = services.filter((s) => !calls.some((e) => e.from === s.id || e.to === s.id));
   for (let pass = 0; pass < 3; pass++) {
@@ -308,10 +322,10 @@ export function layout<E extends MapEdge>(g: Indexed, edges: E[], o: { keep?: bo
 
   // titled by the rank each column stands for, not by its place once the empty ones are gone; a column split in parts
   // is titled once, over its first
-  const TITLE: Record<number, string> = { [lastService + 1]: 'Mensajería', [lastService + 2]: 'Datos', [lastService + 3]: 'Sistemas externos' };
+  const TITLE: Record<number, string> = { [lastService + 1]: tr('Mensajería'), [lastService + 2]: tr('Datos'), [lastService + 3]: tr('Sistemas externos') };
   const columns = cols.map((c, ci) => {
     const r = titleOf[ci] < 0 ? undefined : taken[titleOf[ci]];
-    return { x: colX[ci], title: r === undefined ? '' : TITLE[r] ?? (r === 0 ? 'Entrada' : `Servicios, nivel ${r}`) };
+    return { x: colX[ci], title: r === undefined ? '' : TITLE[r] ?? (r === 0 ? tr('Entrada') : tr('Servicios, nivel {r}', { r })) };
   }).filter((_, ci) => cols[ci]?.length);
   return { nodes: [...placed.values()], edges: routed, width, height: bottom + 24 + under * UNDER, columns, bands };
 }
@@ -333,7 +347,7 @@ export interface FlowEdge extends MapEdge {
   inMap: boolean;
 }
 
-const ACTOR: Record<string, string> = { browser: 'Navegador', runner: 'Prueba', host: 'Tu máquina' };
+const ACTOR: Record<string, string> = { browser: tr('Navegador'), runner: tr('Prueba'), host: tr('Tu máquina') };
 const sub = (g: Indexed, nodes: MapNode[]): Indexed => ({ map: { ...g.map, nodes, facts: [] }, nodes: new Map(nodes.map((n) => [n.id, n])), out: () => [], in: () => [] });
 const few = (xs: string[]) => (xs.length > 2 ? `${xs.slice(0, 2).join(', ')} +${xs.length - 2}` : xs.join(', '));
 
@@ -390,11 +404,11 @@ export function flowGraph(g: Indexed, trace: Pick<Trace, 'participants' | 'excha
   const known = new Set(edgesOf(g).map((e) => e.id));
   const edges = [...by.values()].map(({ sql, http, tcp, names, topics, ...e }): FlowEdge => {
     const what = e.kind === 'event' ? topics.join(', ')
-      : e.kind === 'store' ? [[sql && `${sql} SQL`, http && `${http} HTTP`, tcp && (tcp === 1 ? '1 conexión' : `${tcp} conexiones`)].filter(Boolean).join(' + '), few(names)].filter(Boolean).join(' · ')
+      : e.kind === 'store' ? [[sql && `${sql} SQL`, http && `${http} HTTP`, tcp && (tcp === 1 ? tr('1 conexión') : tr('{tcp} conexiones', { tcp }))].filter(Boolean).join(' + '), few(names)].filter(Boolean).join(' · ')
       : e.n ? `${e.n}${e.sse ? ` · +${e.sse} SSE` : ''}` : `${e.sse} SSE`;
     const inMap = known.has(e.id) || !g.nodes.has(e.from) || !g.nodes.has(e.to);
-    const errs = `${e.failed ? ` · ${e.failed} ${e.failed === 1 ? 'falló' : 'fallaron'}` : ''}${e.errors ? ` · ${e.errors} con error` : ''}`;
-    return { ...e, inMap, label: `${what}${errs}${inMap ? '' : ' · no está en el código'}` };
+    const errs = `${e.failed ? ` · ${e.failed} ${e.failed === 1 ? tr('falló') : tr('fallaron')}` : ''}${e.errors ? tr(' · {errors} con error', { errors: e.errors }) : ''}`;
+    return { ...e, inMap, label: `${what}${errs}${inMap ? '' : tr(' · no está en el código')}` };
   });
   const used = new Set(edges.flatMap((e) => [e.from, e.to]));
   return { sub: sub(g, [...new Map([...nodeOf.values()].filter((n) => used.has(n.id)).map((n) => [n.id, n])).values()]), edges };
@@ -424,7 +438,7 @@ export function litBy(g: Indexed, trace: Pick<Trace, 'participants' | 'exchanges
   const by = new Map(trace.exchanges.map((e) => [e.id, e]));
   const idle = (e?: Exchange) => Boolean(e && isConsume(e) && !did.has(e.id));
   const quiet = new Set(fg.edges.filter((e) => e.kind === 'event' && e.ex.some((id) => isConsume(by.get(id)!)) && e.ex.every((id) => !isConsume(by.get(id)!) || idle(by.get(id)))).map((e) => e.id));
-  const edges = new Map(fg.edges.map((e) => [e.id, quiet.has(e.id) ? { ...e, label: `${e.label} · sin efecto visible` } : e]));
+  const edges = new Map(fg.edges.map((e) => [e.id, quiet.has(e.id) ? { ...e, label: tr('{label} · sin efecto visible', { label: e.label }) } : e]));
   const parts = new Map(trace.participants.map((p) => [p.id, p]));
   const nodeOf = (id: string) => { const p = parts.get(id); return !p ? `service:${id}` : ACTOR[p.type] ? `actor:${p.type}` : p.node ?? `${p.type}:${p.id}`; };
   const code = new Set(edgesOf(g).filter((e) => e.kind === 'store').map((e) => e.id));

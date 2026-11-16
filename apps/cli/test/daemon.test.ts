@@ -100,6 +100,8 @@ test('the local service started with --token: token once, cookie after, localhos
     const mapFile = join(root, '.laru', 'map.json'), read = JSON.parse(readFileSync(mapFile, 'utf8'));
     writeFileSync(mapFile, JSON.stringify({ ...read, nodes: read.nodes.filter((n: { id: string }) => n.id !== 'ep:billing-api:POST /refunds') }));
     utimesSync(mapFile, new Date(), new Date(Date.now() + 60_000));
+    // the service reads its files again past a quarter second (a change made outside it): the next read has the new map
+    await new Promise((r) => setTimeout(r, 300));
     assert.deepEqual((await lastOf())?.endpoints, []);
   } finally {
     await d.close();
@@ -185,7 +187,7 @@ test('one service, several workspaces: each under its id, the machine beside the
   try {
     const base = new URL(d.url).origin;
     const ping = await get(`${base}/api/ping`);
-    assert.deepEqual([ping.status, JSON.parse(ping.body)], [200, { laru: '0.1.0-beta.18', pid: process.pid }], 'ping needs no session and says only the version and whose it is');
+    assert.deepEqual([ping.status, JSON.parse(ping.body)], [200, { laru: '0.1.0-beta.19', pid: process.pid }], 'ping needs no session and says only the version and whose it is');
     const cookie = String((await get(d.url.replace('/?', '/w/finanzas/?'))).headers['set-cookie']).split(';')[0];
     const call = async (method: string, path: string, body?: unknown) => new Promise<{ status: number; json: any }>((ok, fail) => {
       const req = request(`${base}${path}`, { method, headers: { cookie, ...(body ? { 'content-type': 'application/json' } : {}) } }, (res) => { let t = ''; res.on('data', (c) => (t += c)); res.on('end', () => ok({ status: res.statusCode!, json: t ? JSON.parse(t) : null })); });

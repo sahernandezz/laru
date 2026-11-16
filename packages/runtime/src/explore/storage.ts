@@ -17,22 +17,23 @@ export async function storeOfEnv(ws: Workspace, env: string): Promise<Bucketed> 
 }
 
 const ALIAS = 'mc -C /tmp/ks-mc alias set ks http://127.0.0.1:9000 "${MINIO_ROOT_USER:-${MINIO_ACCESS_KEY}}" "${MINIO_ROOT_PASSWORD:-${MINIO_SECRET_KEY}}" >/dev/null &&';
-const path = (p: string) => { if (/['\\]/.test(p) || p.includes('..')) throw new Error('not a valid object path'); return `'ks/${p.replace(/^\/+/, '')}'`; };
+// a part of the path that climbs (`..`) is refused; a name that merely holds two dots (`8.21.34 p.m..png`) is a name
+export const objectPath = (p: string) => { if (/['\\]/.test(p) || p.split('/').includes('..')) throw new Error('not a valid object path'); return `'ks/${p.replace(/^\/+/, '')}'`; };
 
 /** Buckets (no path), or the entries under bucket[/prefix]. */
 export async function ls(s: Bucketed, at = '', recursive = false): Promise<S3Entry[]> {
-  const out = await docker(['exec', s.container, 'sh', '-c', `${ALIAS} mc -C /tmp/ks-mc ls --json ${recursive ? '--recursive ' : ''}${path(at)}`]).catch((e: Error) => { if (/does not exist|NoSuchBucket/.test(e.message)) return ''; throw e; });
+  const out = await docker(['exec', s.container, 'sh', '-c', `${ALIAS} mc -C /tmp/ks-mc ls --json ${recursive ? '--recursive ' : ''}${objectPath(at)}`]).catch((e: Error) => { if (/does not exist|NoSuchBucket/.test(e.message)) return ''; throw e; });
   return out.split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((x) => x.status === 'success').map((x) => ({ key: x.key, type: x.type === 'folder' ? 'folder' : 'file', size: x.size ?? 0, lastModified: x.lastModified, etag: x.etag || undefined }));
 }
 
 export async function stat(s: Bucketed, at: string): Promise<Record<string, unknown>> {
-  return JSON.parse(await docker(['exec', s.container, 'sh', '-c', `${ALIAS} mc -C /tmp/ks-mc stat --json ${path(at)}`]));
+  return JSON.parse(await docker(['exec', s.container, 'sh', '-c', `${ALIAS} mc -C /tmp/ks-mc stat --json ${objectPath(at)}`]));
 }
 
 /** The first `max` bytes of an object. */
 export function cat(s: Bucketed, at: string, max = 1024 * 1024): Promise<{ bytes: Buffer; truncated: boolean }> {
   return new Promise((ok, fail) => {
-    const p = spawn('docker', ['exec', s.container, 'sh', '-c', `${ALIAS} mc -C /tmp/ks-mc cat ${path(at)} | head -c ${max + 1}`], { env: dockerEnv() });
+    const p = spawn('docker', ['exec', s.container, 'sh', '-c', `${ALIAS} mc -C /tmp/ks-mc cat ${objectPath(at)} | head -c ${max + 1}`], { env: dockerEnv() });
     const chunks: Buffer[] = [];
     let err = '';
     p.stdout.on('data', (c: Buffer) => chunks.push(c));
@@ -63,7 +64,7 @@ export function contentTypeOf(meta: Record<string, unknown>, key: string): strin
  */
 export function slice(s: Bucketed, at: string, start: number, length: number): ChildProcessWithoutNullStreams {
   if (!Number.isInteger(start) || !Number.isInteger(length) || start < 0 || length < 1) throw new Error('not a valid range');
-  return spawn('docker', ['exec', s.container, 'sh', '-c', `${ALIAS} mc -C /tmp/ks-mc cat --offset ${start} ${path(at)} | head -c ${length}`], { env: dockerEnv() });
+  return spawn('docker', ['exec', s.container, 'sh', '-c', `${ALIAS} mc -C /tmp/ks-mc cat --offset ${start} ${objectPath(at)} | head -c ${length}`], { env: dockerEnv() });
 }
 
 /* ---- a spreadsheet, read without a library: an .xlsx is a zip of XML ---- */

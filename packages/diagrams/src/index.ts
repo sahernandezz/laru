@@ -13,5 +13,6 @@ export * from './render/compose.ts';
 export * from './render/propose.ts';
 // The standard of each class of diagram, and the lint that reads a written diagram against it.
 export { inSpanish } from './standards-es.ts';
-export { DIAGRAM_STANDARDS, DERIVED_KINDS, kindsOfLayer, kindOfDialect, lintDiagram as lintDiagramOfKind, detectDialect as dialectOf, type DiagramStandard, type DiagramOrigin, type DiagramContext } from './standards.ts';
+export { DIAGRAM_STANDARDS, DERIVED_KINDS, kindsOfLayer, kindOfDialect, lintDiagram as lintDiagramOfKind, type DiagramStandard, type DiagramOrigin, type DiagramContext } from './standards.ts';
+export { detectDialect as dialectOf } from './model.ts';
 export { drawMermaid, drawModel, type Drawn } from './draw.ts';

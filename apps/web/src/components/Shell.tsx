@@ -1,7 +1,7 @@
 /** Top bar, side menu and the ⌘K menu, which reaches every screen as well as every node of the map. */
 import {
   ArrowLeft, ArrowLeftRight, Box, Boxes, Check, ChevronDown, ChevronsUpDown, Container, Database, DatabaseBackup, FolderOpen, GitBranch, HardDrive, Home as HomeIcon, KeyRound, LayoutDashboard, Library, Mail,
-  Network, PanelLeft, PanelLeftClose, PanelLeftOpen, PlayCircle, Plug, Plus, Radio, ScrollText, Search, Server, Settings2, Palette, Shapes, Workflow, type LucideIcon,
+  Network, PanelLeft, PanelLeftClose, PanelLeftOpen, PlayCircle, Plug, Plus, Radio, ScrollText, Search, Server, Settings2, Palette, Languages, Shapes, Workflow, type LucideIcon,
 } from 'lucide-react';
 import { lazy, type ReactNode, Suspense, useEffect, useId, useRef, useState } from 'react';
 import { api, useApi, WS, type RunInfo, type WorkspaceRow } from '../api.ts';
@@ -12,29 +12,31 @@ import type { Menu, ScopeMenu as Scoped, Section } from '../lib/menu.ts';
 import { Dot, Logo, tilde } from './ui.tsx';
 import { LiveNotices, noticeCleanups, Notices, notify, type Cleanups, type DockerSeen } from './Notices.tsx';
 import { RunningDock } from './RunningDock.tsx';
+import { tr } from '../lib/i18n.ts';
 
 /** The «add a workspace» dialog lives with the machine's home page: fetched when it is opened. */
 const AddWorkspace = lazy(() => import('../pages/Home.tsx').then((m) => ({ default: m.AddWorkspace })));
 
 interface NavItem { route: string; icon: LucideIcon; label: string }
 export const NAV: Array<[string, NavItem[]]> = [
-  ['', [{ route: 'overview', icon: LayoutDashboard, label: 'Estado' }]],
-  ['La aplicación', [
-    { route: 'docs', icon: Library, label: 'Documentación y flujos' },
-    { route: 'map', icon: Network, label: 'Mapa y servicios' },
-    { route: 'envs', icon: Container, label: 'Entornos' },
+  ['', [{ route: 'overview', icon: LayoutDashboard, label: tr('Estado') }]],
+  [tr('La aplicación'), [
+    { route: 'docs', icon: Library, label: tr('Documentación y flujos') },
+    { route: 'map', icon: Network, label: tr('Mapa y servicios') },
+    { route: 'envs', icon: Container, label: tr('Entornos') },
     { route: 'runs', icon: PlayCircle, label: 'Runs' },
-    { route: 'mocks', icon: Plug, label: 'Mocks y fallos' },
-    { route: 'repos', icon: GitBranch, label: 'Proyectos' },
+    { route: 'mocks', icon: Plug, label: tr('Mocks y fallos') },
+    { route: 'repos', icon: GitBranch, label: tr('Proyectos') },
   ]],
-  ['Manual', [
-    { route: 'standard', icon: ScrollText, label: 'Cómo se documenta' },
-    { route: 'diagrams', icon: Shapes, label: 'Cómo se dibuja' },
+  [tr('Manual'), [
+    { route: 'standard', icon: ScrollText, label: tr('Cómo se documenta') },
+    { route: 'diagrams', icon: Shapes, label: tr('Cómo se dibuja') },
   ]],
-  ['Ajustes', [
-    { route: 'files', icon: FolderOpen, label: 'Archivos locales' },
-    { route: 'settings', icon: Settings2, label: 'Información del sistema' },
-    { route: 'theme', icon: Palette, label: 'Tema' },
+  [tr('Ajustes'), [
+    { route: 'files', icon: FolderOpen, label: tr('Archivos locales') },
+    { route: 'settings', icon: Settings2, label: tr('Información del sistema') },
+    { route: 'theme', icon: Palette, label: tr('Tema') },
+    { route: 'language', icon: Languages, label: tr('Idioma') },
   ]],
 ];
 /** Screens reached from another one (a flow, an environment) rather than from the menu: who lights up for them. */
@@ -45,14 +47,14 @@ export interface Jump { label: string; hint?: string; icon: LucideIcon; to: stri
 type Item = Jump & { run?: () => void };
 const SCREENS: Jump[] = [
   ...NAV.flatMap(([group, items]) => items.map((i) => ({ label: i.label, hint: group || undefined, icon: i.icon, to: href(i.route) }))),
-  { label: 'Variables y secretos', hint: 'Secretos', icon: KeyRound, to: href('vars') },
-  { label: 'Bases de datos', hint: 'Datos', icon: Database, to: href('data') },
-  { label: 'Colas', hint: 'Datos', icon: ArrowLeftRight, to: href('queues') },
-  { label: 'Almacenamiento', hint: 'Datos', icon: HardDrive, to: href('storage') },
-  { label: 'Correo y mensajes de texto', hint: 'Datos', icon: Mail, to: href('mail') },
-  { label: 'Sesiones en vivo', hint: 'Probar en vivo', icon: Radio, to: href('live') },
-  { label: 'Flujos', hint: 'Documentación', icon: Workflow, to: href('flows') },
-  { label: 'Escenarios', hint: 'Flujos', icon: DatabaseBackup, to: href('scenarios') },
+  { label: tr('Variables y secretos'), hint: tr('Secretos'), icon: KeyRound, to: href('vars') },
+  { label: tr('Bases de datos'), hint: tr('Datos'), icon: Database, to: href('data') },
+  { label: tr('Colas'), hint: tr('Datos'), icon: ArrowLeftRight, to: href('queues') },
+  { label: tr('Almacenamiento'), hint: tr('Datos'), icon: HardDrive, to: href('storage') },
+  { label: tr('Correo y mensajes de texto'), hint: tr('Datos'), icon: Mail, to: href('mail') },
+  { label: tr('Sesiones en vivo'), hint: tr('Probar en vivo'), icon: Radio, to: href('live') },
+  { label: tr('Flujos'), hint: tr('Documentación'), icon: Workflow, to: href('flows') },
+  { label: tr('Escenarios'), hint: tr('Flujos'), icon: DatabaseBackup, to: href('scenarios') },
 ];
 
 /** The last three entries used, kept in this browser only; storage that is off or full just keeps none. */
@@ -72,7 +74,7 @@ function remember(j: Jump) {
  * agent wrote a doc, a flow, a run ended) fires `laru:changed`, which does the same as `laru:back`; Docker going away
  * or coming back, a refresh and a run that ended become notices.
  */
-const RUN_END: Record<string, string> = { passed: 'pasó', failed: 'falló', error: 'no pudo correr', cancelled: 'se canceló', interrupted: 'se interrumpió' };
+const RUN_END: Record<string, string> = { passed: tr('pasó'), failed: tr('falló'), error: tr('no pudo correr'), cancelled: tr('se canceló'), interrupted: tr('se interrumpió') };
 interface Pulse { docker: DockerSeen; changes?: { n: number; files: string[] }; running?: RunInfo[]; cleanup?: Cleanups }
 function useService() {
   const [offline, setOffline] = useState(false);
@@ -95,21 +97,21 @@ function useService() {
       if (p.running) setRunning(inProgress(p.running));
       if (last) {
         const was = last.docker.ok;
-        if (was !== null && p.docker.ok === false && was !== false) { notify({ kind: 'docker', title: 'Docker dejó de responder', detail: p.docker.error, state: 'err' }); }
-        if (was === false && p.docker.ok) { notify({ kind: 'docker', title: 'Docker volvió', detail: p.docker.version ? `Versión ${p.docker.version}; las pantallas se actualizaron` : 'Las pantallas se actualizaron', state: 'ok' }); dispatchEvent(new Event('laru:changed')); }
+        if (was !== null && p.docker.ok === false && was !== false) { notify({ kind: 'docker', title: tr('Docker dejó de responder'), detail: p.docker.error, state: 'err' }); }
+        if (was === false && p.docker.ok) { notify({ kind: 'docker', title: tr('Docker volvió'), detail: p.docker.version ? tr('Versión {version}; las pantallas se actualizaron', { version: p.docker.version }) : tr('Las pantallas se actualizaron'), state: 'ok' }); dispatchEvent(new Event('laru:changed')); }
         if (p.changes && last.changes && p.changes.n !== last.changes.n) {
           dispatchEvent(new Event('laru:changed'));
           const files = p.changes.files;
-          notify({ kind: 'change', title: 'Actualizado', detail: 'Algo cambió el workspace y la pantalla se actualizó', files, state: 'run' });
+          notify({ kind: 'change', title: tr('Actualizado'), detail: tr('Algo cambió el workspace y la pantalla se actualizó'), files, state: 'run' });
         }
         noticeCleanups(last.cleanup, p.cleanup, href('files'));
         // a run that ended: how it ended is read from the run itself
         for (const r of last.running ?? []) if (!p.running?.some((x) => x.id === r.id)) {
-          const what = r.kind === 'session' ? `Sesión #${r.id}` : `Run #${r.id}`, to = r.kind === 'session' ? liveHref(r) : href('runs', r.id);
-          const detail = r.kind === 'session' ? r.title ?? r.env : r.flows.length === 1 ? r.flows[0] : `${r.flows.length} flujos en ${r.env}`;
+          const what = r.kind === 'session' ? tr('Sesión #{id}', { id: r.id }) : `Run #${r.id}`, to = r.kind === 'session' ? liveHref(r) : href('runs', r.id);
+          const detail = r.kind === 'session' ? r.title ?? r.env : r.flows.length === 1 ? r.flows[0] : tr('{length} flujos en {env}', { length: r.flows.length, env: r.env });
           void api<RunInfo>(`/api/run?id=${encodeURIComponent(r.id)}`).then(
-            (done) => notify({ kind: 'run', title: `${what} ${RUN_END[done.status] ?? 'terminó'}`, detail, state: done.status === 'passed' ? 'ok' : done.status === 'failed' || done.status === 'error' ? 'err' : 'idle', to }),
-            () => notify({ kind: 'run', title: `${what} terminó`, detail, state: 'idle', to }));
+            (done) => notify({ kind: 'run', title: `${what} ${RUN_END[done.status] ?? tr('terminó')}`, detail, state: done.status === 'passed' ? 'ok' : done.status === 'failed' || done.status === 'error' ? 'err' : 'idle', to }),
+            () => notify({ kind: 'run', title: tr('{what} terminó', { what }), detail, state: 'idle', to }));
         }
       }
       last = p;
@@ -155,40 +157,42 @@ export function Shell({ app, nav, counts, jumps, menu, children }: { app: string
     return () => removeEventListener('keydown', on);
   }, []);
   useEffect(() => setDrawer(false), [active, scope?.active]);
+  // on a phone the menu is a drawer that starts closed: the button says what it does to that, not to the desktop's menu
+  const menuShown = phone() ? drawer : !collapsed;
 
   // the menu alone hides from its top right, on the row of «back»; the header's button does both panels
-  const hide = <button type="button" className="icon-btn side-hide" onClick={toggle} aria-label="Ocultar el menú" title="Ocultar solo el menú"><PanelLeftClose /></button>;
+  const hide = <button type="button" className="icon-btn side-hide" onClick={toggle} aria-label={tr('Ocultar el menú')} title={tr('Ocultar solo el menú')}><PanelLeftClose /></button>;
 
   return (
     <div className={`app${collapsed ? ' collapsed' : ''}${drawer ? ' drawer' : ''}${scope ? ' scoped' : ''}`}>
       {/* The hash is the router's: following #main would open a screen called «main», so this only moves the focus. */}
-      <a className="skip" href="#main" onClick={(e) => { e.preventDefault(); document.getElementById('main')?.focus(); }}>Saltar al contenido</a>
-      {offline && <div className="offline-bar" role="status"><span className="spin" aria-hidden="true" />Sin conexión con el servicio, reintentando…</div>}
+      <a className="skip" href="#main" onClick={(e) => { e.preventDefault(); document.getElementById('main')?.focus(); }}>{tr('Saltar al contenido')}</a>
+      {offline && <div className="offline-bar" role="status"><span className="spin" aria-hidden="true" />{tr('Sin conexión con el servicio, reintentando…')}</div>}
       <header className="top">
         {/* only to bring the menu back (or open it on a phone): hiding it is at the menu's foot, away from «back» at its top */}
-        <button className="icon-btn menu-btn" onClick={both} aria-pressed={collapsed} aria-label={collapsed ? 'Mostrar el menú y el árbol (⌘B)' : 'Ocultar el menú y el árbol (⌘B)'} title={collapsed ? 'Mostrar el menú y el árbol ⌘B' : 'Ocultar el menú y el árbol ⌘B'}>{collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}</button>
-        <a className="brand" href={href('overview')} aria-label="Laru, inicio"><Logo /><span className="hide-sm">Laru</span></a>
+        <button className="icon-btn menu-btn" onClick={both} aria-pressed={!menuShown} aria-label={menuShown ? tr('Ocultar el menú y el árbol (⌘B)') : tr('Mostrar el menú y el árbol (⌘B)')} title={menuShown ? tr('Ocultar el menú y el árbol ⌘B') : tr('Mostrar el menú y el árbol ⌘B')}>{menuShown ? <PanelLeftClose /> : <PanelLeftOpen />}</button>
+        <a className="brand" href={href('overview')} aria-label={tr('Laru, inicio')}><Logo /><span className="hide-sm">Laru</span></a>
         <span className="slash" aria-hidden="true">/</span>
         <Switcher app={app} rows={workspaces.data} offline={offline} onAdd={() => setAdding(true)} />
         <span className="grow" />
-        <button className="search" onClick={() => setCmdk(true)} aria-label="Buscar (⌘K)"><Search /><span>Buscar…</span><kbd>⌘K</kbd></button>
+        <button className="search" onClick={() => setCmdk(true)} aria-label={tr('Buscar (⌘K)')}><Search /><span>{tr('Buscar…')}</span><kbd>⌘K</kbd></button>
         <Notices docker={docker} />
       </header>
-      <nav className="side" aria-label="Secciones">
+      <nav className="side" aria-label={tr('Secciones')}>
         {scope ? <ScopeMenu scope={scope} hide={hide} /> : <div className="side-top">{hide}</div>}
         {scope ? null : NAV.map(([group, items]) => {
           const link = (i: NavItem) => (
             <a key={i.route} href={href(i.route)} aria-current={(PARENT[active] ?? active) === i.route ? 'page' : undefined}>
               <i.icon /><span>{i.label}</span>
-              {i.route === 'runs' && running.length > 0 ? <span className="count live num" title={`${plural(running.length, 'run en curso', 'runs en curso')}`}>{running.length}</span>
+              {i.route === 'runs' && running.length > 0 ? <span className="count live num" title={`${plural(running.length, tr('run en curso'), tr('runs en curso'))}`}>{running.length}</span>
                 : counts[i.route] !== undefined && <span className="count num">{counts[i.route]}</span>}
             </a>
           );
           const here = (list: NavItem[]) => list.some((i) => (PARENT[active] ?? active) === i.route);
           // «La aplicación» is one menu: what runs it first, then what is written about it (and every living piece).
-          if (group === 'La aplicación' && menu) return (
+          if (group === tr('La aplicación') && menu) return (
             <span key={group} style={{ display: 'contents' }}>
-              <div className="nav-group"><Fold name="Sistema" count={items.filter((i) => i.route !== 'docs').length} here={here(items.filter((i) => i.route !== 'docs'))} at={location.hash}>{items.filter((i) => i.route !== 'docs').map(link)}</Fold></div>
+              <div className="nav-group"><Fold name={tr('Sistema')} count={items.filter((i) => i.route !== 'docs').length} here={here(items.filter((i) => i.route !== 'docs'))} at={location.hash}>{items.filter((i) => i.route !== 'docs').map(link)}</Fold></div>
               <AppMenu title={menu.title} sections={menu.sections} active={nav.kind === 'main' ? nav.app : undefined} />
             </span>
           );
@@ -199,21 +203,21 @@ export function Shell({ app, nav, counts, jumps, menu, children }: { app: string
           );
         })}
         <div className="side-foot">
-          <span>Todo corre en esta máquina</span>
-          <a className="mono" href={`https://github.com/sahernandezz/laru/releases/tag/v${__LARU_VERSION__}`} target="_blank" rel="noreferrer" title="Qué trae esta versión">laru {__LARU_VERSION__}</a>
+          <span>{tr('Todo corre en esta máquina')}</span>
+          <a className="mono" href={`https://github.com/sahernandezz/laru/releases/tag/v${__LARU_VERSION__}`} target="_blank" rel="noreferrer" title={tr('Qué trae esta versión')}>laru {__LARU_VERSION__}</a>
           <a href="https://github.com/sahernandezz/laru" target="_blank" rel="noreferrer">GitHub</a>
         </div>
       </nav>
       <main id="main" tabIndex={-1}>
-        {docker?.ok === false && <div className="docker-bar" role="alert"><b>Docker no responde</b><span>desde {ago(new Date(docker.since).toISOString())}: los entornos se muestran sin estado y no se pueden levantar.</span>{docker.error && <code title={docker.error}>{docker.error}</code>}</div>}
+        {docker?.ok === false && <div className="docker-bar" role="alert"><b>{tr('Docker no responde')}</b><span>{tr('desde')}{' '}{ago(new Date(docker.since).toISOString())}{tr(': los entornos se muestran sin estado y no se pueden levantar.')}</span>{docker.error && <code title={docker.error}>{docker.error}</code>}</div>}
         {children}
       </main>
       <LiveNotices />
       <RunningDock running={running} />
       {cmdk && <CommandMenu jumps={[...SCREENS, ...jumps]} actions={[
-        { label: 'Mostrar u ocultar el menú y el árbol', hint: '⌘B', icon: PanelLeft, to: 'action:menu', run: both },
-        ...others.map((w): Item => ({ label: `Cambiar a ${nameOf(w, workspaces.data ?? [])}`, hint: 'Workspace', icon: Box, to: `ws:${w.id}`, run: () => { location.href = wsPage(w.id!, screenOnly(location.hash)); } })),
-        { label: 'Todos los workspaces y esta máquina', hint: 'Inicio', icon: HomeIcon, to: 'ws:', run: () => { location.href = HOME; } },
+        { label: tr('Mostrar u ocultar el menú y el árbol'), hint: '⌘B', icon: PanelLeft, to: 'action:menu', run: both },
+        ...others.map((w): Item => ({ label: tr('Cambiar a {nameOf}', { nameOf: nameOf(w, workspaces.data ?? []) }), hint: tr('Workspace'), icon: Box, to: `ws:${w.id}`, run: () => { location.href = wsPage(w.id!, screenOnly(location.hash)); } })),
+        { label: tr('Todos los workspaces y esta máquina'), hint: tr('Inicio'), icon: HomeIcon, to: 'ws:', run: () => { location.href = HOME; } },
       ]} close={() => setCmdk(false)} />}
       {adding && <Suspense fallback={null}><AddWorkspace onClose={() => setAdding(false)} /></Suspense>}
     </div>
@@ -238,7 +242,7 @@ function Fold({ name, here, at, sub, count, children }: { name: string; here?: b
   };
   return (
     <details className={sub ? 'fold sub' : 'fold'} open={open} onToggle={(e) => { if (e.currentTarget.open !== open) keep(e.currentTarget.open); }}>
-      <summary><ChevronDown aria-hidden="true" /><h2>{name}</h2>{count !== undefined && <span className="count num" aria-label={`${count} entradas`}>{count}</span>}</summary>
+      <summary><ChevronDown aria-hidden="true" /><h2>{name}</h2>{count !== undefined && <span className="count num" aria-label={tr('{count} entradas', { count })}>{count}</span>}</summary>
       {children}
     </details>
   );
@@ -268,7 +272,7 @@ function ScopeMenu({ scope, hide }: { scope: Scoped; hide: ReactNode }) {
   const I = scope.card.icon;
   return (
     <div className="scope">
-      <div className="scope-top"><a className="scope-back" href={scope.back.to}><ArrowLeft />{scope.back.label}</a>{hide}</div>
+      <div className="scope-top"><a className="scope-back" href={scope.back.to}><ArrowLeft /><span className="ellipsis">{scope.back.label}</span></a>{hide}</div>
       <div className="scope-card">
         <span className="scope-kind">{I && <I />}{scope.card.kind}</span>
         <b>{scope.card.state && <Dot state={scope.card.state} />}{scope.card.title}</b>
@@ -310,8 +314,8 @@ function Switcher({ app, rows, offline, onAdd }: { app: string; rows?: Workspace
   const here = me ? nameOf(me, list) : app;
   return (
     <span className="switch-wrap" onBlur={(e) => { if (open && !e.currentTarget.contains(e.relatedTarget)) close(false); }}>
-      <button ref={btn} className="switcher" aria-haspopup="dialog" aria-expanded={open} aria-label={`Workspace: ${here}. ${rows ? plural(list.length, 'workspace', 'workspaces') : ''} en ${location.host}. Cambiar de workspace`} onClick={() => setOpen((o) => !o)}>
-        <span className="halo" title={offline ? 'El servicio no responde' : `Servicio en ${location.host}`}><Dot state={offline ? 'err' : 'ok'} /></span>
+      <button ref={btn} className="switcher" aria-haspopup="dialog" aria-expanded={open} aria-label={tr('Workspace: {here}. {p1} en {host}. Cambiar de workspace', { here, p1: rows ? plural(list.length, tr('workspace'), tr('workspaces')) : '', host: location.host })} onClick={() => setOpen((o) => !o)}>
+        <span className="halo" title={offline ? tr('El servicio no responde') : tr('Servicio en {host}', { host: location.host })}><Dot state={offline ? 'err' : 'ok'} /></span>
         <span className="sw-name">{here}</span>
         {rows && <span className="sw-count num" aria-hidden="true"><Boxes />{list.length}</span>}
         <ChevronsUpDown className="chev" />
@@ -319,7 +323,7 @@ function Switcher({ app, rows, offline, onAdd }: { app: string; rows?: Workspace
       {open && (
         // A press inside keeps the focus where it is: in browsers that do not focus a link when it is pressed (Safari, Firefox on a
         // Mac) the button would lose it, the blur above would close the list, and the link would be gone before the click reached it.
-        <div className="popover" role="dialog" aria-label="Workspaces" ref={box} onMouseDown={(e) => e.preventDefault()} onKeyDown={(e) => {
+        <div className="popover" role="dialog" aria-label={tr('Workspaces')} ref={box} onMouseDown={(e) => e.preventDefault()} onKeyDown={(e) => {
           const items = [...(box.current?.querySelectorAll<HTMLElement>('.item') ?? [])], i = items.indexOf(document.activeElement as HTMLElement);
           if (e.key === 'Escape') { e.preventDefault(); close(); }
           if (e.key === 'ArrowDown') { e.preventDefault(); items[(i + 1) % items.length]?.focus(); }
@@ -327,25 +331,25 @@ function Switcher({ app, rows, offline, onAdd }: { app: string; rows?: Workspace
         }}>
           <div className="sw-service">
             <Server />
-            <span style={{ minWidth: 0 }}>Servicio local<span className="sub">{location.host} · solo esta máquina</span></span>
-            <span className="faint" style={{ fontSize: 12, display: 'inline-flex', gap: 6, alignItems: 'center' }}><Dot state={offline ? 'err' : 'ok'} />{offline ? 'sin respuesta' : 'en marcha'}</span>
+            <span style={{ minWidth: 0 }}>{tr('Servicio local')}<span className="sub">{location.host}{' '}{tr('· solo esta máquina')}</span></span>
+            <span className="faint" style={{ fontSize: 12, display: 'inline-flex', gap: 6, alignItems: 'center' }}><Dot state={offline ? 'err' : 'ok'} />{offline ? tr('sin respuesta') : tr('en marcha')}</span>
           </div>
           <hr />
-          <div className="h">{rows ? plural(list.length, 'workspace', 'workspaces') : 'Workspaces'}</div>
+          <div className="h">{rows ? plural(list.length, tr('workspace'), tr('workspaces')) : tr('Workspaces')}</div>
           <ul>
-            {!rows ? <li className="h">Cargando…</li> : list.map((w) => (
+            {!rows ? <li className="h">{tr('Cargando…')}</li> : list.map((w) => (
               <li key={w.root}>
                 <a className="item" href={wsPage(w.id!, screenOnly(location.hash))} aria-current={w.id === WS ? 'true' : undefined}>
-                  {w.id === WS ? <Check aria-label="Actual" /> : <span />}
+                  {w.id === WS ? <Check aria-label={tr('Actual')} /> : <span />}
                   <span style={{ minWidth: 0 }}>{nameOf(w, list)}<span className="sub">{tilde(w.root)}</span></span>
-                  <span className="faint" style={{ fontSize: 12, display: 'inline-flex', gap: 6, alignItems: 'center' }}>{w.envs?.length ? <><Dot state="ok" />{w.envs.join(', ')}</> : <><Dot state="idle" />parado</>}</span>
+                  <span className="faint" style={{ fontSize: 12, display: 'inline-flex', gap: 6, alignItems: 'center' }}>{w.envs?.length ? <><Dot state="ok" />{w.envs.join(', ')}</> : <><Dot state="idle" />{tr('parado')}</>}</span>
                 </a>
               </li>
             ))}
           </ul>
           <hr />
-          <button className="item" onClick={() => { close(false); onAdd(); }}><Plus /><span>Añadir workspace…</span><span /></button>
-          <a className="item" href={HOME}><HomeIcon /><span>Todos los workspaces y esta máquina</span><span /></a>
+          <button className="item" onClick={() => { close(false); onAdd(); }}><Plus /><span>{tr('Añadir workspace…')}</span><span /></button>
+          <a className="item" href={HOME}><HomeIcon /><span>{tr('Todos los workspaces y esta máquina')}</span><span /></a>
         </div>
       )}
     </span>
@@ -362,7 +366,7 @@ function CommandMenu({ jumps, actions, close }: { jumps: Jump[]; actions: Item[]
   const match = (j: Jump) => `${j.label} ${j.hint ?? ''}`.toLowerCase().includes(q.toLowerCase());
   const all: Item[] = [...jumps, ...actions];
   const recents = q ? [] : recent().flatMap((k) => all.find((j) => keyOf(j) === k) ?? []);
-  const groups: Array<[string, Item[]]> = [['Recientes', recents], ['Ir a', jumps.filter(match).slice(0, 40)], ['Acciones', actions.filter(match)]];
+  const groups: Array<[string, Item[]]> = [[tr('Recientes'), recents], [tr('Ir a'), jumps.filter(match).slice(0, 40)], [tr('Acciones'), actions.filter(match)]];
   const shown = groups.flatMap(([, items]) => items);
   const go = (j?: Item) => {
     close();
@@ -379,8 +383,8 @@ function CommandMenu({ jumps, actions, close }: { jumps: Jump[]; actions: Item[]
   let n = 0;
   return (
     <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && close()}>
-      <div className="cmdk" role="dialog" aria-modal="true" aria-label="Buscar">
-        <input autoFocus placeholder="Busca una pantalla, un servicio, un endpoint, una tabla o un tema…" aria-label="Buscar" value={q}
+      <div className="cmdk" role="dialog" aria-modal="true" aria-label={tr('Buscar')}>
+        <input autoFocus placeholder={tr('Busca una pantalla, un servicio, un endpoint, una tabla o un tema…')} aria-label={tr('Buscar')} value={q}
           role="combobox" aria-expanded="true" aria-controls={`${id}-list`} aria-autocomplete="list" aria-activedescendant={shown.length ? `${id}-o${i}` : undefined}
           onChange={(e) => { setQ(e.target.value); setI(0); }}
           onKeyDown={(e) => {
@@ -391,7 +395,7 @@ function CommandMenu({ jumps, actions, close }: { jumps: Jump[]; actions: Item[]
             if (e.key === 'Escape') close();
             if (e.key === 'Tab') e.preventDefault();
           }} />
-        <ul role="listbox" id={`${id}-list`} aria-label="Resultados" ref={list}>
+        <ul role="listbox" id={`${id}-list`} aria-label={tr('Resultados')} ref={list}>
           {groups.map(([g, items]) => items.length > 0 && [
             <li key={g} className="h" role="presentation">{g}</li>,
             ...items.map((j) => {
@@ -404,8 +408,8 @@ function CommandMenu({ jumps, actions, close }: { jumps: Jump[]; actions: Item[]
             }),
           ])}
         </ul>
-        <p className={shown.length ? 'sr-only' : 'h'} role="status">{shown.length ? '' : 'Nada coincide. Prueba con el nombre de una pantalla, un servicio, una tabla o una ruta.'}</p>
-        <footer><span><kbd>↑</kbd> <kbd>↓</kbd> moverse</span><span><kbd>↵</kbd> abrir</span><span><kbd>esc</kbd> cerrar</span></footer>
+        <p className={shown.length ? 'sr-only' : 'h'} role="status">{shown.length ? '' : tr('Nada coincide. Prueba con el nombre de una pantalla, un servicio, una tabla o una ruta.')}</p>
+        <footer><span><kbd>↑</kbd> <kbd>↓</kbd>{' '}{tr('moverse')}</span><span><kbd>↵</kbd>{' '}{tr('abrir')}</span><span><kbd>esc</kbd>{' '}{tr('cerrar')}</span></footer>
       </div>
     </div>
   );

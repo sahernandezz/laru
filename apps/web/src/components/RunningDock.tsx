@@ -8,6 +8,7 @@ import { useEffect, useState } from 'react';
 import type { RunInfo } from '../api.ts';
 import { RUN_PHASE } from '../lib/es.ts';
 import { href, liveHref } from '../lib/route.ts';
+import { tr } from '../lib/i18n.ts';
 
 const PHASES = ['queued', 'build', 'up', 'tests', 'evidence', 'destroy'] as const;
 const FOLD = 'laru.running.folded';
@@ -23,24 +24,24 @@ export function RunningDock({ running }: { running: RunInfo[] }) {
     return () => clearInterval(t);
   }, [running.length]);
   if (!running.length) return null;
-  const n = 'en curso';
+  const n = tr('en curso');
 
   if (folded) return (
-    <button className="dock dock-pill" onClick={() => fold(false)} aria-label={`${running.length} ${n}: mostrar`}>
+    <button className="dock dock-pill" onClick={() => fold(false)} aria-label={tr('{length} {n}: mostrar', { length: running.length, n })}>
       <span className="dock-beat" aria-hidden="true" /><b className="num">{running.length}</b> {n}<ChevronUp aria-hidden="true" />
     </button>
   );
   return (
-    <section className="dock" aria-label="En curso">
+    <section className="dock" aria-label={tr('En curso')}>
       <header className="dock-head">
         <span className="dock-beat" aria-hidden="true" />
-        <h2>En curso</h2><span className="dock-n num">{running.length}</span>
-        <button className="icon-btn" onClick={() => fold(true)} aria-label="Plegar" title="Plegar"><ChevronDown /></button>
+        <h2>{tr('En curso')}</h2><span className="dock-n num">{running.length}</span>
+        <button className="icon-btn" onClick={() => fold(true)} aria-label={tr('Plegar')} title={tr('Plegar')}><ChevronDown /></button>
       </header>
       <ul>
         {running.slice(0, 4).map((r) => {
           const session = r.kind === 'session', at = PHASES.indexOf(r.phase as typeof PHASES[number]);
-          const what = session ? r.title ?? 'Sesión en vivo' : r.flows.length === 1 ? r.flows[0] : `${r.flows.length} flujos`;
+          const what = session ? r.title ?? tr('Sesión en vivo') : r.flows.length === 1 ? r.flows[0] : tr('{n} flujos', { n: r.flows.length });
           return (
             <li key={r.id}>
               <a href={session ? liveHref(r) : href('runs', r.id)}>
@@ -48,7 +49,7 @@ export function RunningDock({ running }: { running: RunInfo[] }) {
                 <span className="dock-body">
                   <span className="dock-line"><b>{what}</b><span className="dock-time num">{elapsed(r.startedAt, now)}</span></span>
                   <span className="dock-sub"><span className="mono">#{r.id}</span> · {r.env} · {RUN_PHASE[r.phase] ?? r.phase}</span>
-                  {!session && <span className="dock-phases" role="img" aria-label={`Fase ${at + 1} de ${PHASES.length}: ${RUN_PHASE[r.phase] ?? r.phase}`}>
+                  {!session && <span className="dock-phases" role="img" aria-label={tr('Fase {p0} de {length}: {p2}', { p0: at + 1, length: PHASES.length, p2: RUN_PHASE[r.phase] ?? r.phase })}>
                     {PHASES.map((p, i) => <i key={p} className={i < at ? 'past' : i === at ? 'now' : undefined} title={RUN_PHASE[p]} />)}
                   </span>}
                 </span>
@@ -57,7 +58,7 @@ export function RunningDock({ running }: { running: RunInfo[] }) {
           );
         })}
       </ul>
-      {running.length > 4 && <a className="dock-more" href={`${href('runs')}?estado=running`}>y {running.length - 4} más en Runs</a>}
+      {running.length > 4 && <a className="dock-more" href={`${href('runs')}?estado=running`}>{tr('y')}{' '}{running.length - 4}{' '}{tr('más en Runs')}</a>}
     </section>
   );
 }

@@ -10,6 +10,7 @@ import { Dialog, Dot, Logo, PathChip, Segmented, Skeleton, Status, tilde, toast 
 import { ago, plural, probeText, RUN_DOT, RUN_STATUS, size, twinText, workspaceError } from '../lib/es.ts';
 import { HOME, homeRedirect, wsPage } from '../lib/route.ts';
 import { Destroy } from './Envs.tsx';
+import { tr, LOCALE } from '../lib/i18n.ts';
 
 /** A workspace's colour, from its id: the same one every time, to tell the cards apart at a glance. */
 const hue = (id: string) => [...id].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7);
@@ -26,25 +27,25 @@ export function Home() {
   return (
     <div className="home">
       <header className="top">
-        <a className="brand" href={HOME} aria-label="Laru, todos los workspaces"><Logo /><span>Laru</span></a>
+        <a className="brand" href={HOME} aria-label={tr('Laru, todos los workspaces')}><Logo /><span>Laru</span></a>
         <span className="grow" />
-        <span className="daemon" title="El servicio local escucha solo en 127.0.0.1"><Dot state="ok" /><span className="lbl">{location.host} · {plural(list.length, 'workspace', 'workspaces')}</span></span>
+        <span className="daemon" title={tr('El servicio local escucha solo en 127.0.0.1')}><Dot state="ok" /><span className="lbl">{location.host} · {plural(list.length, tr('workspace'), tr('workspaces'))}</span></span>
       </header>
       <main id="main" tabIndex={-1}>
         <div className="page">
           <div className="head">
-            <div><h1>Workspaces</h1><p>Cada workspace es un aplicativo con sus proyectos. Este servicio los sirve todos, cada uno en su dirección.</p></div>
-            <div className="actions"><button className="btn primary" onClick={() => setAdding(true)}><Plus />Añadir workspace</button></div>
+            <div><h1>{tr('Workspaces')}</h1><p>{tr('Cada workspace es un aplicativo con sus proyectos. Este servicio los sirve todos, cada uno en su dirección.')}</p></div>
+            <div className="actions"><button className="btn primary" onClick={() => setAdding(true)}><Plus />{tr('Añadir workspace')}</button></div>
           </div>
           {rows.error ? <div className="notice" role="alert">{rows.error}</div> : !rows.data || going ? <Skeleton lines={3} /> : !list.length ? (
-            <section className="panel"><div className="empty">Todavía no hay workspaces. Crea uno o añade uno que ya tengas — o en la terminal: <code>laru init --app &lt;id&gt;</code></div></section>
+            <section className="panel"><div className="empty">{tr('Todavía no hay workspaces. Crea uno o añade uno que ya tengas — o en la terminal:')}{' '}<code>laru init --app &lt;id&gt;</code></div></section>
           ) : (
-            <div className="ws-cards" aria-label="Workspaces">
+            <div className="ws-cards" aria-label={tr('Workspaces')}>
               {list.map((w) => !w.exists || !w.id ? (
                 <div key={w.root} className="ws-card missing">
                   <div className="ws-card-h"><span className="ws-mark" aria-hidden="true">?</span><div><b>{w.root.split('/').pop()}</b><div className="faint mono">{tilde(w.root)}</div></div></div>
-                  <Status state="err">No encontrado en esa carpeta</Status>
-                  <button className="btn sm" onClick={() => api('/api/workspaces/remove', { method: 'POST', body: { root: w.root } }).then(rows.reload, (e: Error) => toast(e.message))}><Trash2 />Quitar de la lista</button>
+                  <Status state="err">{tr('No encontrado en esa carpeta')}</Status>
+                  <button className="btn sm" onClick={() => api('/api/workspaces/remove', { method: 'POST', body: { root: w.root } }).then(rows.reload, (e: Error) => toast(e.message))}><Trash2 />{tr('Quitar de la lista')}</button>
                 </div>
               ) : (
                 <div key={w.root} className={`ws-card${w.envs?.length ? ' on' : ''}`}>
@@ -54,12 +55,12 @@ export function Home() {
                   </div>
                   {w.error ? <span className="faint">{w.error}</span> : <PathChip path={w.root} reveal={{ what: 'workspace' }} ws={w.id} />}
                   <dl className="ws-facts">
-                    <div><dt>Proyectos</dt><dd className="num">{w.projects ?? '—'}</dd></div>
-                    <div><dt>Entornos</dt><dd>{w.envs?.length ? <Status state="ok">{w.envs.join(', ')}</Status> : <span className="faint">parados</span>}</dd></div>
-                    <div><dt>Último run</dt><dd>{w.lastRun ? <a className="rowlink" href={wsPage(w.id, `#/runs/${w.lastRun.id}`)}><Status state={RUN_DOT[w.lastRun.status] ?? 'idle'}>#{w.lastRun.id} · {ago(w.lastRun.startedAt)}</Status></a> : <span className="faint">ninguno</span>}</dd></div>
-                    <div><dt>Disco</dt><dd className="num">{w.stateBytes !== undefined ? size(w.stateBytes) : '—'}</dd></div>
+                    <div><dt>{tr('Proyectos')}</dt><dd className="num">{w.projects ?? '—'}</dd></div>
+                    <div><dt>{tr('Entornos')}</dt><dd>{w.envs?.length ? <Status state="ok">{w.envs.join(', ')}</Status> : <span className="faint">{tr('parados')}</span>}</dd></div>
+                    <div><dt>{tr('Último run')}</dt><dd>{w.lastRun ? <a className="rowlink" href={wsPage(w.id, `#/runs/${w.lastRun.id}`)}><Status state={RUN_DOT[w.lastRun.status] ?? 'idle'}>#{w.lastRun.id} · {ago(w.lastRun.startedAt)}</Status></a> : <span className="faint">{tr('ninguno')}</span>}</dd></div>
+                    <div><dt>{tr('Disco')}</dt><dd className="num">{w.stateBytes !== undefined ? size(w.stateBytes) : '—'}</dd></div>
                   </dl>
-                  <a className="btn sm ws-open" href={wsPage(w.id)}>Abrir<ArrowRight /></a>
+                  <a className="btn sm ws-open" href={wsPage(w.id)}>{tr('Abrir')}<ArrowRight /></a>
                 </div>
               ))}
             </div>
@@ -99,11 +100,11 @@ function Weights() {
   const lc = x?.lastCleanup;
   return (
     <section className="panel" aria-labelledby="weights-h" style={{ marginTop: 16 }}>
-      <header><h3 id="weights-h">Lo que pesa cada workspace</h3>{x && <div className="meta num" title="Las imágenes e instantáneas de una app, una vez">{size(x.total)} en total</div>}</header>
+      <header><h3 id="weights-h">{tr('Lo que pesa cada workspace')}</h3>{x && <div className="meta num" title={tr('Las imágenes e instantáneas de una app, una vez')}>{size(x.total)}{' '}{tr('en total')}</div>}</header>
       {d.error ? <div className="notice" role="alert" style={{ margin: 16 }}>{d.error}</div> : !x ? <div className="body"><Skeleton lines={3} /></div> : <>
         <div className="scroll-x">
           <table className="t weights">
-            <thead><tr><th>Workspace</th><th className="r">Carpeta</th><th className="r">Runs</th><th className="r">Entornos</th><th className="r">Resto del estado</th><th className="r">Instantáneas</th><th className="r">Imágenes de Docker</th><th className="r">Total</th></tr></thead>
+            <thead><tr><th>{tr('Workspace')}</th><th className="r">{tr('Carpeta')}</th><th className="r">Runs</th><th className="r">{tr('Entornos')}</th><th className="r">{tr('Resto del estado')}</th><th className="r">{tr('Instantáneas')}</th><th className="r">{tr('Imágenes de Docker')}</th><th className="r">{tr('Total')}</th></tr></thead>
             <tbody>
               {x.workspaces.map((w) => (
                 <tr key={w.root}>
@@ -121,15 +122,12 @@ function Weights() {
           </table>
         </div>
         <div className="machine-line">
-          <span className="lbl">Además</span>
-          <span>Carpeta de Laru, sin las instantáneas <span className="num">{size(x.home.bytes)}</span></span>
+          <span className="lbl">{tr('Además')}</span>
+          <span>{tr('Carpeta de Laru, sin las instantáneas')}{' '}<span className="num">{size(x.home.bytes)}</span></span>
           <span className="faint">·</span>
-          <span>Caché de compilación de Docker <span className="num">{x.buildCache.bytes === null ? '—' : size(x.buildCache.bytes)}</span>{x.buildCache.gb ? <span className="faint">, tope {x.buildCache.gb} GB</span> : <span className="faint">, sin tope</span>}</span>
+          <span>{tr('Caché de compilación de Docker')}{' '}<span className="num">{x.buildCache.bytes === null ? '—' : size(x.buildCache.bytes)}</span>{x.buildCache.gb ? <span className="faint">{tr(', tope')}{' '}{x.buildCache.gb}{' '}{tr('GB')}</span> : <span className="faint">{tr(', sin tope')}</span>}</span>
         </div>
-        <p className="retention">
-          Las imágenes se cuentan antes de que Docker comparta capas, y los workspaces de una misma app comparten instantáneas: en disco puede ser menos.
-          {' '}Laru limpia Docker tras cada levantamiento y cada run, al arrancar y cada 6 horas, y avisa cuando borra algo.
-          {lc ? ` Última limpieza: ${ago(lc.at)}${lc.buildCache?.error ? `, la caché no se pudo recortar: ${lc.buildCache.error}` : ''}.` : ''}
+        <p className="retention">{tr('Las imágenes se cuentan antes de que Docker comparta capas, y los workspaces de una misma app comparten instantáneas: en disco puede ser menos.')}{' '}{tr('Laru limpia Docker tras cada levantamiento y cada run, al arrancar y cada 6 horas, y avisa cuando borra algo.')}{lc ? tr(' Última limpieza: {ago}{p1}.', { ago: ago(lc.at), p1: lc.buildCache?.error ? tr(', la caché no se pudo recortar: {error}', { error: lc.buildCache.error }) : '' }) : ''}
         </p>
       </>}
     </section>
@@ -142,33 +140,33 @@ function Machine({ rows, onChange }: { rows: WorkspaceRow[]; onChange: () => voi
   const [df, setDf] = useState<Array<{ Type: string; Size: string; Reclaimable: string }> | 'loading' | null>(null);
   const [stopping, setStopping] = useState<{ ws: string; env: string; label: string } | null>(null);
   const d = m.data;
-  const setMax = (n: number) => api('/api/machine/config', { method: 'POST', body: { maxEnvs: n } }).then(() => { m.reload(); toast(n ? `Ahora pueden correr ${plural(n, 'entorno', 'entornos')} a la vez` : 'Ahora pueden correr los entornos que quieras a la vez'); }, (e: Error) => toast(e.message));
-  const DF: Record<string, string> = { Images: 'Imágenes', Containers: 'Contenedores', 'Local Volumes': 'Volúmenes', 'Build Cache': 'Caché de construcción' };
+  const setMax = (n: number) => api('/api/machine/config', { method: 'POST', body: { maxEnvs: n } }).then(() => { m.reload(); toast(n ? tr('Ahora pueden correr {plural} a la vez', { plural: plural(n, tr('entorno'), tr('entornos')) }) : tr('Ahora pueden correr los entornos que quieras a la vez')); }, (e: Error) => toast(e.message));
+  const DF: Record<string, string> = { Images: tr('Imágenes'), Containers: tr('Contenedores'), 'Local Volumes': tr('Volúmenes'), 'Build Cache': tr('Caché de construcción') };
   return (
     <section className="panel" aria-labelledby="machine-h" style={{ marginTop: 16 }}>
-      <header><h3 id="machine-h">Esta máquina</h3></header>
+      <header><h3 id="machine-h">{tr('Esta máquina')}</h3></header>
       {m.error ? <div className="notice" role="alert" style={{ margin: 16 }}>{m.error}</div> : !d ? <div className="body"><div className="sk" style={{ height: 14, width: '60%' }} /></div> : <>
         <div className="machine-line">
-          <span><Cpu size={14} aria-hidden="true" style={{ verticalAlign: -2, marginRight: 6 }} />{d.docker ? `Docker ${d.docker} · ${d.cpus} CPU · ${size(d.memBytes ?? 0).replace('GB', 'GiB')}` : 'Docker no está en marcha'}</span>
+          <span><Cpu size={14} aria-hidden="true" style={{ verticalAlign: -2, marginRight: 6 }} />{d.docker ? tr('Docker {docker} · {cpus} CPU · {replace}', { docker: d.docker, cpus: d.cpus, replace: size(d.memBytes ?? 0).replace('GB', 'GiB') }) : tr('Docker no está en marcha')}</span>
           <span className="grow" style={{ flex: 1 }} />
-          <span className="lbl" id="max-l">Entornos a la vez</span>
+          <span className="lbl" id="max-l">{tr('Entornos a la vez')}</span>
           <MenuButton labelledBy="max-l" value={d.maxEnvs} options={[0, 1, 2, 3]} onPick={setMax} />
         </div>
         {d.memBytes ? (() => {
           const used = d.running.reduce((n, r) => n + (r.memBytes ?? 0), 0);
           return (
             <div className="machine-line mem-line">
-              <span className="lbl">Memoria</span>
-              <div className="mem-bar" role="img" aria-label={`${size(used)} de ${size(d.memBytes)} en uso por Laru`}>
+              <span className="lbl">{tr('Memoria')}</span>
+              <div className="mem-bar" role="img" aria-label={tr('{size} de {size2} en uso por Laru', { size: size(used), size2: size(d.memBytes) })}>
                 {d.running.map((r) => <i key={`${r.key}/${r.env}`} style={{ width: `${((r.memBytes ?? 0) / d.memBytes!) * 100}%`, ['--h' as string]: hue(r.app) }} title={`${r.title ?? r.app} / ${r.env}: ${r.memBytes ? size(r.memBytes) : '—'}`} />)}
               </div>
-              <span className="num faint">{size(used).replace('GB', 'GiB')} de {size(d.memBytes).replace('GB', 'GiB')} para Laru</span>
+              <span className="num faint">{size(used).replace('GB', 'GiB')}{' '}{tr('de')}{' '}{size(d.memBytes).replace('GB', 'GiB')}{' '}{tr('para Laru')}</span>
             </div>
           );
         })() : null}
         <div className="machine-line" style={{ display: 'block' }}>
-          <div className="lbl" style={{ marginBottom: 6 }}>Corriendo ahora</div>
-          {!d.running.length ? <span className="faint">Ningún entorno de Laru.</span> : (
+          <div className="lbl" style={{ marginBottom: 6 }}>{tr('Corriendo ahora')}</div>
+          {!d.running.length ? <span className="faint">{tr('Ningún entorno de Laru.')}</span> : (
             <div className="scroll-x">
               <table className="t machine-run">
                 <tbody>
@@ -176,12 +174,12 @@ function Machine({ rows, onChange }: { rows: WorkspaceRow[]; onChange: () => voi
                     const row = rows.find((w) => w.key === r.key);
                     return (
                       <tr key={`${r.key}/${r.env}`}>
-                        <td style={{ fontWeight: 500 }}>{row?.id ? <a className="rowlink" href={wsPage(row.id, `#/envs/${r.env}`)}>{r.title ?? r.app} / {r.env}</a> : <>{r.app} / {r.env} <span className="faint">sin registrar ({r.key.slice(0, 6)}…)</span></>}</td>
+                        <td style={{ fontWeight: 500 }}>{row?.id ? <a className="rowlink" href={wsPage(row.id, `#/envs/${r.env}`)}>{r.title ?? r.app} / {r.env}</a> : <>{r.app} / {r.env} <span className="faint">{tr('sin registrar (')}{r.key.slice(0, 6)}…)</span></>}</td>
                         <td className="faint">{r.projects?.join(' · ') ?? ''}</td>
-                        <td className="r num">{plural(r.services, 'servicio', 'servicios')}</td>
+                        <td className="r num">{plural(r.services, tr('servicio'), tr('servicios'))}</td>
                         <td className="r num">{r.memBytes ? size(r.memBytes).replace('GB', 'GiB').replace('MB', 'MiB') : '—'}</td>
-                        <td className="faint">desde {sinceText(r.since)}</td>
-                        <td className="r">{r.ws && <button className="btn sm danger" onClick={() => setStopping({ ws: r.ws!, env: r.env, label: `${r.title ?? r.app}/${r.env}` })}><Square />Detener</button>}</td>
+                        <td className="faint">{tr('desde')}{' '}{sinceText(r.since)}</td>
+                        <td className="r">{r.ws && <button className="btn sm danger" onClick={() => setStopping({ ws: r.ws!, env: r.env, label: `${r.title ?? r.app}/${r.env}` })}><Square />{tr('Detener')}</button>}</td>
                       </tr>
                     );
                   })}
@@ -191,12 +189,12 @@ function Machine({ rows, onChange }: { rows: WorkspaceRow[]; onChange: () => voi
           )}
         </div>
         <div className="machine-line">
-          <span className="lbl">En disco</span>
+          <span className="lbl">{tr('En disco')}</span>
           <PathChip path={d.home.path} reveal={{ what: 'home' }} /><span className="num">{size(d.home.bytes)}</span>
           <span className="faint">·</span>
-          {df === null ? <button className="btn sm" onClick={() => { setDf('loading'); api<Array<{ Type: string; Size: string; Reclaimable: string }>>('/api/machine/docker').then(setDf, (e: Error) => { setDf(null); toast(e.message); }); }}>Calcular Docker</button>
-            : df === 'loading' ? <span className="sk" style={{ height: 14, width: 220, display: 'inline-block' }} aria-label="Calculando lo que ocupa Docker" />
-            : <span className="faint">Docker en total: {df.map((x) => `${DF[x.Type] ?? x.Type} ${x.Size}${x.Reclaimable && !x.Reclaimable.startsWith('0B') ? ` (${x.Reclaimable.replace(/ \(.*\)/, '')} recuperables)` : ''}`).join(' · ')}</span>}
+          {df === null ? <button className="btn sm" onClick={() => { setDf('loading'); api<Array<{ Type: string; Size: string; Reclaimable: string }>>('/api/machine/docker').then(setDf, (e: Error) => { setDf(null); toast(e.message); }); }}>{tr('Calcular Docker')}</button>
+            : df === 'loading' ? <span className="sk" style={{ height: 14, width: 220, display: 'inline-block' }} aria-label={tr('Calculando lo que ocupa Docker')} />
+            : <span className="faint">{tr('Docker en total:')}{' '}{df.map((x) => `${DF[x.Type] ?? x.Type} ${x.Size}${x.Reclaimable && !x.Reclaimable.startsWith('0B') ? ` (${x.Reclaimable.replace(/ \(.*\)/, '')} recuperables)` : ''}`).join(' · ')}</span>}
         </div>
       </>}
       {stopping && <Destroy env={stopping.env} ws={stopping.ws} label={stopping.label} onClose={() => setStopping(null)} onStarted={() => { setTimeout(() => { m.reload(); onChange(); }, 1500); }} />}
@@ -208,7 +206,7 @@ const sinceText = (createdAt: string) => {
   // docker ps: «2026-10-23 08:28:46 -0500 -05»
   const m = /^(\S+) (\S+) ([+-]\d\d)(\d\d)/.exec(createdAt);
   const t = m ? Date.parse(`${m[1]}T${m[2]}${m[3]}:${m[4]}`) : NaN;
-  return Number.isNaN(t) ? createdAt : new Date(t).toDateString() === new Date().toDateString() ? new Date(t).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' }) : ago(new Date(t).toISOString());
+  return Number.isNaN(t) ? createdAt : new Date(t).toDateString() === new Date().toDateString() ? new Date(t).toLocaleTimeString(LOCALE, { hour: '2-digit', minute: '2-digit' }) : ago(new Date(t).toISOString());
 };
 
 /** A small menu of choices that changes something (never a native select): Escape closes it and returns the focus. */
@@ -219,7 +217,7 @@ function MenuButton({ value, options, onPick, labelledBy }: { value: number; opt
   const close = () => { setOpen(false); btn.current?.focus(); };
   return (
     <span className="menu-wrap" onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setOpen(false); }}>
-      <button ref={btn} className="btn sm" aria-haspopup="menu" aria-expanded={open} aria-labelledby={`${labelledBy} ${labelledBy}-v`} onClick={() => setOpen((o) => !o)}><span id={`${labelledBy}-v`} className="num">{value || 'Sin límite'}</span><ChevronDown /></button>
+      <button ref={btn} className="btn sm" aria-haspopup="menu" aria-expanded={open} aria-labelledby={`${labelledBy} ${labelledBy}-v`} onClick={() => setOpen((o) => !o)}><span id={`${labelledBy}-v`} className="num">{value || tr('Sin límite')}</span><ChevronDown /></button>
       {open && (
         <ul className="menu" role="menu" ref={list} onKeyDown={(e) => {
           const items = [...(list.current?.querySelectorAll<HTMLElement>('button') ?? [])], i = items.indexOf(document.activeElement as HTMLElement);
@@ -227,7 +225,7 @@ function MenuButton({ value, options, onPick, labelledBy }: { value: number; opt
           if (e.key === 'ArrowDown') { e.preventDefault(); items[(i + 1) % items.length]?.focus(); }
           if (e.key === 'ArrowUp') { e.preventDefault(); items[(i - 1 + items.length) % items.length]?.focus(); }
         }}>
-          {options.map((n) => <li key={n} role="none"><button role="menuitemradio" aria-checked={n === value} onClick={() => { close(); if (n !== value) onPick(n); }}>{n ? `${n} ${n === 1 ? 'entorno' : 'entornos'}` : 'Sin límite'}</button></li>)}
+          {options.map((n) => <li key={n} role="none"><button role="menuitemradio" aria-checked={n === value} onClick={() => { close(); if (n !== value) onPick(n); }}>{n ? (n === 1 ? tr('1 entorno') : tr('{n} entornos', { n })) : tr('Sin límite')}</button></li>)}
         </ul>
       )}
     </span>
@@ -259,39 +257,39 @@ export function AddWorkspace({ onClose }: { onClose: () => void }) {
   };
   const err = (f: string) => errors[f] && <span className="form-err" role="alert" id={`${ids}-${f}-e`}>{errors[f]}</span>;
   if (twin) return (
-    <Dialog title="Añadir workspace" onClose={onClose}>
+    <Dialog title={tr('Añadir workspace')} onClose={onClose}>
       <div className="dlg-body"><p>{twinText(twin.app, twin.id)}</p></div>
-      <footer><button className="btn primary" data-autofocus onClick={() => { location.href = wsPage(twin.id, twin.hash); }}>Ir al workspace</button></footer>
+      <footer><button className="btn primary" data-autofocus onClick={() => { location.href = wsPage(twin.id, twin.hash); }}>{tr('Ir al workspace')}</button></footer>
     </Dialog>
   );
   return (
-    <Dialog title="Añadir workspace" onClose={onClose}>
+    <Dialog title={tr('Añadir workspace')} onClose={onClose}>
       <form onSubmit={submit}>
         <div className="dlg-body form">
-          <Segmented label="Cómo" value={mode} onChange={(m) => { setMode(m); setErrors({}); }} options={[{ key: 'open', label: 'Abrir uno que ya existe' }, { key: 'create', label: 'Crear uno nuevo' }]} />
+          <Segmented label={tr('Cómo')} value={mode} onChange={(m) => { setMode(m); setErrors({}); }} options={[{ key: 'open', label: tr('Abrir uno que ya existe') }, { key: 'create', label: tr('Crear uno nuevo') }]} />
           {mode === 'open' ? <>
-            <label className="fld"><span className="l">Carpeta</span>
-              <input className="mono" data-autofocus required value={path} onChange={(e) => setPath(e.target.value)} placeholder="~/laru/finanzas" autoComplete="off" spellCheck={false} aria-describedby={`${ids}-p ${ids}-root-e`} aria-invalid={Boolean(errors.root) || undefined} />
+            <label className="fld"><span className="l">{tr('Carpeta')}</span>
+              <input className="mono" data-autofocus required value={path} onChange={(e) => setPath(e.target.value)} placeholder={tr('~/laru/finanzas')} autoComplete="off" spellCheck={false} aria-describedby={`${ids}-p ${ids}-root-e`} aria-invalid={Boolean(errors.root) || undefined} />
               <span className="h" id={`${ids}-p`} aria-live="polite">{probe && <>{probe.ok ? <Check size={12} aria-hidden="true" /> : null} {probeText(probe)}</>}</span>
               {err('root')}
             </label>
-            {Boolean(found.data?.length) && <div className="fld"><span className="l">Encontrados en tu carpeta de workspaces</span>
-              <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>{found.data!.map((f) => <li key={f.root} style={{ display: 'flex', gap: 8, alignItems: 'center', minHeight: 32 }}><span style={{ fontWeight: 500 }}>{f.app}</span><span className="mono faint" style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{tilde(f.root ?? '')}</span><button type="button" className="btn sm" onClick={() => setPath(tilde(f.root ?? ''))}>Usar</button></li>)}</ul>
+            {Boolean(found.data?.length) && <div className="fld"><span className="l">{tr('Encontrados en tu carpeta de workspaces')}</span>
+              <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>{found.data!.map((f) => <li key={f.root} style={{ display: 'flex', gap: 8, alignItems: 'center', minHeight: 32 }}><span style={{ fontWeight: 500 }}>{f.app}</span><span className="mono faint" style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{tilde(f.root ?? '')}</span><button type="button" className="btn sm" onClick={() => setPath(tilde(f.root ?? ''))}>{tr('Usar')}</button></li>)}</ul>
             </div>}
           </> : <>
-            <label className="fld"><span className="l">Carpeta</span><input className="mono" data-autofocus required value={root} onChange={(e) => setRoot(e.target.value)} autoComplete="off" spellCheck={false} aria-invalid={Boolean(errors.root) || undefined} aria-describedby={`${ids}-root-e`} />{err('root')}</label>
+            <label className="fld"><span className="l">{tr('Carpeta')}</span><input className="mono" data-autofocus required value={root} onChange={(e) => setRoot(e.target.value)} autoComplete="off" spellCheck={false} aria-invalid={Boolean(errors.root) || undefined} aria-describedby={`${ids}-root-e`} />{err('root')}</label>
             <div className="row2">
-              <label className="fld"><span className="l">Id</span><input className="mono" value={app} placeholder={derived || 'mi-app'} onChange={(e) => setApp(e.target.value)} autoComplete="off" spellCheck={false} aria-describedby={`${ids}-id ${ids}-app-e`} aria-invalid={Boolean(errors.app) || undefined} /><span className="h" id={`${ids}-id`}>Minúsculas y guiones</span>{err('app')}</label>
-              <label className="fld"><span className="l">Título</span><input value={title} placeholder="Mi aplicativo" onChange={(e) => setTitle(e.target.value)} autoComplete="off" /></label>
+              <label className="fld"><span className="l">{tr('Id')}</span><input className="mono" value={app} placeholder={derived || tr('mi-app')} onChange={(e) => setApp(e.target.value)} autoComplete="off" spellCheck={false} aria-describedby={`${ids}-id ${ids}-app-e`} aria-invalid={Boolean(errors.app) || undefined} /><span className="h" id={`${ids}-id`}>{tr('Minúsculas y guiones')}</span>{err('app')}</label>
+              <label className="fld"><span className="l">{tr('Título')}</span><input value={title} placeholder={tr('Mi aplicativo')} onChange={(e) => setTitle(e.target.value)} autoComplete="off" /></label>
             </div>
-            <div className="fld"><span className="l" id={`${ids}-lang`}>Idioma de la documentación</span><Segmented label="Idioma de la documentación" value={lang} onChange={setLang} options={[{ key: 'es', label: 'Español' }, { key: 'en', label: 'Inglés' }]} /></div>
-            <p className="faint" style={{ margin: 0 }}><FolderPlus size={13} aria-hidden="true" style={{ verticalAlign: -2 }} /> Se crea con su propio git. Los proyectos se añaden después.</p>
+            <div className="fld"><span className="l" id={`${ids}-lang`}>{tr('Idioma de la documentación')}</span><Segmented label={tr('Idioma de la documentación')} value={lang} onChange={setLang} options={[{ key: 'es', label: tr('Español') }, { key: 'en', label: tr('Inglés') }]} /></div>
+            <p className="faint" style={{ margin: 0 }}><FolderPlus size={13} aria-hidden="true" style={{ verticalAlign: -2 }} />{' '}{tr('Se crea con su propio git. Los proyectos se añaden después.')}</p>
           </>}
           {err('form')}
         </div>
         <footer>
-          <button type="button" className="btn" onClick={onClose}>Cancelar</button>
-          <button type="submit" className="btn primary" aria-disabled={busy || undefined} disabled={busy || (mode === 'open' && probe !== null && !probe.ok)}>{mode === 'open' ? 'Añadir' : 'Crear'}</button>
+          <button type="button" className="btn" onClick={onClose}>{tr('Cancelar')}</button>
+          <button type="submit" className="btn primary" aria-disabled={busy || undefined} disabled={busy || (mode === 'open' && probe !== null && !probe.ok)}>{mode === 'open' ? tr('Añadir') : tr('Crear')}</button>
         </footer>
       </form>
     </Dialog>

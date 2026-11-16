@@ -2,11 +2,11 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { flowEnvDown, flowEnvStatus, flowEnvUp, instanceOf, envProjects, loadEnvSpec, mail, runsDir, sweepOrphans, clearFaults, readRules, setFaults, setMockMode, kafka, storage, mongo, rabbit, redis, cancelRun, failedFlows, listRuns, approveBehavior, behaviorIn, readApproved, fidelity, fidelityText, markSession, openSessionBrowser, sessionToFlow, sessionToScenario, sessionTrace, applyScenario, listScenarios, ScenarioConfirm, scenarioState, startSession, stopSession, listFlows, readRun, readTrace, runTraces, startRun, docker, down, envDir, envMasker, inspectEnv, listEnvs, logs, missingVars, query as dbQuery, reset as dbReset, schema as dbSchema, status, storeOf, stores as dbStores, up, varTable, rebuildText, type EnvStatus } from '@laru/runtime';
+import { vaultServices, brokersOf, flowEnvDown, flowEnvStatus, flowEnvUp, instanceOf, envProjects, loadEnvSpec, mail, runsDir, sweepOrphans, clearFaults, readRules, setFaults, setMockMode, kafka, storage, mongo, rabbit, redis, cancelRun, failedFlows, listRuns, approveBehavior, behaviorIn, readApproved, fidelity, fidelityText, markSession, openSessionBrowser, sessionToFlow, sessionToScenario, sessionTrace, applyScenario, listScenarios, ScenarioConfirm, scenarioState, startSession, stopSession, listFlows, readRun, readTrace, runTraces, startRun, docker, down, envDir, envMasker, inspectEnv, listEnvs, logs, missingVars, query as dbQuery, reset as dbReset, schema as dbSchema, status, storeOf, stores as dbStores, up, varTable, rebuildText, type EnvStatus } from '@laru/runtime';
 import { driftOf, sessionSummary, summarize } from '@laru/trace';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { affected, brokersOf, findingsOf, lastResults, pickBroker, pickEnv, runEnv, vaultServices, whereText } from './env-cli.ts';
+import { affected, findingsOf, lastResults, pickBroker, pickEnv, runEnv, whereText } from './env-cli.ts';
 import { DIAGRAM_KINDS } from '@laru/diagrams';
 import { agentGuide, outsideNote, agreementText, loadAgreement, withEvidence, renderImpact, scaffoldSpec, specPath, loadKnowledge, ask, checkWorkspace, context, docsTree, knowledgeShape, diagramShape, knowledgeWrite, PIECE_TYPES, verifyPiece, loadGraph, loadWorkspace, path, refreshMap, repoStatus, syncRepos, tree, writeAgentFiles, type Workspace } from '@laru/core';
 
@@ -28,7 +28,7 @@ export function createServer(root: Workspace['root'], o: { outside?: boolean; la
   const guide = (!o.outside && (existsSync(join(w0.root, 'CLAUDE.md')) || existsSync(join(w0.root, 'AGENTS.md')))
     ? 'Laru: this workspace\'s guide (the loop, how the documentation is written, how flows are tested) is in CLAUDE.md and AGENTS.md at its root; follow it. Start with `context` on what you will change, and `impact` after it.'
     : agentGuide(w0)) + (agr ? `\n\n${agreementText(agr)}` : '') + (o.outside ? `\n\n${outsideNote(w0, o)}` : '');
-  const server = new McpServer({ name: 'laru', version: '0.1.0-beta.18' }, { instructions: guide });
+  const server = new McpServer({ name: 'laru', version: '0.1.0-beta.19' }, { instructions: guide });
   // Every tool is kept by name, so the ones for stores this application does not have can be left out of the list.
   const tools = new Map<string, ReturnType<McpServer['registerTool']>>();
   const register = server.registerTool.bind(server);
@@ -51,11 +51,11 @@ export function createServer(root: Workspace['root'], o: { outside?: boolean; la
     inputSchema: { type: z.enum(PIECE_TYPES as [string, ...string[]]), example: z.boolean().default(true).describe('false when you already read the example'), diagram: z.enum(DIAGRAM_KINDS as unknown as [string, ...string[]]).optional().describe('a class of the catalogue: how it is drawn (dialect, shapes, rules, template)') },
   }, async ({ type, example, diagram }) => {
     if (diagram) return text(JSON.stringify(diagramShape(diagram)));
-    // Compact, without what repeats: the hint is already in the docs language (hintEs is for the web), a field is optional
+    // Compact, without what repeats: the hint is already in the docs language (hintEs and hintEn are for the web), a field is optional
     // unless it says required, and the example goes once, as knowledge_write takes it (not also as its Markdown).
     const shape = knowledgeShape(ws(), type as never, example);
     const lean = shape?.example ? { ...shape, example: shape.example.input } : shape;
-    return text(JSON.stringify(lean, (k, v) => (k === 'hintEs' || (k === 'required' && v === false) ? undefined : v)));
+    return text(JSON.stringify(lean, (k, v) => (k === 'hintEs' || k === 'hintEn' || (k === 'required' && v === false) ? undefined : v)));
   });
 
   server.registerTool('knowledge_write', {

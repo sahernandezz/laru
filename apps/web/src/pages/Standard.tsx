@@ -15,6 +15,7 @@ import { Diagram, Markdown } from '../lib/md.tsx';
 import { href } from '../lib/route.ts';
 import { FieldView } from './Docs.tsx';
 import { iconOf } from '../lib/pieceMenu.ts';
+import { tr, LANG } from '../lib/i18n.ts';
 
 const CONTAINER = ['application', 'module', 'process', 'repository', 'service', 'datastore', 'external'];
 
@@ -22,10 +23,10 @@ const chip = (type: string) => { const I = iconOf({ type }); return <a key={type
 
 /** The model at a glance: every kind of piece as a coloured tile, in the group it belongs to. */
 const GROUPS: Array<[string, string[]]> = [
-  ['La aplicación', ['application', 'module', 'repository', 'service', 'datastore', 'external']],
-  ['Procesos y pruebas', ['process', 'flow', 'scenario', 'test-plan']],
-  ['Diseño', ['agreement', 'plan', 'decision', 'contract', 'data-model', 'convention', 'guide']],
-  ['Construcción y operación', ['architecture', 'artifact', 'versioning', 'stack', 'infrastructure', 'secrets', 'glossary']],
+  [tr('La aplicación'), ['application', 'module', 'repository', 'service', 'datastore', 'external']],
+  [tr('Procesos y pruebas'), ['process', 'flow', 'scenario', 'test-plan']],
+  [tr('Diseño'), ['agreement', 'plan', 'decision', 'contract', 'data-model', 'convention', 'guide']],
+  [tr('Construcción y operación'), ['architecture', 'artifact', 'versioning', 'stack', 'infrastructure', 'secrets', 'glossary']],
 ];
 function ModelMap({ types, count }: { types: Shape[]; count: (t: string) => number }) {
   const known = new Set(types.map((t) => t.type as string));
@@ -33,12 +34,12 @@ function ModelMap({ types, count }: { types: Shape[]; count: (t: string) => numb
     <div className="model">{GROUPS.map(([title, list]) => (
       <section key={title} className="model-group"><h4>{title}</h4>
         <div className="model-tiles">{list.filter((t) => known.has(t)).map((t) => { const I = iconOf({ type: t }); return (
-          <a key={t} className="model-tile" style={{ '--c': typeColor(t) } as CSSProperties} href={href('standard', t)}><span className="ic"><I size={22} /></span><span>{pieceLabel(t)}</span><small>{count(t)} en el catálogo</small></a>
+          <a key={t} className="model-tile" style={{ '--c': typeColor(t) } as CSSProperties} href={href('standard', t)}><span className="ic"><I size={22} /></span><span>{pieceLabel(t)}</span><small>{count(t)}{' '}{tr('en el catálogo')}</small></a>
         ); })}</div></section>
     ))}</div>
   );
 }
-const ANCHORS: Record<string, string> = { required: 'se ancla al código (se exige)', optional: 'puede anclarse al código', no: 'no lleva código' };
+const ANCHORS: Record<string, string> = { required: tr('se ancla al código (se exige)'), optional: tr('puede anclarse al código'), no: tr('no lleva código') };
 
 /** «Cómo se documenta»: the model of the catalogue (what holds what), then every piece as a card with its own page. */
 export function Standard({ parts }: { parts: string[] }) {
@@ -46,13 +47,13 @@ export function Standard({ parts }: { parts: string[] }) {
   const kd = useApi<KnowledgeData>('/api/knowledge');
   const types = std.data?.types ?? [];
   const current = types.find((t) => t.type === parts[0]);
-  const groups = useMemo(() => [['Contenedores: lo que se documenta', types.filter((t) => CONTAINER.includes(t.type))], ['Facetas: lo que se escribe sobre ello', types.filter((t) => !CONTAINER.includes(t.type))]] as const, [types]);
+  const groups = useMemo(() => [[tr('Contenedores: lo que se documenta'), types.filter((t) => CONTAINER.includes(t.type))], [tr('Facetas: lo que se escribe sobre ello'), types.filter((t) => !CONTAINER.includes(t.type))]] as const, [types]);
   if (std.loading && !std.data) return <div className="page"><Skeleton lines={6} /></div>;
   if (std.error || !types.length) return <div className="page"><div className="notice">{std.error}</div></div>;
   if (current) return (
     <div className="page">
-      <nav className="crumbs" aria-label="Ruta"><a href={href('standard')}>Cómo se documenta</a><span aria-hidden="true">/</span><span>{pieceLabel(current.type)}</span></nav>
-      <div className="std"><nav className="std-list" aria-label="Tipos de pieza">
+      <nav className="crumbs" aria-label={tr('Ruta')}><a href={href('standard')}>{tr('Cómo se documenta')}</a><span aria-hidden="true">/</span><span>{pieceLabel(current.type)}</span></nav>
+      <div className="std"><nav className="std-list" aria-label={tr('Tipos de pieza')}>
         {groups.map(([title, list]) => (
           <div key={title}><h4>{title}</h4>
             {list.map((t) => { const I = iconOf({ type: t.type }); return <a key={t.type} href={href('standard', t.type)} aria-current={t.type === current.type ? 'true' : undefined}><I />{pieceLabel(t.type)}</a>; })}
@@ -66,21 +67,21 @@ export function Standard({ parts }: { parts: string[] }) {
   const containers = types.filter((t) => CONTAINER.includes(t.type));
   return (
     <div className="page wide">
-      <div className="head"><div><span className="eyebrow">Manual</span><h1>Cómo se documenta aquí</h1><p>El catálogo tiene {plural(types.length, 'tipo de pieza', 'tipos de pieza')}: unos son contenedores (lo que se documenta) y otros facetas (lo que se escribe sobre ellos). Aquí está qué cabe dentro de qué y cómo se escribe cada una. Lo que falta en una pieza no impide guardarla: baja su nota y aparece en «Lo que debe».</p></div></div>
+      <div className="head"><div><span className="eyebrow">{tr('Manual')}</span><h1>{tr('Cómo se documenta aquí')}</h1><p>{tr('El catálogo tiene')}{' '}{plural(types.length, tr('tipo de pieza'), tr('tipos de pieza'))}{tr(': unos son contenedores (lo que se documenta) y otros facetas (lo que se escribe sobre ellos). Aquí está qué cabe dentro de qué y cómo se escribe cada una. Lo que falta en una pieza no impide guardarla: baja su nota y aparece en «Lo que debe».')}</p></div></div>
 
-      <h2 className="section-h">El modelo</h2>
+      <h2 className="section-h">{tr('El modelo')}</h2>
       <ModelMap types={types} count={inCatalog} />
 
-      <h2 className="section-h" style={{ marginTop: 28 }}>Qué contiene a qué <span className="faint">{plural(containers.filter((c) => holds(c.type).length).length, 'contiene otras piezas', 'contienen otras piezas')}</span></h2>
+      <h2 className="section-h" style={{ marginTop: 28 }}>{tr('Qué contiene a qué')}{' '}<span className="faint">{plural(containers.filter((c) => holds(c.type).length).length, tr('contiene otras piezas'), tr('contienen otras piezas'))}</span></h2>
       <section className="panel"><div className="scroll-x"><table className="t std-holds">
-        <thead><tr><th>Contenedor</th><th>Puede contener</th><th>Código</th></tr></thead>
+        <thead><tr><th>{tr('Contenedor')}</th><th>{tr('Puede contener')}</th><th>{tr('Código')}</th></tr></thead>
         <tbody>{containers.map((c) => { const I = iconOf({ type: c.type }); return (
           <tr key={c.type}><td className="wrap"><a className="rowlink" href={href('standard', c.type)}><I size={15} style={{ marginRight: 8, verticalAlign: -3 }} /><b>{pieceLabel(c.type)}</b></a><div className="faint sub">{c.question}</div></td>
-            <td className="wrap"><span className="chips-inline">{holds(c.type).map(chip)}{!holds(c.type).length && <span className="faint">nada: no contiene otras piezas</span>}</span></td>
+            <td className="wrap"><span className="chips-inline">{holds(c.type).map(chip)}{!holds(c.type).length && <span className="faint">{tr('nada: no contiene otras piezas')}</span>}</span></td>
             <td className="wrap faint">{ANCHORS[c.anchors]}</td></tr>); })}</tbody>
       </table></div></section>
 
-      <h2 className="section-h" style={{ marginTop: 28 }}>Las piezas <span className="faint">{plural(types.length, 'pieza', 'piezas')} · el número es lo que hay ahora en el catálogo</span></h2>
+      <h2 className="section-h" style={{ marginTop: 28 }}>{tr('Las piezas')}{' '}<span className="faint">{plural(types.length, tr('pieza'), tr('piezas'))}{' '}{tr('· el número es lo que hay ahora en el catálogo')}</span></h2>
       <div className="std-cards">{types.map((t) => {
         const I = iconOf({ type: t.type }), inside = holds(t.type), n = inCatalog(t.type);
         return (
@@ -88,12 +89,12 @@ export function Standard({ parts }: { parts: string[] }) {
             <header><I /><h3>{pieceLabel(t.type)}</h3><code>{t.type}</code></header>
             <p className="q">{t.question}</p>
             <dl>
-              <div><dt>Vive en</dt><dd>{t.livesIn.length ? <span className="chips-inline">{t.livesIn.map(chip)}</span> : <span className="faint">es la raíz</span>}</dd></div>
-              <div><dt>Contiene</dt><dd>{inside.length ? <span className="chips-inline">{inside.map(chip)}</span> : <span className="faint">—</span>}</dd></div>
-              <div><dt>Código</dt><dd className="faint">{ANCHORS[t.anchors]}</dd></div>
-              <div><dt>Secciones</dt><dd className="faint">{plural(t.fields.length, 'sección', 'secciones')}, {t.fields.filter((f) => f.required).length} obligatorias</dd></div>
+              <div><dt>{tr('Vive en')}</dt><dd>{t.livesIn.length ? <span className="chips-inline">{t.livesIn.map(chip)}</span> : <span className="faint">{tr('es la raíz')}</span>}</dd></div>
+              <div><dt>{tr('Contiene')}</dt><dd>{inside.length ? <span className="chips-inline">{inside.map(chip)}</span> : <span className="faint">—</span>}</dd></div>
+              <div><dt>{tr('Código')}</dt><dd className="faint">{ANCHORS[t.anchors]}</dd></div>
+              <div><dt>{tr('Secciones')}</dt><dd className="faint">{plural(t.fields.length, tr('sección'), tr('secciones'))}, {t.fields.filter((f) => f.required).length}{' '}{tr('obligatorias')}</dd></div>
             </dl>
-            <footer><span className="faint">{n} en el catálogo</span><a className="rowlink" href={href('standard', t.type)}>Cómo se escribe →</a></footer>
+            <footer><span className="faint">{n}{' '}{tr('en el catálogo')}</span><a className="rowlink" href={href('standard', t.type)}>{tr('Cómo se escribe →')}</a></footer>
           </article>
         );
       })}</div>
@@ -122,18 +123,18 @@ export function DiagramsManual({ parts }: { parts: string[] }) {
   const shown = one ? [one] : classes;
   return (
     <div className="page wide">
-      <div className="head"><div><span className="eyebrow">Manual</span><h1>Cómo se dibuja aquí</h1><p>Un diagrama no es un dibujo libre: cada clase tiene su dialecto, sus formas y sus reglas, y quien lo lee debe entenderlo sin preguntar. Se escribe en un bloque <code>```mermaid</code>; esto es lo que se espera de cada clase, con su plantilla dibujada.</p></div></div>
-      <div className="chips-row" role="group" aria-label="Clases de diagrama">
-        <a className={`chip pick${one ? '' : ' on'}`} href={href('diagrams')}>Todas las clases</a>
+      <div className="head"><div><span className="eyebrow">{tr('Manual')}</span><h1>{tr('Cómo se dibuja aquí')}</h1><p>{tr('Un diagrama no es un dibujo libre: cada clase tiene su dialecto, sus formas y sus reglas, y quien lo lee debe entenderlo sin preguntar. Se escribe en un bloque')}{' '}<code>```mermaid</code>{tr('; esto es lo que se espera de cada clase, con su plantilla dibujada.')}</p></div></div>
+      <div className="chips-row" role="group" aria-label={tr('Clases de diagrama')}>
+        <a className={`chip pick${one ? '' : ' on'}`} href={href('diagrams')}>{tr('Todas las clases')}</a>
         {classes.map((c) => <a key={c.kind} className={`chip pick${one?.kind === c.kind ? ' on' : ''}`} href={href('diagrams', c.kind)}>{c.label}</a>)}
       </div>
       {shown.map((c) => (
         <section key={c.kind} className="panel dia-card" id={c.kind}>
-          <header><h3>{c.label}</h3><span className="chip">{c.origin === 'derived' ? 'se calcula' : 'se escribe'}</span><span className="faint dia-q">{c.question}</span></header>
+          <header><h3>{c.label}</h3><span className="chip">{c.origin === 'derived' ? tr('se calcula') : tr('se escribe')}</span><span className="faint dia-q">{c.question}</span></header>
           <p className="dia-purpose">{c.purpose}</p>
           <div className="dia-body">
-            <div><h4>Reglas</h4><ul className="rules">{c.rules.map((r) => <li key={r.id}><b>{r.id}</b> {r.text} <span className="faint">({r.severity === 'error' ? 'error' : 'aviso'})</span></li>)}</ul></div>
-            <div><h4>Plantilla <button className="btn sm" onClick={() => copy(c.template, 'Plantilla copiada')}><Copy />Copiar plantilla</button></h4>
+            <div><h4>{tr('Reglas')}</h4><ul className="rules">{c.rules.map((r) => <li key={r.id}><b>{r.id}</b> {r.text} <span className="faint">({r.severity === 'error' ? tr('error') : tr('aviso')})</span></li>)}</ul></div>
+            <div><h4>{tr('Plantilla')}{' '}<button className="btn sm" onClick={() => copy(c.template, tr('Plantilla copiada'))}><Copy />{tr('Copiar plantilla')}</button></h4>
               <Lazy height={240}>{c.template.trimStart().startsWith('{') ? <Markdown text={'```json\n' + c.template + '\n```'} /> : <Diagram code={c.template} kind={c.kind as DiagramKind} />}</Lazy></div>
           </div>
         </section>
@@ -151,39 +152,39 @@ function PieceStandard({ t }: { t: Shape }) {
         <span className="type-badge"><I />{pieceLabel(t.type)}</span>
         <h2>{t.question}</h2>
         <dl className="std-facts">
-          <div><dt>Vive en</dt><dd>{t.livesIn.length ? t.livesIn.map((x) => pieceLabel(x).toLowerCase()).join(', ') : 'es la raíz'}</dd></div>
-          {t.stage && <div><dt>Etapa</dt><dd>{STAGE[t.stage] ?? t.stage}</dd></div>}
-          <div><dt>Estados</dt><dd>{t.statuses.map((s) => STATUS[s] ?? s).join(', ')}</dd></div>
-          {t.kinds && <div><dt>Clases</dt><dd>{t.kinds.join(', ')}</dd></div>}
-          <div><dt>Código anclado</dt><dd>{t.anchors === 'required' ? 'se exige' : t.anchors === 'optional' ? 'opcional' : 'no lleva'}</dd></div>
-          {t.expects?.length ? <div><dt>Relaciones esperadas</dt><dd>{t.expects.join(', ')}</dd></div> : null}
-          <div><dt>Carpeta</dt><dd className="mono">{t.folder}</dd></div>
+          <div><dt>{tr('Vive en')}</dt><dd>{t.livesIn.length ? t.livesIn.map((x) => pieceLabel(x).toLowerCase()).join(', ') : tr('es la raíz')}</dd></div>
+          {t.stage && <div><dt>{tr('Etapa')}</dt><dd>{STAGE[t.stage] ?? t.stage}</dd></div>}
+          <div><dt>{tr('Estados')}</dt><dd>{t.statuses.map((s) => STATUS[s] ?? s).join(', ')}</dd></div>
+          {t.kinds && <div><dt>{tr('Clases')}</dt><dd>{t.kinds.join(', ')}</dd></div>}
+          <div><dt>{tr('Código anclado')}</dt><dd>{t.anchors === 'required' ? tr('se exige') : t.anchors === 'optional' ? tr('opcional') : tr('no lleva')}</dd></div>
+          {t.expects?.length ? <div><dt>{tr('Relaciones esperadas')}</dt><dd>{t.expects.join(', ')}</dd></div> : null}
+          <div><dt>{tr('Carpeta')}</dt><dd className="mono">{t.folder}</dd></div>
         </dl>
       </header>
       <section className="panel">
-        <header><h3>Secciones</h3><div className="meta">Las obligatorias pesan 2 en la nota; un diagrama exigido, otro 2.</div></header>
+        <header><h3>{tr('Secciones')}</h3><div className="meta">{tr('Las obligatorias pesan 2 en la nota; un diagrama exigido, otro 2.')}</div></header>
         <div className="body scroll-x"><table className="t">
-          <thead><tr><th>Sección</th><th>Forma</th><th>Se pide</th><th>Qué va ahí</th></tr></thead>
+          <thead><tr><th>{tr('Sección')}</th><th>{tr('Forma')}</th><th>{tr('Se pide')}</th><th>{tr('Qué va ahí')}</th></tr></thead>
           <tbody>{t.fields.map((f) => (
             <tr key={f.name}>
               <td className="wrap"><b>{f.heading}</b></td>
-              <td className="wrap">{f.type === 'rows' ? `tabla (${f.columns?.map((c) => c.heading).join(' · ')})` : f.type === 'list' ? 'lista' : f.type === 'refs' ? `ids de ${f.ref?.join(' ') ?? 'piezas'}` : f.type === 'markdown' ? 'texto' : 'una línea'}</td>
-              <td className="wrap">{[f.required ? 'obligatoria' : 'opcional', f.diagram === 'required' ? 'con diagrama' : f.diagram === 'optional' ? 'diagrama opcional' : '', f.minWords ? `≥ ${f.minWords} palabras` : ''].filter(Boolean).join(' · ')}</td>
-              <td className="wrap faint">{f.hintEs ?? f.hint}</td>
+              <td className="wrap">{f.type === 'rows' ? tr('tabla ({p0})', { p0: f.columns?.map((c) => c.heading).join(' · ') }) : f.type === 'list' ? tr('lista') : f.type === 'refs' ? tr('ids de {p0}', { p0: f.ref?.join(' ') ?? tr('piezas') }) : f.type === 'markdown' ? tr('texto') : tr('una línea')}</td>
+              <td className="wrap">{[f.required ? tr('obligatoria') : tr('opcional'), f.diagram === 'required' ? tr('con diagrama') : f.diagram === 'optional' ? tr('diagrama opcional') : '', f.minWords ? tr('≥ {n} palabras', { n: f.minWords }) : ''].filter(Boolean).join(' · ')}</td>
+              <td className="wrap faint">{(LANG === 'es' ? f.hintEs ?? f.hint : f.hintEn ?? f.hint)}</td>
             </tr>
           ))}</tbody>
         </table></div>
       </section>
       <section className="panel" style={{ marginTop: 16 }}>
-        <header><h3>Cómo se escribe</h3><div className="meta">Lo mismo que recibe el agente</div></header>
+        <header><h3>{tr('Cómo se escribe')}</h3><div className="meta">{tr('Lo mismo que recibe el agente')}</div></header>
         <div className="body">
-          <p>Sin límite de tamaño: todo lo necesario para que quede correcto y completo, con subtítulos, pasos, tablas o diagramas cuando crece. Cada afirmación tiene que poder comprobarse (el código, el endpoint como <code>GET /ruta</code>, la tabla, el tópico, el flujo) y Laru la contrasta con el mapa; sin relleno ni frases vagas.</p>
-          <p><b>Diagramas sugeridos:</b> {t.diagrams.suggested.map((d) => inSpanish(DIAGRAM_STANDARDS[d.kind as keyof typeof DIAGRAM_STANDARDS]).label).join(', ') || 'ninguno en particular'}. Son un punto de partida, no un límite: cualquier clase del catálogo ({t.diagrams.catalogue.length}) cabe en cualquier sección, o en «Diagramas», cuando lo explica mejor.</p>
+          <p>{tr('Sin límite de tamaño: todo lo necesario para que quede correcto y completo, con subtítulos, pasos, tablas o diagramas cuando crece. Cada afirmación tiene que poder comprobarse (el código, el endpoint como')}{' '}<code>{tr('GET /ruta')}</code>{tr(', la tabla, el tópico, el flujo) y Laru la contrasta con el mapa; sin relleno ni frases vagas.')}</p>
+          <p><b>{tr('Diagramas sugeridos:')}</b> {t.diagrams.suggested.map((d) => inSpanish(DIAGRAM_STANDARDS[d.kind as keyof typeof DIAGRAM_STANDARDS]).label).join(', ') || tr('ninguno en particular')}{tr('. Son un punto de partida, no un límite: cualquier clase del catálogo (')}{t.diagrams.catalogue.length}{tr(') cabe en cualquier sección, o en «Diagramas», cuando lo explica mejor.')}</p>
         </div>
       </section>
       {input && (
         <section className="panel" style={{ marginTop: 16 }}>
-          <header><h3>Ejemplo trabajado</h3><div className="meta">Da 0 errores, 0 avisos y nota 100.</div></header>
+          <header><h3>{tr('Ejemplo trabajado')}</h3><div className="meta">{tr('Da 0 errores, 0 avisos y nota 100.')}</div></header>
           <div className="body fields">
             <div><b>{input.title}</b><p className="faint">{input.summary}</p></div>
             {t.fields.filter((f) => input.fields[f.name] !== undefined).map((f) => (

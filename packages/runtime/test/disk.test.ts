@@ -5,41 +5,55 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import type { Workspace } from '@laru/core';
-import { applyPrune, CONFIG_DEFAULTS, dirBytes, planPrune, prune, readConfig, runRows, staleImages, writeConfig, RUNNER_IMAGE, type RunRow } from '../src/index.ts';
+import { applyPrune, CONFIG_DEFAULTS, dirBytes, planPrune, prune, readConfig, retained, runRows, staleImages, writeConfig, RUNNER_IMAGE, type RunRow } from '../src/index.ts';
 
 const NOW = Date.parse('2026-10-23T12:00:00Z');
 const ago = (days: number) => new Date(NOW - days * 86_400_000).toISOString();
-const row = (id: string, days: number, o: Partial<RunRow> = {}): RunRow => ({ id, env: 'local', status: 'passed', startedAt: ago(days), flows: 1, running: false, bytes: 1000, raw: [], media: [], results: {}, ...o });
+const row = (id: string, days: number, o: Partial<RunRow> = {}): RunRow => ({ id, env: 'local', status: 'passed', startedAt: ago(days), flows: 1, slugs: [], running: false, bytes: 1000, raw: [], media: [], results: {}, ...o });
 const POLICY = CONFIG_DEFAULTS.retention;
 const ids = (plan: ReturnType<typeof planPrune>, what: string) => plan.filter((a) => a.what === what).map((a) => a.run);
 
-test('retention keeps the last passed and the last failed run of each flow, and every run a kept result was cached from', () => {
-  const rows = [
-    row('1', 40), row('2', 40, { status: 'failed' }), row('3', 40), row('4', 35, { results: { a: { status: 'cached', cachedFrom: '1' } } }),
-    row('5', 40, { results: { b: { status: 'passed' } } }), row('6', 41, { results: { b: { status: 'failed' } } }),
-  ];
-  const index = [
-    { run: '1', flow: 'a', status: 'passed' }, { run: '2', flow: 'a', status: 'failed' }, { run: '3', flow: 'a', status: 'passed' }, { run: '4', flow: 'a', status: 'cached' },
-    { run: '6', flow: 'b', status: 'failed' }, { run: '5', flow: 'b', status: 'passed' },
-  ];
-  // 4 is a's last pass (cached), so 1 stays for its evidence; 2 is a's last failure; 3 was superseded; b keeps 5 and 6.
-  assert.deepEqual(ids(planPrune(rows, index, POLICY, NOW), 'run'), ['3']);
+test('retention keeps each flow\'s last runs and, always, its last passed one (its pivot); older runs go', () => {
+  // flow a: 1 passed, 2..8 failed; flow b: only in 9 and 10. keepRuns 5: a keeps 4..8 and its pivot 1; 2 and 3 go.
+  const rows = [...Array.from({ length: 8 }, (_, i) => row(String(i + 1), 40 - i, { slugs: ['a'], status: i ? 'failed' : 'passed' })), row('9', 1, { slugs: ['b'] }), row('10', 0.5, { slugs: ['b'] })];
+  const index = [{ run: '1', flow: 'a', status: 'passed' }, ...[2, 3, 4, 5, 6, 7, 8].map((n) => ({ run: String(n), flow: 'a', status: 'failed' })), { run: '9', flow: 'b', status: 'passed' }, { run: '10', flow: 'b', status: 'failed' }];
+  const plan = planPrune(rows, index, POLICY, NOW);
+  assert.deepEqual(ids(plan, 'run'), ['2', '3'], 'the pivot stays however old it is, and the last five of a stay');
+  assert.ok(!plan.some((a) => a.run === '1'), 'the pivot keeps its video and screenshots too');
+  const { pivot, recent } = retained(rows.map((r) => ({ id: r.id, flows: r.slugs })), index, 5);
+  assert.deepEqual([...pivot], [['1', ['a']], ['9', ['b']]]);
+  assert.deepEqual([...recent.keys()], ['4', '5', '6', '7', '8', '9', '10']);
 });
 
-test('retention removes in order: raw runner media, media past videoDays, runs past runDays, then the oldest while over the cap', () => {
+test('a run counts for every flow it played, a cached pass keeps the run it was cached from, and a run with no flow counts with its kind', () => {
+  // 1 played a and b; a ran five more times since, b never: 1 is still among b's last runs, and b's pivot
+  const rows = [row('1', 30, { slugs: ['a', 'b'] }), ...[2, 3, 4, 5, 6].map((n) => row(String(n), 30 - n, { slugs: ['a'], status: 'failed' }))];
+  const index = [{ run: '1', flow: 'a', status: 'passed' }, { run: '1', flow: 'b', status: 'passed' }, ...[2, 3, 4, 5, 6].map((n) => ({ run: String(n), flow: 'a', status: 'failed' }))];
+  assert.deepEqual(ids(planPrune(rows, index, POLICY, NOW), 'run'), []);
+  // a's last pass is a cached result of 7: 7 holds its evidence and stays though it fell out of a's last runs
+  const cached = [row('7', 20, { slugs: ['a'] }), ...[8, 9, 10, 11, 12].map((n) => row(String(n), 20 - n, { slugs: ['a'], status: 'failed' })), row('13', 1, { slugs: ['a'], results: { a: { status: 'cached', cachedFrom: '7' } } })];
+  const cindex = [{ run: '7', flow: 'a', status: 'passed' }, ...[8, 9, 10, 11, 12].map((n) => ({ run: String(n), flow: 'a', status: 'failed' })), { run: '13', flow: 'a', status: 'cached' }];
+  assert.deepEqual(ids(planPrune(cached, cindex, POLICY, NOW), 'run'), ['8']);
+  // runs that died before playing any flow: the last five of them stay
+  const dead = Array.from({ length: 7 }, (_, i) => row(String(i + 1), 10 - i, { status: 'error' }));
+  assert.deepEqual(ids(planPrune(dead, [], POLICY, NOW), 'run'), ['1', '2']);
+});
+
+test('retention removes in order: raw runner media, media past videoDays, runs out of their flows\' last ones, then the oldest while over the cap', () => {
   const raw = [{ path: 'out/results/a/video.webm', bytes: 100 }];
   const media = [{ path: 'flows/a/video.webm', bytes: 200 }, { path: 'flows/a/s2.png', bytes: 10 }];
   const rows = [
-    row('1', 2, { raw, media }), row('2', 10, { raw, media }), row('3', 40, { raw, media }),
-    row('4', 1, { raw, running: true }), row('5', 1),
+    row('1', 2, { raw, media, slugs: ['a'] }), row('2', 10, { raw, media, slugs: ['a'] }), row('3', 40, { raw, media, slugs: ['a'] }),
+    row('4', 1, { raw, running: true, slugs: ['a'] }), row('5', 1, { slugs: ['a'] }), row('6', 1, { slugs: ['a'] }), row('7', 1, { slugs: ['a'] }),
   ];
-  const plan = planPrune(rows, [], POLICY, NOW);
-  assert.deepEqual(plan.map((a) => `${a.what}:${a.run}`), ['raw:1', 'raw:2', 'media:2', 'run:3'], 'a running run is untouched; a run that goes takes its raw media with it');
+  const plan = planPrune(rows, [], { ...POLICY, keepRuns: 6 }, NOW);
+  // the last six by number are 2..7: 1 goes whole; 2 and 3 stay but lose their video past videoDays; 4 is running
+  assert.deepEqual(plan.map((a) => `${a.what}:${a.run}`), ['raw:2', 'raw:3', 'media:2', 'media:3', 'run:1'], 'a running run is untouched; a run that goes takes its raw media with it');
   assert.deepEqual(plan.find((a) => a.what === 'media')!.paths, ['flows/a/video.webm', 'flows/a/s2.png']);
-  // the cap: every run weighs 1000 bytes, the raw and media of run 2 go first, then the oldest until 2500 bytes are left
   // a running run is never touched, however old and whatever the cap
   assert.deepEqual(planPrune([row('11', 40, { raw, media, running: true })], [], { ...POLICY, maxGB: 0 }, NOW), []);
-  const capped = planPrune([row('7', 3), row('8', 2), row('9', 1), row('10', 0.5)], [{ run: '7', flow: 'x', status: 'passed' }], { ...POLICY, maxGB: 2500 / 1e9 }, NOW);
+  // the cap: every run weighs 1000 bytes; the pivot stays, then the oldest of the rest go until 2500 bytes are left
+  const capped = planPrune([row('7', 3, { slugs: ['x'] }), row('8', 2, { slugs: ['x'] }), row('9', 1, { slugs: ['x'] }), row('10', 0.5, { slugs: ['x'] })], [{ run: '7', flow: 'x', status: 'passed' }], { ...POLICY, maxGB: 2500 / 1e9 }, NOW);
   assert.deepEqual(ids(capped, 'run'), ['8', '9'], '7 is x\'s last pass: kept; the oldest of the rest go until under the cap');
 });
 
@@ -62,6 +76,8 @@ test('prune: a dry run lists exactly what an execution removes; paths outside a 
   run('1', 40); run('2', 10); run('3', 2, 'failed'); run('4', 1);
   writeFileSync(join(runs, 'index.jsonl'), ['1', '2', '4'].map((r) => JSON.stringify({ run: r, flow: 'a', status: 'passed' })).concat(JSON.stringify({ run: '3', flow: 'a', status: 'failed' })).join('\n') + '\n');
 
+  // the last three runs of a stay (2, 3, 4; 4 is its last pass, its pivot); 1 is older and goes
+  writeConfig({ retention: { keepRuns: 3 } });
   const dry = await prune(ws, { dryRun: true, what: ['runs'] });
   assert.deepEqual(dry.runs.map((a) => `${a.what}:${a.run}`), ['raw:2', 'raw:3', 'raw:4', 'media:2', 'run:1']);
   assert.ok(existsSync(join(runs, '1')) && existsSync(join(runs, '2', 'out', 'results', 'case', 'video.webm')), 'a dry run removes nothing');
@@ -127,7 +143,7 @@ test('config.yaml: defaults when absent; a write keeps the other keys and the co
   const saved = process.env.LARU_HOME;
   process.env.LARU_HOME = mkdtempSync(join(tmpdir(), 'laru-config-'));
   t.after(() => { if (saved === undefined) delete process.env.LARU_HOME; else process.env.LARU_HOME = saved; });
-  assert.deepEqual(readConfig(), { maxEnvs: 0, videoOffsetMs: 0, retention: { videoDays: 7, runDays: 30, maxGB: 5 }, workers: 0, stepHoldMs: 0, mask: false, buildCacheGB: 20 });
+  assert.deepEqual(readConfig(), { maxEnvs: 0, videoOffsetMs: 0, retention: { videoDays: 7, keepRuns: 5, maxGB: 5 }, workers: 0, stepHoldMs: 0, mask: false, buildCacheGB: 20 });
   writeFileSync(join(process.env.LARU_HOME, 'config.yaml'), 'stepHoldMs: -5\n');
   assert.equal(readConfig().stepHoldMs, 0, 'a negative hold is no hold');
   writeFileSync(join(process.env.LARU_HOME, 'config.yaml'), 'stepHoldMs: 1500\n');
@@ -137,7 +153,7 @@ test('config.yaml: defaults when absent; a write keeps the other keys and the co
   writeConfig({ retention: { videoDays: 3 } });
   const text = readFileSync(join(process.env.LARU_HOME, 'config.yaml'), 'utf8');
   assert.match(text, /^# measured by laru calibrate\nvideoOffsetMs: -10\nmaxEnvs: 2\nretention:\n  videoDays: 3\n$/);
-  assert.deepEqual(readConfig(), { maxEnvs: 2, videoOffsetMs: -10, retention: { videoDays: 3, runDays: 30, maxGB: 5 }, workers: 0, stepHoldMs: 0, mask: false, buildCacheGB: 20 });
+  assert.deepEqual(readConfig(), { maxEnvs: 2, videoOffsetMs: -10, retention: { videoDays: 3, keepRuns: 5, maxGB: 5 }, workers: 0, stepHoldMs: 0, mask: false, buildCacheGB: 20 });
 });
 
 test('retention counts the raw media the runner left, in out/results and out/results-<n>, and nothing a link of the runner points at', async (t) => {

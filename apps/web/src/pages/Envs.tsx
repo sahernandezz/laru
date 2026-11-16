@@ -14,6 +14,7 @@ import { HOME, href } from '../lib/route.ts';
 import { appsOf } from '../lib/sysmap.ts';
 import { MountAll } from '../components/MountAll.tsx';
 import { EnvMocks } from '../components/EnvMocks.tsx';
+import { tr, LOCALE } from '../lib/i18n.ts';
 
 const HEALTH_DOT: Record<ServiceStatus['health'], DotState> = {
   healthy: 'ok', running: 'ok', host: 'ok', done: 'ok', starting: 'run', waiting: 'run', unhealthy: 'err', exited: 'err', oom: 'err', absent: 'idle',
@@ -22,11 +23,11 @@ const FAILED = new Set(['unhealthy', 'exited', 'oom']);
 const PHASES = ['snapshot', 'import', 'values', 'render', 'pull', 'build', 'ready'];
 const INIT = 'laru env init local --from <repo>:<compose>';
 
-const nf = new Intl.NumberFormat('es', { maximumFractionDigits: 1 });
+const nf = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 1 });
 const mem = (b: number) => (b < 2 ** 30 ? `${Math.round(b / 2 ** 20)} MB` : `${nf.format(b / 2 ** 30)} GB`);
 
 function envState(e: EnvSummary): [DotState, string] {
-  if (e.op && !e.op.done) return ['run', e.op.kind === 'up' ? 'Levantando' : 'Destruyendo'];
+  if (e.op && !e.op.done) return ['run', e.op.kind === 'up' ? tr('Levantando') : tr('Destruyendo')];
   return [STATE_DOT[e.state], ENV_STATE[e.state]];
 }
 
@@ -44,14 +45,14 @@ export function Envs({ selected, g }: { selected?: string; g?: Indexed | null })
   const several = new Set(list.flatMap((e) => e.projects ?? [])).size > 1;
   const own = list.filter((e) => !/^f-/.test(e.env)), ofFlows = list.filter((e) => /^f-/.test(e.env));
   const groups: Array<[string | null, EnvSummary[]]> = [
-    ...(several ? [['Por proyecto', own.filter((e) => !e.join)], ['Conjuntos', own.filter((e) => e.join)]] as Array<[string | null, EnvSummary[]]> : [[ofFlows.length ? 'Del proyecto' : null, own] as [string | null, EnvSummary[]]]),
-    ...(ofFlows.length ? [['De los flujos', ofFlows] as [string | null, EnvSummary[]]] : []),
+    ...(several ? [[tr('Por proyecto'), own.filter((e) => !e.join)], [tr('Conjuntos'), own.filter((e) => e.join)]] as Array<[string | null, EnvSummary[]]> : [[ofFlows.length ? tr('Del proyecto') : null, own] as [string | null, EnvSummary[]]]),
+    ...(ofFlows.length ? [[tr('De los flujos'), ofFlows] as [string | null, EnvSummary[]]] : []),
   ];
   return (
     <div className="page wide">
-      <div className="head"><div><h1>Entornos</h1><p>Dónde corre cada servicio: el entorno del proyecto y el de cada flujo, con sus datos y variables.</p></div><div className="actions"><MountAll /></div></div>
+      <div className="head"><div><h1>{tr('Entornos')}</h1><p>{tr('Dónde corre cada servicio: el entorno del proyecto y el de cada flujo, con sus datos y variables.')}</p></div><div className="actions"><MountAll /></div></div>
       <div className="envs">
-        <nav className="env-list" aria-label="Entornos">
+        <nav className="env-list" aria-label={tr('Entornos')}>
           {groups.filter(([, es]) => es.length).map(([title, es]) => (
             <div key={title ?? 'all'} className="env-group">
               {title && <h2 className="env-group-h">{title}</h2>}
@@ -61,7 +62,7 @@ export function Envs({ selected, g }: { selected?: string; g?: Indexed | null })
               })}
             </div>
           ))}
-          {several ? <button className="btn sm" onClick={() => setJoining(true)}><Plus />Nuevo entorno conjunto</button> : <p className="faint" style={{ margin: 0, fontSize: 'var(--t-12)' }}>Un entorno conjunto junta varios proyectos. <a href={href('repos')}>Añade otro proyecto</a> para crearlo.</p>}
+          {several ? <button className="btn sm" onClick={() => setJoining(true)}><Plus />{tr('Nuevo entorno conjunto')}</button> : <p className="faint" style={{ margin: 0, fontSize: 'var(--t-12)' }}>{tr('Un entorno conjunto junta varios proyectos.')}{' '}<a href={href('repos')}>{tr('Añade otro proyecto')}</a>{' '}{tr('para crearlo.')}</p>}
         </nav>
         <EnvView key={name} name={name} onChange={envs.reload} g={g} />
       </div>
@@ -92,17 +93,17 @@ function NewJoint({ envs, onClose, onDone }: { envs: EnvSummary[]; onClose: () =
     setBusy(true); setError('');
     try {
       await api('/api/env/create', { method: 'POST', body: { name, join: p.members.map((m) => m.env), share, create: p.members.filter((m) => m.create).map((m) => ({ env: m.env, from: m.create })) } });
-      toast(`envs/${name}.yaml escrito. Levántalo con «Levantar»`);
+      toast(tr('envs/{name}.yaml escrito. Levántalo con «Levantar»', { name }));
       onDone(name); onClose();
     } catch (err) { setError((err as Error).message); setBusy(false); }
   };
   const repoOf = (u: string) => p?.collisions.find((c) => Object.values(c.as).includes(u)) ? Object.entries(p!.collisions.find((c) => Object.values(c.as).includes(u))!.as).find(([, v]) => v === u)?.[0] : undefined;
   return (
-    <Dialog title="Nuevo entorno conjunto" onClose={onClose} wide>
+    <Dialog title={tr('Nuevo entorno conjunto')} onClose={onClose} wide>
       <form onSubmit={submit}>
         <div className="dlg-body form">
-          <label className="fld"><span className="l">Nombre</span><input className="mono" data-autofocus required value={name} onChange={(e) => setName(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-'))} pattern="[a-z0-9][a-z0-9-]*" autoComplete="off" spellCheck={false} /></label>
-          <fieldset className="fld"><legend className="l">Proyectos</legend>
+          <label className="fld"><span className="l">{tr('Nombre')}</span><input className="mono" data-autofocus required value={name} onChange={(e) => setName(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-'))} pattern="[a-z0-9][a-z0-9-]*" autoComplete="off" spellCheck={false} /></label>
+          <fieldset className="fld"><legend className="l">{tr('Proyectos')}</legend>
             {projects.map((r) => {
               const m = p?.members.find((x) => x.repo === r);
               const mine = own(r);
@@ -110,32 +111,32 @@ function NewJoint({ envs, onClose, onDone }: { envs: EnvSummary[]; onClose: () =
                 <div key={r} className="check" style={{ alignItems: 'center' }}>
                   <input type="checkbox" id={`j-${r}`} checked={chosen.includes(r)} onChange={(e) => setPicked(e.target.checked ? [...chosen, r] : chosen.filter((x) => x !== r))} />
                   <label htmlFor={`j-${r}`} className="mono">{r}</label>
-                  {chosen.includes(r) && (m?.create ? <span className="faint">sin entorno propio: se crea <span className="mono">{m.env}</span> desde <span className="mono">{m.create}</span></span>
-                    : mine.length > 1 ? <Segmented label={`Entorno de ${r}`} value={envOf[r] ?? m?.env ?? mine[0]} onChange={(v) => setEnvOf({ ...envOf, [r]: v })} options={mine.map((x) => ({ key: x, label: x }))} />
-                    : <span className="faint">con su entorno <span className="mono">{m?.env ?? mine[0]}</span></span>)}
+                  {chosen.includes(r) && (m?.create ? <span className="faint">{tr('sin entorno propio: se crea')}{' '}<span className="mono">{m.env}</span>{' '}{tr('desde')}{' '}<span className="mono">{m.create}</span></span>
+                    : mine.length > 1 ? <Segmented label={tr('Entorno de {r}', { r })} value={envOf[r] ?? m?.env ?? mine[0]} onChange={(v) => setEnvOf({ ...envOf, [r]: v })} options={mine.map((x) => ({ key: x, label: x }))} />
+                    : <span className="faint">{tr('con su entorno')}{' '}<span className="mono">{m?.env ?? mine[0]}</span></span>)}
                 </div>
               );
             })}
           </fieldset>
-          {chosen.length < 2 ? <p className="h">Elige al menos dos proyectos.</p> : prop.error ? <p className="form-err" role="alert">{prop.error}</p> : !p ? <Skeleton lines={3} /> : <>
-            {Object.keys(p.share).length > 0 && <fieldset className="fld"><legend className="l">Compartir</legend>
+          {chosen.length < 2 ? <p className="h">{tr('Elige al menos dos proyectos.')}</p> : prop.error ? <p className="form-err" role="alert">{prop.error}</p> : !p ? <Skeleton lines={3} /> : <>
+            {Object.keys(p.share).length > 0 && <fieldset className="fld"><legend className="l">{tr('Compartir')}</legend>
               {Object.entries(p.share).map(([dropped, used]) => (
                 <label key={dropped} className="check"><input type="checkbox" checked={!off.has(dropped)} onChange={(e) => { const n = new Set(off); if (e.target.checked) n.delete(dropped); else n.add(dropped); setOff(n); }} />
-                  <span>{repoOf(dropped) ?? dropped} usa el <span className="mono">{used}</span> de {repoOf(used) ?? 'el otro proyecto'} — consume <span className="mono">{p.shareWhy[dropped]}</span>, que publica el otro</span></label>
+                  <span>{repoOf(dropped) ?? dropped}{' '}{tr('usa el')}{' '}<span className="mono">{used}</span>{' '}{tr('de')}{' '}{repoOf(used) ?? tr('el otro proyecto')}{' '}{tr('— consume')}{' '}<span className="mono">{p.shareWhy[dropped]}</span>{tr(', que publica el otro')}</span></label>
               ))}
             </fieldset>}
-            {p.collisions.length > 0 && <div className="fld"><span className="l">Nombres</span>
-              <p className="h">{p.collisions.map((c) => c.name).join(' y ')} existen en {Object.keys(p.collisions[0].as).length > 2 ? 'varios' : 'los dos'}: cada proyecto conserva el suyo dentro de su red; fuera se llaman {p.collisions.map((c) => Object.values(c.as).join(' / ')).join(' y ')}.</p></div>}
-            <div className="fld"><span className="l">Cómo se hablan</span>
-              {p.talks.length ? <ul className="plain">{p.talks.map((x, i) => <li key={i} className="mono" title={x.at}>{x.from.replace(/^svc:/, '')} → {x.to.replace(/^(svc|ep|ds):/, '')}{x.note ? <span className="faint"> ({x.note.replace(/,? ?across projects/, '')})</span> : null}</li>)}</ul> : <p className="h">El mapa no ve llamadas entre estos proyectos.</p>}
+            {p.collisions.length > 0 && <div className="fld"><span className="l">{tr('Nombres')}</span>
+              <p className="h">{p.collisions.map((c) => c.name).join(' y ')}{' '}{tr('existen en')}{' '}{Object.keys(p.collisions[0].as).length > 2 ? tr('varios') : tr('los dos')}{tr(': cada proyecto conserva el suyo dentro de su red; fuera se llaman')}{' '}{p.collisions.map((c) => Object.values(c.as).join(' / ')).join(' y ')}.</p></div>}
+            <div className="fld"><span className="l">{tr('Cómo se hablan')}</span>
+              {p.talks.length ? <ul className="plain">{p.talks.map((x, i) => <li key={i} className="mono" title={x.at}>{x.from.replace(/^svc:/, '')} → {x.to.replace(/^(svc|ep|ds):/, '')}{x.note ? <span className="faint"> ({x.note.replace(/,? ?across projects/, '')})</span> : null}</li>)}</ul> : <p className="h">{tr('El mapa no ve llamadas entre estos proyectos.')}</p>}
             </div>
-            <div className="fld"><span className="l">envs/{name}.yaml</span><CodeBlock text={yaml} lang="text" className="yaml" label={`envs/${name}.yaml`} /></div>
+            <div className="fld"><span className="l">envs/{name}.yaml</span><CodeBlock text={yaml} lang="text" className="yaml" label={tr('envs/{name}.yaml', { name })} /></div>
           </>}
           {error && <p className="form-err" role="alert">{error}</p>}
         </div>
         <footer>
-          <button type="button" className="btn" onClick={onClose}>Cancelar</button>
-          <button className="btn primary" disabled={busy || !p || chosen.length < 2}>Crear entorno</button>
+          <button type="button" className="btn" onClick={onClose}>{tr('Cancelar')}</button>
+          <button className="btn primary" disabled={busy || !p || chosen.length < 2}>{tr('Crear entorno')}</button>
         </footer>
       </form>
     </Dialog>
@@ -144,12 +145,12 @@ function NewJoint({ envs, onClose, onDone }: { envs: EnvSummary[]; onClose: () =
 
 const NoEnvs = () => (
   <div className="page">
-    <div className="head"><div><h1>Entornos</h1><p>Producción en local a partir del compose de cada proyecto: las mismas imágenes, direcciones estables y datos que se pueden tirar.</p></div></div>
+    <div className="head"><div><h1>{tr('Entornos')}</h1><p>{tr('Producción en local a partir del compose de cada proyecto: las mismas imágenes, direcciones estables y datos que se pueden tirar.')}</p></div></div>
     <section className="panel">
       <div className="empty">
-        <span>Todavía no hay entornos. Crea el primero a partir del compose de un proyecto:</span>
-        <span className="cmd"><code>{INIT}</code><CopyButton value={INIT} label="Copiar el comando" /></span>
-        <span>Después levántalo aquí con «Levantar» o con <code>laru up local</code>.</span>
+        <span>{tr('Todavía no hay entornos. Crea el primero a partir del compose de un proyecto:')}</span>
+        <span className="cmd"><code>{INIT}</code><CopyButton value={INIT} label={tr('Copiar el comando')} /></span>
+        <span>{tr('Después levántalo aquí con «Levantar» o con')}{' '}<code>laru up local</code>.</span>
       </div>
     </section>
   </div>
@@ -203,7 +204,7 @@ function EnvView({ name, onChange, g }: { name: string; onChange: () => void; g?
   const terminal = events.findLast((e) => e.kind === 'ready' || e.kind === 'error');
   const failure = terminal?.kind === 'error' ? terminal : null;
   const upRunning = d.op ? d.op.kind === 'up' && !d.op.done : Boolean(last && !terminal && Date.now() - last.t < 10 * 60_000);
-  const [dot, label]: [DotState, string] = upRunning ? ['run', 'Levantando'] : envState(d);
+  const [dot, label]: [DotState, string] = upRunning ? ['run', tr('Levantando')] : envState(d);
   const from = d.spec?.from;
   // An up started from the CLI shows only through its events: it blocks the buttons all the same.
   const blocked = busy || upRunning;
@@ -220,40 +221,40 @@ function EnvView({ name, onChange, g }: { name: string; onChange: () => void; g?
     <div style={{ minWidth: 0 }}>
       <div className="head">
         <div style={{ minWidth: 0 }}>
-          <div className="status env-state"><Dot state={dot} />{label}{d.spec ? (d.spec.persistent ? ', persistente' : ', efímero') : ''}</div>
+          <div className="status env-state"><Dot state={dot} />{label}{d.spec ? (d.spec.persistent ? tr(', persistente') : tr(', efímero')) : ''}</div>
           <h1 className="mono env-name">{name}</h1>
           <p>
-            {from ? <>Compose de <span className="mono">{from.repo}:{from.path}</span></> : d.spec?.join ? <>Conjunto de <span className="mono">{d.spec.join.join(' + ')}</span>{Object.keys(d.spec.share).length ? <>; {Object.entries(d.spec.share).map(([a, b]) => `${a} usa ${b}`).join(', ')}</> : null}</> : 'Sin compose de origen'}
-            {d.sources ? <> en <span className="mono">{d.sources.join(' · ')}</span></> : d.source ? <> en <span className="mono">{d.source}</span></> : null}.
-            {d.subnets ? <> Redes: <span className="mono">{Object.entries(d.subnets).map(([r, n]) => `${r} 172.30.${n}.0/24`).join(' · ')}</span>.</> : null}
-            {terminal?.kind === 'ready' ? ` Último arranque en ${secs(terminal.ms)}.` : ''}
+            {from ? <>{tr('Compose de')}{' '}<span className="mono">{from.repo}:{from.path}</span></> : d.spec?.join ? <>{tr('Conjunto de')}{' '}<span className="mono">{d.spec.join.join(' + ')}</span>{Object.keys(d.spec.share).length ? <>; {Object.entries(d.spec.share).map(([a, b]) => tr('{a} usa {b}', { a, b })).join(', ')}</> : null}</> : tr('Sin compose de origen')}
+            {d.sources ? <>{' '}{tr('en')}{' '}<span className="mono">{d.sources.join(' · ')}</span></> : d.source ? <>{' '}{tr('en')}{' '}<span className="mono">{d.source}</span></> : null}.
+            {d.subnets ? <>{' '}{tr('Redes:')}{' '}<span className="mono">{Object.entries(d.subnets).map(([r, n]) => `${r} 172.30.${n}.0/24`).join(' · ')}</span>.</> : null}
+            {terminal?.kind === 'ready' ? tr(' Último arranque en {secs}.', { secs: secs(terminal.ms) }) : ''}
           </p>
-          <p className="run-dir"><span className="faint">Carpeta del entorno</span> <PathChip path={d.dir} reveal={{ what: 'env', id: name }} /></p>
+          <p className="run-dir"><span className="faint">{tr('Carpeta del entorno')}</span> <PathChip path={d.dir} reveal={{ what: 'env', id: name }} /></p>
         </div>
         <div className="actions">
-          <ActionButton icon={Play} primary disabled={blocked} run={() => startUp()} done={() => `Levantando ${name}`}>Levantar</ActionButton>
-          <ActionButton icon={GitBranch} disabled={!ready} title={ready ? 'Construye desde tus copias de trabajo, también lo que no has commiteado: solo se reconstruye y se reemplaza lo que cambió' : `${name} tiene que estar listo`} run={() => startUp(true)} done={() => `Recargando ${name} desde tu copia`}>Recargar desde mi copia</ActionButton>
-          <button className="btn" aria-disabled={!ready || undefined} title={ready ? 'Construye de nuevo, sin la caché de Docker, los servicios que elijas, y vuelve a crear sus contenedores' : `${name} tiene que estar listo`} onClick={() => ready && setRebuilding(true)}><Hammer />Reconstruir sin caché</button>
-          <button className="btn" aria-disabled={!ready || undefined} title={ready ? undefined : `${name} tiene que estar listo`} onClick={() => ready && setResetting(true)}><RotateCcw />Resetear datos</button>
-          <ActionButton icon={AppWindow} disabled={!ready} title={ready ? 'Usa la aplicación en el estudio: tu navegador, la arquitectura, cada mensaje y su línea de tiempo, mientras lo haces' : `${name} tiene que estar listo`} run={() => openStudio(name)}>Abrir en el estudio</ActionButton>
-          <ActionButton icon={FlaskConical} disabled={!ready} title={ready ? 'Ejecuta los flujos sobre este entorno, sin crear otro' : `${name} tiene que estar listo`}
-            run={() => askFirst((confirm) => api<{ id: string }>('/api/runs/start', { method: 'POST', body: { env: name, confirm } }).then((r) => { location.hash = href('runs', r.id); }), 'Ejecutar')}>Probar aquí</ActionButton>
-          <button className="btn danger" aria-disabled={blocked || undefined} onClick={() => !blocked && setDestroying(true)}><Trash2 />Destruir</button>
+          <ActionButton icon={Play} primary disabled={blocked} run={() => startUp()} done={() => tr('Levantando {name}', { name })}>{tr('Levantar')}</ActionButton>
+          <ActionButton icon={GitBranch} disabled={!ready} title={ready ? tr('Construye desde tus copias de trabajo, también lo que no has commiteado: solo se reconstruye y se reemplaza lo que cambió') : tr('{name} tiene que estar listo', { name })} run={() => startUp(true)} done={() => tr('Recargando {name} desde tu copia', { name })}>{tr('Recargar desde mi copia')}</ActionButton>
+          <button className="btn" aria-disabled={!ready || undefined} title={ready ? tr('Construye de nuevo, sin la caché de Docker, los servicios que elijas, y vuelve a crear sus contenedores') : tr('{name} tiene que estar listo', { name })} onClick={() => ready && setRebuilding(true)}><Hammer />{tr('Reconstruir sin caché')}</button>
+          <button className="btn" aria-disabled={!ready || undefined} title={ready ? undefined : tr('{name} tiene que estar listo', { name })} onClick={() => ready && setResetting(true)}><RotateCcw />{tr('Resetear datos')}</button>
+          <ActionButton icon={AppWindow} disabled={!ready} title={ready ? tr('Usa la aplicación en el estudio: tu navegador, la arquitectura, cada mensaje y su línea de tiempo, mientras lo haces') : tr('{name} tiene que estar listo', { name })} run={() => openStudio(name)}>{tr('Abrir en el estudio')}</ActionButton>
+          <ActionButton icon={FlaskConical} disabled={!ready} title={ready ? tr('Ejecuta los flujos sobre este entorno, sin crear otro') : tr('{name} tiene que estar listo', { name })}
+            run={() => askFirst((confirm) => api<{ id: string }>('/api/runs/start', { method: 'POST', body: { env: name, confirm } }).then((r) => { location.hash = href('runs', r.id); }), tr('Ejecutar'))}>{tr('Probar aquí')}</ActionButton>
+          <button className="btn danger" aria-disabled={blocked || undefined} onClick={() => !blocked && setDestroying(true)}><Trash2 />{tr('Destruir')}</button>
         </div>
       </div>
 
-      {d.specError && <div className="notice" role="alert"><CircleX /><div><b>envs/{name}.yaml no es válido.</b> <span className="mono">{d.specError}</span></div></div>}
+      {d.specError && <div className="notice" role="alert"><CircleX /><div><b>envs/{name}{tr('.yaml no es válido.')}</b> <span className="mono">{d.specError}</span></div></div>}
       {failure && <Failure name={name} e={failure} onForce={async () => { clearEvents(); await api('/api/env/up', { method: 'POST', body: { env: name, force: true } }); reload(); onChange(); }} />}
-      {d.op?.kind === 'down' && d.op.done && d.op.error && <div className="notice" role="alert"><CircleX /><div><b>No se pudo destruir {name}.</b> {d.op.error}</div></div>}
+      {d.op?.kind === 'down' && d.op.done && d.op.error && <div className="notice" role="alert"><CircleX /><div><b>{tr('No se pudo destruir')}{' '}{name}.</b> {d.op.error}</div></div>}
       {(upRunning || failure) && <Progress events={events} failed={Boolean(failure)} />}
 
       {d.state === 'absent' && !upRunning ? (
-        <section className="panel"><div className="empty">{name} todavía no se ha levantado. Pulsa «Levantar» o ejecuta <code>laru up {name}</code>.</div></section>
+        <section className="panel"><div className="empty">{name}{' '}{tr('todavía no se ha levantado. Pulsa «Levantar» o ejecuta')}{' '}<code>laru up {name}</code>.</div></section>
       ) : (
         <>
           <Addresses addresses={d.addresses} services={d.services} />
           <EnvMocks env={name} />
-          <section className="panel block"><header><h3>Fidelidad con producción</h3><div className="meta">Solo lo que se diferencia; el detalle está en <a className="rowlink" href={href('docs')}>la infraestructura</a></div></header><FidelityTable env={name} compact /></section>
+          <section className="panel block"><header><h3>{tr('Fidelidad con producción')}</h3><div className="meta">{tr('Solo lo que se diferencia; el detalle está en')}{' '}<a className="rowlink" href={href('docs')}>{tr('la infraestructura')}</a></div></header><FidelityTable env={name} compact /></section>
           <Services env={name} services={d.services} source={d.source} g={g} />
           <Logs env={name} services={d.services.filter((s) => s.container).map((s) => s.service)} epoch={d.services.map((s) => s.container?.id ?? '').join()} />
         </>
@@ -273,9 +274,9 @@ function Failure({ name, e, onForce }: { name: string; e: Extract<EnvEvent, { ki
       <CircleX />
       <div>
         <b>{title}</b>
-        {vars && <> <a className="rowlink" href={href('vars', name)}>Revísalos en Variables y secretos</a>, cada uno con su arreglo.</>}
+        {vars && <> <a className="rowlink" href={href('vars', name)}>{tr('Revísalos en Variables y secretos')}</a>{tr(', cada uno con su arreglo.')}</>}
         {detail && <div className="pre-line">{detail}</div>}
-        {e.logs?.length ? <><div className="faint notice-sub">Últimas líneas{e.service ? ` de ${e.service}` : ''}</div><CodeBlock className="ctx tail" text={e.logs.join('\n')} lang="log" label={`Últimas líneas${e.service ? ` de ${e.service}` : ''}`} /></> : null}
+        {e.logs?.length ? <><div className="faint notice-sub">{tr('Últimas líneas')}{e.service ? tr(' de {service}', { service: e.service }) : ''}</div><CodeBlock className="ctx tail" text={e.logs.join('\n')} lang="log" label={tr('Últimas líneas{p0}', { p0: e.service ? tr(' de {service}', { service: e.service }) : '' })} /></> : null}
       </div>
     </div>
   );
@@ -293,16 +294,16 @@ function Refused({ name, a, onForce }: { name: string; a: Admission; onForce: ()
     <div className="notice" role="alert">
       <CircleX />
       <div>
-        <b>No se ha levantado {name}.</b> {admissionText(a, name)}{a.kind === 'maxEnvs' && <> <a className="rowlink" href={HOME}>Ir a Esta máquina</a></>}
+        <b>{tr('No se ha levantado')}{' '}{name}.</b> {admissionText(a, name)}{a.kind === 'maxEnvs' && <> <a className="rowlink" href={HOME}>{tr('Ir a Esta máquina')}</a></>}
         <div className="actions" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
           {a.others.filter((o) => !/ \(run \d+\)$|^tool$/.test(o.env)).map((o) => {
             const ws = idOf(o.key);
-            return ws && <button key={`${o.key}/${o.env}`} className="btn sm danger" onClick={() => setStopping({ ws, env: o.env, label: `${o.app}/${o.env}` })}><Square />Detener {o.app}/{o.env}</button>;
+            return ws && <button key={`${o.key}/${o.env}`} className="btn sm danger" onClick={() => setStopping({ ws, env: o.env, label: `${o.app}/${o.env}` })}><Square />{tr('Detener')}{' '}{o.app}/{o.env}</button>;
           })}
-          {a.kind === 'memory' && <ActionButton icon={Play} sm run={onForce} done={() => `Levantando ${name}`}>Levantar igualmente</ActionButton>}
+          {a.kind === 'memory' && <ActionButton icon={Play} sm run={onForce} done={() => tr('Levantando {name}', { name })}>{tr('Levantar igualmente')}</ActionButton>}
         </div>
       </div>
-      {stopping && <Destroy env={stopping.env} ws={stopping.ws} label={stopping.label} onClose={() => setStopping(null)} onStarted={() => toast(`Cuando ${stopping.label} se detenga, pulsa «Levantar»`)} />}
+      {stopping && <Destroy env={stopping.env} ws={stopping.ws} label={stopping.label} onClose={() => setStopping(null)} onStarted={() => toast(tr('Cuando {label} se detenga, pulsa «Levantar»', { label: stopping.label }))} />}
     </div>
   );
 }
@@ -314,8 +315,8 @@ function BuildLog({ lines }: { lines: Array<{ source: string; line: string }> })
   useLayoutEffect(() => { const b = box.current; if (b && stick.current) b.scrollTop = b.scrollHeight; }, [lines.length]);
   return (
     <details className="buildlog" open>
-      <summary>Registro de la construcción <span className="faint num">{plural(lines.length, 'línea', 'líneas')}</span></summary>
-      <pre ref={box} className="mono" tabIndex={0} aria-label="Registro de la construcción" onScroll={(e) => { const b = e.currentTarget; stick.current = b.scrollHeight - b.scrollTop - b.clientHeight < 24; }}>{lines.map((l) => (l.source === 'laru' ? laruLine(l.line) : l.line)).join('\n')}</pre>
+      <summary>{tr('Registro de la construcción')}{' '}<span className="faint num">{plural(lines.length, tr('línea'), tr('líneas'))}</span></summary>
+      <pre ref={box} className="mono" tabIndex={0} aria-label={tr('Registro de la construcción')} onScroll={(e) => { const b = e.currentTarget; stick.current = b.scrollHeight - b.scrollTop - b.clientHeight < 24; }}>{lines.map((l) => (l.source === 'laru' ? laruLine(l.line) : l.line)).join('\n')}</pre>
     </details>
   );
 }
@@ -333,7 +334,7 @@ function Progress({ events, failed }: { events: EnvEvent[]; failed: boolean }) {
   const building = events.filter((e): e is Extract<EnvEvent, { kind: 'log' }> => e.kind === 'log' && ['build', 'pull', 'laru'].includes(e.source)).slice(-120);
   return (
     <section className="panel block" aria-labelledby="progress-h">
-      <header><h3 id="progress-h">Progreso</h3><div className="meta" aria-live="polite">{failed ? 'Se detuvo con un error' : current ? `${PHASE[current]}…` : 'Terminando'}</div></header>
+      <header><h3 id="progress-h">{tr('Progreso')}</h3><div className="meta" aria-live="polite">{failed ? tr('Se detuvo con un error') : current ? `${PHASE[current]}…` : tr('Terminando')}</div></header>
       <div className="progress">
         <ol className="phase-list">
           {PHASES.map((p) => {
@@ -342,14 +343,14 @@ function Progress({ events, failed }: { events: EnvEvent[]; failed: boolean }) {
             return <li key={p}><Dot state={state} /><span className={e || p === current ? undefined : 'faint'}>{PHASE[p]}</span><span className="note">{phaseNote(e?.note)}</span><span className="num faint">{e ? secs(e.ms) : ''}</span></li>;
           })}
         </ol>
-        <ul className="svc-trail" aria-label="Servicios">
+        <ul className="svc-trail" aria-label={tr('Servicios')}>
           {[...trail].map(([s, t]) => (
             <li key={s}>
               <Status state={HEALTH_DOT[t.at(-1)!.health]}>{s}</Status>
               <span className="trail">{t.map((x) => `${HEALTH[x.health]} ${secs(x.t - start)}`).join(' → ')}</span>
             </li>
           ))}
-          {!trail.size && <li className="faint">Los servicios aparecen al arrancar sus contenedores.</li>}
+          {!trail.size && <li className="faint">{tr('Los servicios aparecen al arrancar sus contenedores.')}</li>}
         </ul>
       </div>
       {building.length > 0 && <BuildLog lines={building} />}
@@ -364,13 +365,13 @@ function Addresses({ addresses, services }: { addresses: Address[]; services: Se
   const of = (svc: string) => services.find((s) => s.service === svc);
   const what = (a: Address) => {
     const s = of(a.service);
-    if (a.kind === 'http') return s?.mode === 'host' ? 'HTTP, en tu máquina' : 'HTTP por la entrada';
+    if (a.kind === 'http') return s?.mode === 'host' ? tr('HTTP, en tu máquina') : tr('HTTP por la entrada');
     const image = s?.built === 'image' || !s?.built ? s?.image : undefined;
-    return `${a.kind === 'tcp' ? 'TCP' : 'Almacén'}${image ? `, ${image}` : ''}`;
+    return `${a.kind === 'tcp' ? 'TCP' : tr('Almacén')}${image ? `, ${image}` : ''}`;
   };
   return (
     <section className="panel block clip">
-      <header><h3>Direcciones</h3><div className="meta">Estables entre arranques</div></header>
+      <header><h3>{tr('Direcciones')}</h3><div className="meta">{tr('Estables entre arranques')}</div></header>
       {addresses.length ? (
         <div className="urls">
           {addresses.map((a) => {
@@ -380,16 +381,16 @@ function Addresses({ addresses, services }: { addresses: Address[]; services: Se
                 <span className="h"><Icon />{a.service}</span>
                 <span className="u">
                   {a.kind === 'http'
-                    ? <a href={a.url} target="_blank" rel="noreferrer"><code>{a.url.replace(/^http:\/\//, '')}</code><span className="sr-only"> (se abre en otra pestaña)</span></a>
+                    ? <a href={a.url} target="_blank" rel="noreferrer"><code>{a.url.replace(/^http:\/\//, '')}</code><span className="sr-only">{' '}{tr('(se abre en otra pestaña)')}</span></a>
                     : <code>{a.url}</code>}
-                  <CopyButton value={a.url} label={`Copiar la dirección de ${a.service}`} />
+                  <CopyButton value={a.url} label={tr('Copiar la dirección de {service}', { service: a.service })} />
                 </span>
                 <span className="s">{what(a)}</span>
               </div>
             );
           })}
         </div>
-      ) : <div className="empty">Sin direcciones: aparecen cuando el entorno arranca.</div>}
+      ) : <div className="empty">{tr('Sin direcciones: aparecen cuando el entorno arranca.')}</div>}
     </section>
   );
 }
@@ -400,10 +401,10 @@ function Services({ env, services, source, g }: { env: string; services: Service
   const appOf = (svc: string) => ['svc', 'ds', 'ext'].map((p) => apps?.get(`${p}:${svc}`)).find(Boolean);
   return (
     <section className="panel block">
-      <header><h3>Servicios</h3><div className="meta">Construido y sano se miden por separado</div></header>
+      <header><h3>{tr('Servicios')}</h3><div className="meta">{tr('Construido y sano se miden por separado')}</div></header>
       <div className="scroll-x">
         <table className="t">
-          <thead><tr><th>Servicio</th>{apps && <th>Aplicativo</th>}<th>Origen</th><th>Construido</th><th>Sano</th><th>Modo</th><th className="r">CPU y memoria</th></tr></thead>
+          <thead><tr><th>{tr('Servicio')}</th>{apps && <th>{tr('Aplicativo')}</th>}<th>{tr('Origen')}</th><th>{tr('Construido')}</th><th>{tr('Sano')}</th><th>{tr('Modo')}</th><th className="r">{tr('CPU y memoria')}</th></tr></thead>
           <tbody>
             {services.map((s) => {
               const fromRepo = s.mode === 'host' || s.built === 'cached' || s.built === 'built';
@@ -412,15 +413,15 @@ function Services({ env, services, source, g }: { env: string; services: Service
                 <tr key={s.compose}>
                   <td style={{ fontWeight: 500 }}>{s.service}</td>
                   {apps && <td>{appOf(s.service) ?? <span className="faint">—</span>}</td>}
-                  <td className="mono">{fromRepo ? <>{source ?? '—'} <span className="faint">build</span></> : s.image ?? <span className="faint">—</span>}</td>
+                  <td className="mono">{fromRepo ? <>{source ?? '—'} <span className="faint">{tr('build')}</span></> : s.image ?? <span className="faint">—</span>}</td>
                   <td>{s.built ? BUILT[s.built] : <span className="faint">—</span>}</td>
                   <td className="wrap" style={{ minWidth: 150 }}>
-                    <Status state={HEALTH_DOT[s.health]}>{s.health === 'exited' && s.container ? `${HEALTH.exited} (código ${s.container.exitCode})` : HEALTH[s.health]}</Status>
+                    <Status state={HEALTH_DOT[s.health]}>{s.health === 'exited' && s.container ? tr('{exited} (código {exitCode})', { exited: HEALTH.exited, exitCode: s.container.exitCode }) : HEALTH[s.health]}</Status>
                     {probe && <div className="probe mono" title={s.note}>{probe}</div>}
-                    {s.mode === 'host' && s.health === 'waiting' && <div className="probe mono">laru run --env {env} --service {s.service} -- …</div>}
+                    {s.mode === 'host' && s.health === 'waiting' && <div className="probe mono">{tr('laru run --env')}{' '}{env}{' '}{tr('--service')}{' '}{s.service} -- …</div>}
                   </td>
-                  <td>{s.mode === 'host' ? <span className="chip accent"><Laptop />En tu máquina</span> : <span className="faint">{MODE[s.mode]}</span>}</td>
-                  <td className="r num">{s.mode === 'host' ? <span className="faint">En tu máquina</span> : s.memBytes ? `${nf.format(s.cpu ?? 0)} %, ${mem(s.memBytes)}` : <span className="faint">—</span>}</td>
+                  <td>{s.mode === 'host' ? <span className="chip accent"><Laptop />{tr('En tu máquina')}</span> : <span className="faint">{MODE[s.mode]}</span>}</td>
+                  <td className="r num">{s.mode === 'host' ? <span className="faint">{tr('En tu máquina')}</span> : s.memBytes ? `${nf.format(s.cpu ?? 0)} %, ${mem(s.memBytes)}` : <span className="faint">—</span>}</td>
                 </tr>
               );
             })}
@@ -480,17 +481,17 @@ function Logs({ env, services, epoch }: { env: string; services: string[]; epoch
   return (
     <section className="panel" aria-labelledby="logs-h">
       <header>
-        <h3 id="logs-h">Registro</h3>
+        <h3 id="logs-h">{tr('Registro')}</h3>
         <div className="meta">
-          {!follow && <button className="btn sm" onClick={() => { setFollow(true); box.current?.focus(); }}><ArrowDown />Ir al final</button>}
-          <span className="num">{plural(lines.length, 'línea', 'líneas')}{lines.length >= KEEP ? ', las últimas' : ''}</span>
+          {!follow && <button className="btn sm" onClick={() => { setFollow(true); box.current?.focus(); }}><ArrowDown />{tr('Ir al final')}</button>}
+          <span className="num">{plural(lines.length, tr('línea'), tr('líneas'))}{lines.length >= KEEP ? tr(', las últimas') : ''}</span>
         </div>
       </header>
       <div className="toolbar">
-        <Segmented className="seg log-filter" label="Servicio" value={filter} onChange={setFilter} options={['', ...services].map((s) => ({ key: s, label: s || 'Todos' }))} />
+        <Segmented className="seg log-filter" label={tr('Servicio')} value={filter} onChange={setFilter} options={['', ...services].map((s) => ({ key: s, label: s || tr('Todos') }))} />
       </div>
       {error && <div className="notice warn" style={{ margin: 12 }}>{error}</div>}
-      <div className="logs" ref={box} role="log" aria-live="polite" aria-label={`Registro de ${filter || env}`} tabIndex={0}
+      <div className="logs" ref={box} role="log" aria-live="polite" aria-label={tr('Registro de {p0}', { p0: filter || env })} tabIndex={0}
         onScroll={(e) => { const el = e.currentTarget; setFollow(el.scrollHeight - el.scrollTop - el.clientHeight < 24); }}>
         {lines.map((l) => (
           <div key={l.id}>
@@ -498,7 +499,7 @@ function Logs({ env, services, epoch }: { env: string; services: string[]; epoch
             <Level lv={l.lv} /><span className="msg"><Code text={l.text} lang="log" /></span>
           </div>
         ))}
-        {!lines.length && !error && <p className="faint logs-empty">Sin líneas todavía.</p>}
+        {!lines.length && !error && <p className="faint logs-empty">{tr('Sin líneas todavía.')}</p>}
       </div>
     </section>
   );
@@ -518,23 +519,23 @@ export function Destroy({ env, ws, label = env, onClose, onStarted }: { env: str
     setBusy(true);
     try {
       await api(url, { method: 'POST', body: { env } });
-      toast(`Destruyendo ${label}`);
+      toast(tr('Destruyendo {label}', { label }));
       onStarted();
       onClose();
     } catch (e) { setError((e as Error).message); setBusy(false); }
   };
   return (
-    <Dialog title={`Destruir ${label}`} onClose={onClose}>
+    <Dialog title={tr('Destruir {label}', { label })} onClose={onClose}>
       <div className="dlg-body" aria-live="polite">
         {error ? <p className="form-err" role="alert">{error}</p>
-          : !report ? <><div className="sk" style={{ height: 14, width: '86%' }} /><span className="sr-only">Contando lo que se borrará…</span></>
-          : nothing ? <p>No queda nada con las etiquetas de {label}: no hay qué borrar.</p>
-          : <p>Se borrarán por etiqueta {plural(report.containers, 'contenedor', 'contenedores')}, {plural(report.networks, 'red', 'redes')} y {plural(report.volumes, 'volumen', 'volúmenes')}; las cachés se conservan.</p>}
-        <p className="faint">Solo se toca lo que lleva las etiquetas de este entorno. El código, el vault y los demás contenedores de la máquina no cambian.</p>
+          : !report ? <><div className="sk" style={{ height: 14, width: '86%' }} /><span className="sr-only">{tr('Contando lo que se borrará…')}</span></>
+          : nothing ? <p>{tr('No queda nada con las etiquetas de')}{' '}{label}{tr(': no hay qué borrar.')}</p>
+          : <p>{tr('Se borrarán por etiqueta')}{' '}{plural(report.containers, tr('contenedor'), tr('contenedores'))}, {plural(report.networks, tr('red'), tr('redes'))}{' '}{tr('y')}{' '}{plural(report.volumes, tr('volumen'), tr('volúmenes'))}{tr('; las cachés se conservan.')}</p>}
+        <p className="faint">{tr('Solo se toca lo que lleva las etiquetas de este entorno. El código, el vault y los demás contenedores de la máquina no cambian.')}</p>
       </div>
       <footer>
-        <button type="button" className="btn" data-autofocus onClick={onClose}>Cancelar</button>
-        <button type="button" className="btn destroy" disabled={!report || Boolean(nothing) || busy} onClick={confirm}><Trash2 />Destruir</button>
+        <button type="button" className="btn" data-autofocus onClick={onClose}>{tr('Cancelar')}</button>
+        <button type="button" className="btn destroy" disabled={!report || Boolean(nothing) || busy} onClick={confirm}><Trash2 />{tr('Destruir')}</button>
       </footer>
     </Dialog>
   );
@@ -552,26 +553,26 @@ function Rebuild({ env, services, onClose, onStarted }: { env: string; services:
     setBusy(true); setError('');
     try {
       // on a persistent env that is running the service asks first, with what it will do
-      await askFirst((confirm) => api('/api/env/up', { method: 'POST', body: { env, rebuild: picked, confirm } }), 'Reconstruir', `Reconstruir ${picked.join(', ')} sin caché`);
-      toast(`Reconstruyendo ${picked.join(', ')} sin caché`);
+      await askFirst((confirm) => api('/api/env/up', { method: 'POST', body: { env, rebuild: picked, confirm } }), tr('Reconstruir'), tr('Reconstruir {join} sin caché', { join: picked.join(', ') }));
+      toast(tr('Reconstruyendo {join} sin caché', { join: picked.join(', ') }));
       onStarted(); onClose();
     } catch (e) { if (!(e instanceof Cancelled)) setError((e as Error).message); setBusy(false); }
   };
   return (
-    <Dialog title={`Reconstruir sin caché en ${env}`} onClose={onClose}>
+    <Dialog title={tr('Reconstruir sin caché en {env}', { env })} onClose={onClose}>
       <div className="dlg-body">
-        <p>Elige los servicios que se construyen de nuevo desde su código, sin usar la caché de Docker. Solo se vuelven a crear sus contenedores; los datos de las bases se conservan.</p>
-        {!services.length ? <p className="faint">{env} no tiene servicios que se construyan del código.</p> : (
-          <fieldset className="pick-list"><legend className="sr-only">Servicios</legend>
-            <label><input type="checkbox" checked={picked.length === services.length} onChange={() => setPicked(picked.length === services.length ? [] : [...services])} /> <b>Todos</b></label>
+        <p>{tr('Elige los servicios que se construyen de nuevo desde su código, sin usar la caché de Docker. Solo se vuelven a crear sus contenedores; los datos de las bases se conservan.')}</p>
+        {!services.length ? <p className="faint">{env}{' '}{tr('no tiene servicios que se construyan del código.')}</p> : (
+          <fieldset className="pick-list"><legend className="sr-only">{tr('Servicios')}</legend>
+            <label><input type="checkbox" checked={picked.length === services.length} onChange={() => setPicked(picked.length === services.length ? [] : [...services])} /> <b>{tr('Todos')}</b></label>
             {services.map((s) => <label key={s}><input type="checkbox" checked={picked.includes(s)} onChange={() => toggle(s)} /> <span className="mono">{s}</span></label>)}
           </fieldset>
         )}
         {error && <p className="form-err" role="alert">{error}</p>}
       </div>
       <footer>
-        <button type="button" className="btn" data-autofocus onClick={onClose}>Cancelar</button>
-        <button type="button" className="btn primary" aria-disabled={!picked.length || busy || undefined} onClick={go}><Hammer className={busy ? 'spin' : undefined} />Reconstruir{picked.length ? ` ${picked.length}` : ''}</button>
+        <button type="button" className="btn" data-autofocus onClick={onClose}>{tr('Cancelar')}</button>
+        <button type="button" className="btn primary" aria-disabled={!picked.length || busy || undefined} onClick={go}><Hammer className={busy ? 'spin' : undefined} />{tr('Reconstruir')}{picked.length ? ` ${picked.length}` : ''}</button>
       </footer>
     </Dialog>
   );
@@ -590,26 +591,26 @@ function Reset({ env, onClose }: { env: string; onClose: () => void }) {
     setError('');
     try {
       const r = await api<Array<{ service: string; ms: number }>>('/api/env/reset', { method: 'POST', body: { env } });
-      toast(r.length ? `Datos de ${env} devueltos a «base» en ${secs(Math.max(...r.map((x) => x.ms)))}` : 'No había nada que resetear');
+      toast(r.length ? tr('Datos de {env} devueltos a «base» en {secs}', { env, secs: secs(Math.max(...r.map((x) => x.ms))) }) : tr('No había nada que resetear'));
       onClose();
     } catch (e) {
       const m = (e as Error).message.match(/^(\S+) has no snapshot yet/);
-      setError(m ? `${m[1]} todavía no tiene instantánea «base». Tómala con laru snapshot ${env} y vuelve a intentarlo.` : (e as Error).message);
+      setError(m ? tr('{p0} todavía no tiene instantánea «base». Tómala con laru snapshot {env} y vuelve a intentarlo.', { p0: m[1], env }) : (e as Error).message);
       setBusy(false);
     }
   };
   return (
-    <Dialog title={`Resetear los datos de ${env}`} onClose={onClose}>
+    <Dialog title={tr('Resetear los datos de {env}', { env })} onClose={onClose}>
       <div className="dlg-body" aria-live="polite">
-        {!stores && !error ? <><div className="sk" style={{ height: 14, width: '80%' }} /><span className="sr-only">Buscando las bases del entorno…</span></>
-          : stores && !stores.length ? <p>{env} no tiene ninguna base Postgres en marcha: no hay qué resetear.</p>
-          : stores ? <p>Vuelven a la instantánea «base» {stores.map((s) => `${s.service} (${s.db})`).join(', ')}. Todo lo escrito desde entonces se pierde; los servicios se reconectan solos.</p> : null}
+        {!stores && !error ? <><div className="sk" style={{ height: 14, width: '80%' }} /><span className="sr-only">{tr('Buscando las bases del entorno…')}</span></>
+          : stores && !stores.length ? <p>{env}{' '}{tr('no tiene ninguna base Postgres en marcha: no hay qué resetear.')}</p>
+          : stores ? <p>{tr('Vuelven a la instantánea «base»')}{' '}{stores.map((s) => `${s.service} (${s.db})`).join(', ')}{tr('. Todo lo escrito desde entonces se pierde; los servicios se reconectan solos.')}</p> : null}
         {error && <p className="form-err" role="alert">{error}</p>}
-        <p className="faint">MinIO y los offsets de Kafka no se resetean: cada flujo se aísla con un sufijo propio.</p>
+        <p className="faint">{tr('MinIO y los offsets de Kafka no se resetean: cada flujo se aísla con un sufijo propio.')}</p>
       </div>
       <footer>
-        <button type="button" className="btn" data-autofocus onClick={onClose}>Cancelar</button>
-        <button type="button" className="btn destroy" aria-disabled={!stores?.length || busy || undefined} onClick={() => stores?.length && confirm()}><RotateCcw className={busy ? 'spin' : undefined} />Resetear datos</button>
+        <button type="button" className="btn" data-autofocus onClick={onClose}>{tr('Cancelar')}</button>
+        <button type="button" className="btn destroy" aria-disabled={!stores?.length || busy || undefined} onClick={() => stores?.length && confirm()}><RotateCcw className={busy ? 'spin' : undefined} />{tr('Resetear datos')}</button>
       </footer>
     </Dialog>
   );

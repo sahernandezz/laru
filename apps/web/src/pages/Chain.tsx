@@ -11,11 +11,12 @@ import { HttpStatus, Level } from '../components/ui.tsx';
 import { plural, secs } from '../lib/es.ts';
 import { actSummary, at, brief, chip, markSaid, say, sayCause, sayOrphan, statusText, type SayCtx } from '../lib/say.ts';
 import { clock, hopLogs, revealBy, route, stepOf, type SeqLayout, type Stop } from '../lib/seq.ts';
+import { tr } from '../lib/i18n.ts';
 
 
 /** Where the cursor is, in words: «Acción 3 de 7 · mensaje 4 de 41 · paso 2». */
 export interface Where { act?: Act; actNo?: number; acts: number; m?: number; n?: number; step?: Step; fail?: boolean; /** nothing at the cursor */ none?: boolean }
-export const actName = (w: Pick<Where, 'act' | 'actNo' | 'fail' | 'none'>) => (w.fail ? 'El fallo' : w.none ? 'Ningún mensaje' : !w.act ? 'Sin causa visible' : w.act.id === 'preparacion' ? 'Preparación' : `Acción ${w.actNo}`);
+export const actName = (w: Pick<Where, 'act' | 'actNo' | 'fail' | 'none'>) => (w.fail ? tr('El fallo') : w.none ? tr('Ningún mensaje') : !w.act ? tr('Sin causa visible') : w.act.id === 'preparacion' ? tr('Preparación') : tr('Acción {actNo}', { actNo: w.actNo }));
 
 /** The folded rows of an act in a line: «10 recursos, canal de avisos, 3 «connected»». */
 export function foldedSaid(ids: string[], ctx: SayCtx): string {
@@ -24,12 +25,12 @@ export function foldedSaid(ids: string[], ctx: SayCtx): string {
   for (const id of ids) { const n = ctx.chain.noise.get(id); if (n) (by.get(n) ?? by.set(n, []).get(n)!).push(id); }
   const out: string[] = [];
   const assets = (by.get('asset') ?? []).reduce((s, id) => s + (ex.get(id)?.asset ?? 0), 0);
-  if (assets) out.push(plural(assets, 'recurso', 'recursos'));
-  if (by.get('stream')?.length) out.push('canal de avisos');
+  if (assets) out.push(plural(assets, tr('recurso'), tr('recursos')));
+  if (by.get('stream')?.length) out.push(tr('canal de avisos'));
   const hellos = Map.groupBy(by.get('hello') ?? [], (id) => ex.get(id)!.label.replace(/^evento /, ''));
   for (const [name, xs] of hellos) out.push(`${xs.length} «${name}»`);
-  if (by.get('preflight')?.length) out.push(plural(by.get('preflight')!.length, 'preflight', 'preflights'));
-  if (by.get('foreign')?.length) out.push(plural(by.get('foreign')!.length, 'ajeno', 'ajenos'));
+  if (by.get('preflight')?.length) out.push(plural(by.get('preflight')!.length, tr('preflight'), tr('preflights')));
+  if (by.get('foreign')?.length) out.push(plural(by.get('foreign')!.length, tr('ajeno'), tr('ajenos')));
   return out.join(', ');
 }
 
@@ -250,17 +251,17 @@ export function ChainTab({ ctx, layout, steps, cur, go, hot, showAll, setShowAll
 
   const body = (it: Item): ReactNode => {
     switch (it.kind) {
-      case 'step': return <><span className="ct-stepname">{it.step!.n}. {it.step!.title}</span>{it.step!.status === 'failed' && <span className="err-ink ct-end"><CircleX />falló</span>}</>;
-      case 'empty': return <span className="faint">Ninguna petición en este paso.</span>;
-      case 'orphans': return <span className="ct-stepname">Sin causa visible en esta prueba</span>;
+      case 'step': return <><span className="ct-stepname">{it.step!.n}. {it.step!.title}</span>{it.step!.status === 'failed' && <span className="err-ink ct-end"><CircleX />{tr('falló')}</span>}</>;
+      case 'empty': return <span className="faint">{tr('Ninguna petición en este paso.')}</span>;
+      case 'orphans': return <span className="ct-stepname">{tr('Sin causa visible en esta prueba')}</span>;
       case 'fail': {
         const f = ctx.trace.failure!;
-        return <><CircleX className="err-ink" /><span className="ct-say err-ink">Aquí falla {steps.length ? 'la prueba' : 'el caso'}: {f.message.split('\n')[0]}</span></>;
+        return <><CircleX className="err-ink" /><span className="ct-say err-ink">{steps.length ? tr('Aquí falla la prueba: {message}', { message: f.message.split('\n')[0] }) : tr('Aquí falla el caso: {message}', { message: f.message.split('\n')[0] })}</span></>;
       }
       case 'fold': {
         const ids = folded.get(it.act!.id) ?? [];
         const on = showAll || unfolded.has(it.act!.id);
-        return <span className="faint">⋯ {on ? 'desplegado' : 'plegado'}: {once(`f:${it.act!.id}`, () => foldedSaid(ids, ctx))}{showAll ? '' : on ? ' · Intro lo pliega' : ' · Intro lo despliega'}</span>;
+        return <span className="faint">⋯ {on ? tr('desplegado') : tr('plegado')}: {once(`f:${it.act!.id}`, () => foldedSaid(ids, ctx))}{showAll ? '' : on ? tr(' · Intro lo pliega') : tr(' · Intro lo despliega')}</span>;
       }
       case 'act': {
         const a = it.act!;
@@ -269,7 +270,7 @@ export function ChainTab({ ctx, layout, steps, cur, go, hot, showAll, setShowAll
           <span className="ct-actline">
             <span className="ct-acthead"><b>{actName({ act: a, actNo: actNo.get(a.id) })}</b> · <span className="ct-say">{once(`a:${a.id}`, () => say({ kind: 'act', act: a }, ctx))}</span>
               <span className="ct-meta num">{clock(a.t0)}</span>{!it.expanded && ids.length > 0 && <span className="faint ct-meta">⋯ {once(`f:${a.id}`, () => foldedSaid(ids, ctx))}</span>}
-              {onWalk && <button type="button" className="ct-walk" tabIndex={-1} aria-hidden="true" title="Recorrer paso a paso (P)" onClick={(e) => { e.stopPropagation(); onWalk(a); }}><Footprints /></button>}</span>
+              {onWalk && <button type="button" className="ct-walk" tabIndex={-1} aria-hidden="true" title={tr('Recorrer paso a paso (P)')} onClick={(e) => { e.stopPropagation(); onWalk(a); }}><Footprints /></button>}</span>
           </span>
         );
       }
@@ -284,8 +285,8 @@ export function ChainTab({ ctx, layout, steps, cur, go, hot, showAll, setShowAll
             <span className="mono ct-route">{[route(e, ctx.name), ...way.slice(1).map((x) => ctx.name(x.to))].join(' → ')}</span>
             <span className="ct-say"><span className={`mono k-${e.kind}`}>{what}</span>{note && <span className="faint"> · {note}</span>}</span>
             <span className="ct-end">
-              {c?.certainty === 'possible' && <span className="ct-maybe" title={once(`c:${e.id}`, () => chip(c, ctx))} aria-label="Causa posible, no segura">?</span>}
-              {last.status !== undefined && last.status >= 400 ? <HttpStatus n={last.status} /> : e.status !== undefined ? <HttpStatus n={e.status} /> : !e.ok ? <span className="err-ink">falló</span> : null}
+              {c?.certainty === 'possible' && <span className="ct-maybe" title={once(`c:${e.id}`, () => chip(c, ctx))} aria-label={tr('Causa posible, no segura')}>?</span>}
+              {last.status !== undefined && last.status >= 400 ? <HttpStatus n={last.status} /> : e.status !== undefined ? <HttpStatus n={e.status} /> : !e.ok ? <span className="err-ink">{tr('falló')}</span> : null}
               {e.t1 !== undefined && e.t1 > e.t0 && <span className="faint num">{secs(e.t1 - e.t0)}</span>}
             </span>
           </>
@@ -297,10 +298,10 @@ export function ChainTab({ ctx, layout, steps, cur, go, hot, showAll, setShowAll
   return (
     <>
       <div className="toolbar ct-bar">
-        <button type="button" className="btn sm" aria-pressed={showAll} onClick={() => setShowAll(!showAll)}>Mostrar lo plegado</button>
-        <span className="faint num">{plural(acts, 'acción', 'acciones')}{possible ? ` · ${possible} con causa dudosa (?)` : ''}{marks ? '' : ' · agrupadas por tandas'}</span>
+        <button type="button" className="btn sm" aria-pressed={showAll} onClick={() => setShowAll(!showAll)}>{tr('Mostrar lo plegado')}</button>
+        <span className="faint num">{plural(acts, tr('acción'), tr('acciones'))}{possible ? tr(' · {possible} con causa dudosa (?)', { possible }) : ''}{marks ? '' : tr(' · agrupadas por tandas')}</span>
       </div>
-      <div className="chain-tree" role="tree" aria-label="Cadena de causas: cada acción con lo que provocó" ref={tree} onKeyDown={keys}>
+      <div className="chain-tree" role="tree" aria-label={tr('Cadena de causas: cada acción con lo que provocó')} ref={tree} onKeyDown={keys}>
         {list.map((it) => {
           const lv = Math.min(it.level, 8);
           const noise = it.id && ch.noise.has(it.id);
@@ -312,7 +313,7 @@ export function ChainTab({ ctx, layout, steps, cur, go, hot, showAll, setShowAll
               style={{ paddingLeft: 8 + (lv - 1) * 12 }} onFocus={(e) => { if (e.target === e.currentTarget) setFocus(it.key); }}
               onClick={() => { setFocus(it.key); activate(it); }}>
               <span className="ct-tw" onClick={(e) => { if (it.expandable) { e.stopPropagation(); setFocus(it.key); toggle(it); } }} aria-hidden="true">{it.expandable ? (it.expanded ? <ChevronDown /> : <ChevronRight />) : null}</span>
-              {it.level > 8 && <span className="faint ct-deep">↳ nivel {it.level}</span>}
+              {it.level > 8 && <span className="faint ct-deep">{tr('↳ nivel')}{' '}{it.level}</span>}
               {body(it)}
             </div>
           );
@@ -345,9 +346,9 @@ export function StepCard({ ctx, layout, cur, go, where, logs, onLogs, onWalk }: 
   const reqOf = (id: string): Stop => ({ kind: 'row', i: layout.rows.findIndex((r) => r.ex.id === id && !r.reply) });
   const hop = (id: string) => route(ex.get(id)!, ctx.name);
   const head = (t: number, extra?: string) => (
-    <p className="sc-where">{actName(where)}{where.m ? ` › mensaje ${where.m} de ${where.n}` : where.act ? ` · ${plural(where.n ?? 0, 'mensaje', 'mensajes')}` : ''} · {at(t)}{where.step ? ` · paso ${where.step.n} del flujo` : ''}{extra}</p>
+    <p className="sc-where">{actName(where)}{where.m ? tr(' › mensaje {m} de {n}', { m: where.m, n: where.n }) : where.act ? ` · ${plural(where.n ?? 0, tr('mensaje'), tr('mensajes'))}` : ''} · {at(t)}{where.step ? tr(' · paso {n} del flujo', { n: where.step.n }) : ''}{extra}</p>
   );
-  if (!cur) return <p className="empty">Elige un mensaje en el diagrama, un nodo de la cadena, un paso o una fila de Red: aquí se dice qué hace, quién lo provocó y qué provocó.</p>;
+  if (!cur) return <p className="empty">{tr('Elige un mensaje en el diagrama, un nodo de la cadena, un paso o una fila de Red: aquí se dice qué hace, quién lo provocó y qué provocó.')}</p>;
 
   if (cur.kind === 'fail') {
     const lines = say(cur, ctx).split('\n');
@@ -362,10 +363,10 @@ export function StepCard({ ctx, layout, cur, go, where, logs, onLogs, onWalk }: 
         <p className="sc-say">{say(cur, ctx)}</p>
         <p className="sc-line faint">{actSummary(a, ctx)}</p>
         {a.marks.length > 0 && (
-          <dl className="sc-dl"><dt>Marcas</dt><dd><ul className="sc-list">{a.marks.map((m, i) => <li key={i}><span className="faint num">{clock(m.t0)}</span> {markSaid(m, a, ctx)}{m.target ? <> <code>{m.target}</code></> : null}</li>)}</ul></dd></dl>
+          <dl className="sc-dl"><dt>{tr('Marcas')}</dt><dd><ul className="sc-list">{a.marks.map((m, i) => <li key={i}><span className="faint num">{clock(m.t0)}</span> {markSaid(m, a, ctx)}{m.target ? <> <code>{m.target}</code></> : null}</li>)}</ul></dd></dl>
         )}
-        <dl className="sc-dl"><dt>Empieza por</dt><dd>{a.roots.length ? <ul className="sc-list">{a.roots.map((id) => <li key={id}><button type="button" className="ex-go" onClick={() => go(reqOf(id))}><span className="mono">{hop(id)}</span> {ex.get(id)!.label}</button>{ch.noise.has(id) ? <span className="faint"> (plegado)</span> : null}</li>)}</ul> : <span className="faint">No sale ninguna petición.</span>}</dd></dl>
-        {onWalk && <button type="button" className="btn sm" onClick={() => onWalk(cur)}><Footprints />Recorrer paso a paso</button>}
+        <dl className="sc-dl"><dt>{tr('Empieza por')}</dt><dd>{a.roots.length ? <ul className="sc-list">{a.roots.map((id) => <li key={id}><button type="button" className="ex-go" onClick={() => go(reqOf(id))}><span className="mono">{hop(id)}</span> {ex.get(id)!.label}</button>{ch.noise.has(id) ? <span className="faint">{' '}{tr('(plegado)')}</span> : null}</li>)}</ul> : <span className="faint">{tr('No sale ninguna petición.')}</span>}</dd></dl>
+        {onWalk && <button type="button" className="btn sm" onClick={() => onWalk(cur)}><Footprints />{tr('Recorrer paso a paso')}</button>}
       </div>
     );
   }
@@ -385,18 +386,18 @@ export function StepCard({ ctx, layout, cur, go, where, logs, onLogs, onWalk }: 
       <div className="sc-links">
         {(c || where.act) && <button type="button" className="ex-go" onClick={() => go(c ? reqOf(c.parent) : { kind: 'act', act: where.act! })} title={sayCause(e, ctx)}><ArrowLeft /> {c ? <><span className="mono">{hop(c.parent)}</span> {ex.get(c.parent)!.label}</> : actName(where)}{c?.certainty === 'possible' && <span className="ct-maybe" title={chip(c, ctx)}>?</span>}</button>}
         {effects.slice(0, MAX_EFFECTS).map((id) => <button key={id} type="button" className="ex-go" onClick={() => go(reqOf(id))}><ArrowRight /> <span className="mono">{hop(id)}</span> {ex.get(id)!.label}</button>)}
-        {effects.length > MAX_EFFECTS && <span className="faint">… y {effects.length - MAX_EFFECTS} más</span>}
+        {effects.length > MAX_EFFECTS && <span className="faint">{tr('… y')}{' '}{effects.length - MAX_EFFECTS}{' '}{tr('más')}</span>}
       </div>
       {both ? (
-        <div className="sc-rr" role="group" aria-label="Petición y respuesta (R salta entre ellas)">
-          <button type="button" className="btn sm" aria-pressed={!r.reply} onClick={() => go({ kind: 'row', i: reqI })}>Petición <span className="mono">{e.label}</span></button>
-          <button type="button" className="btn sm" aria-pressed={r.reply} onClick={() => go({ kind: 'row', i: resI })}>Respuesta <span className="mono">{e.status !== undefined ? statusText(e.status) : e.error ?? 'sin respuesta'} · {secs(e.t1! - e.t0)}</span></button>
+        <div className="sc-rr" role="group" aria-label={tr('Petición y respuesta (R salta entre ellas)')}>
+          <button type="button" className="btn sm" aria-pressed={!r.reply} onClick={() => go({ kind: 'row', i: reqI })}>{tr('Petición')}{' '}<span className="mono">{e.label}</span></button>
+          <button type="button" className="btn sm" aria-pressed={r.reply} onClick={() => go({ kind: 'row', i: resI })}>{tr('Respuesta')}{' '}<span className="mono">{e.status !== undefined ? statusText(e.status) : e.error ?? tr('sin respuesta')} · {secs(e.t1! - e.t0)}</span></button>
         </div>
       ) : null}
       <details className="sc-logs">
-        <summary>{lines.length ? `Logs de ${services.join(' y ')} en este salto (${lines.length})` : 'Ningún log de estos servicios en este salto'}</summary>
+        <summary>{lines.length ? tr('Logs de {join} en este salto ({length})', { join: services.join(' y '), length: lines.length }) : tr('Ningún log de estos servicios en este salto')}</summary>
         {lines.map((l) => <div key={l.id} className="sc-log"><span className="faint num">{at(l.t)}</span><Level lv={l.level} /><span className="mono">{l.line}</span></div>)}
-        <button type="button" className="btn sm" onClick={onLogs}>Ver todos en Logs</button>
+        <button type="button" className="btn sm" onClick={onLogs}>{tr('Ver todos en Logs')}</button>
       </details>
     </div>
   );

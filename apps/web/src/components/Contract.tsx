@@ -16,12 +16,13 @@ import { Inline, Markdown } from '../lib/md.tsx';
 import { href } from '../lib/route.ts';
 import { langOf } from '../lib/syntax.ts';
 import { CodeBlock, HttpStatus, Method, Origin, Status } from './ui.tsx';
+import { tr } from '../lib/i18n.ts';
 
 /** What a screen has of a GET: its data, or why not. */
 export interface Loaded<T> { data?: T; error?: string }
 
 export const opHref = (op: Op) => href('docs', op.contract.id, 'op', opKey(op));
-export const ContractChip = ({ op }: { op: Op }) => <a className="chip ctr" href={opHref(op)} title={`${opKey(op)} en ${op.contract.id}`}><Braces />{op.contract.title}</a>;
+export const ContractChip = ({ op }: { op: Op }) => <a className="chip ctr" href={opHref(op)} title={tr('{opKey} en {id}', { opKey: opKey(op), id: op.contract.id })}><Braces />{op.contract.title}</a>;
 /** A disagreement between the contract, the code and the runs: amber, with its words. */
 /** A line that says the evidence strays from the contract: amber, an icon and its words (no pulse: nothing is running). */
 const Warn = ({ children }: { children: ReactNode }) => <p className="warn-line"><CircleAlert />{children}</p>;
@@ -29,7 +30,7 @@ export const Drift = ({ children, title }: { children: ReactNode; title?: string
 
 /** Statuses in reading order: numbers up, then the calls that got no answer. */
 const order = (keys: string[]) => [...keys].sort((a, b) => (a === 'error' ? 1 : b === 'error' ? -1 : Number(a) - Number(b) || a.localeCompare(b)));
-const statusOf = (s: string) => (s === 'error' ? <span className="err-ink">sin respuesta</span> : /^\d+$/.test(s) ? <HttpStatus n={Number(s)} /> : <span className="mono">{s}</span>);
+const statusOf = (s: string) => (s === 'error' ? <span className="err-ink">{tr('sin respuesta')}</span> : /^\d+$/.test(s) ? <HttpStatus n={Number(s)} /> : <span className="mono">{s}</span>);
 
 /** The endpoint of the map that implements an operation, when the code has one. */
 export const endpointOfOp = (g: Indexed | null, op: Op): MapNode | undefined =>
@@ -41,15 +42,17 @@ export function Statuses({ seen, errors }: { seen?: SeenEndpoint; errors?: Array
   if (!seen) return null;
   const bad = errors ? unlisted(seen.statuses, errors) : [];
   return (
-    <span className="statuses" title={`Visto ${plural(seen.count, 'vez', 'veces')} en los runs; el último, el ${seen.run}`}>
-      <span className="sr-only">Visto en los runs:</span>
-      {order(Object.keys(seen.statuses)).map((s) => <span key={s} className={bad.includes(s) ? 'drift' : undefined}>{statusOf(s)}<span className="faint num">×{seen.statuses[s]}</span>{bad.includes(s) && <span className="sr-only"> (no está en el contrato)</span>}</span>)}
+    <span className="statuses" title={tr('Visto {plural} en los runs; el último, el {run}', { plural: plural(seen.count, tr('vez'), tr('veces')), run: seen.run })}>
+      <span className="sr-only">{tr('Visto en los runs:')}</span>
+      {order(Object.keys(seen.statuses)).map((s) => <span key={s} className={bad.includes(s) ? 'drift' : undefined}>{statusOf(s)}<span className="faint num">×{seen.statuses[s]}</span>{bad.includes(s) && <span className="sr-only">{' '}{tr('(no está en el contrato)')}</span>}</span>)}
     </span>
   );
 }
 
 export interface OpProps {
   id: string;
+  /** under a heading that already names its path: the row says the method and what it does, not the path again */
+  grouped?: boolean;
   method: string;
   path: string;
   summary?: string;
@@ -66,21 +69,21 @@ export interface OpProps {
 }
 
 /** One operation: a line that opens into its reference. The line is a button; the links on it sit beside it. */
-export function Operation({ id, method, path, summary, chips, seen, errors, mock, facts, open, onToggle }: OpProps) {
+export function Operation({ id, method, path, summary, chips, seen, errors, mock, facts, open, onToggle, grouped }: OpProps) {
   return (
     <div className={`op${open ? ' open' : ''}`} id={id}>
       <div className="op-line">
         <button type="button" className="op-h" aria-expanded={open} aria-controls={`${id}-b`} onClick={onToggle}>
-          <ChevronRight className="tw" /><Method m={method} /><span className="mono op-path">{path}</span>{summary && <span className="op-sum"><Inline text={summary} /></span>}
+          <ChevronRight className="tw" /><Method m={method} />{grouped ? <span className="sr-only">{path}</span> : <span className="mono op-path">{path}</span>}{summary && <span className={`op-sum${grouped ? ' full' : ''}`}><Inline text={summary} /></span>}
         </button>
         <span className="op-tags">{chips}<Statuses seen={seen} errors={errors} /></span>
       </div>
       {open && (
         <div className="op-b" id={`${id}-b`}>
           {facts?.length ? <dl className="op-facts">{facts.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl> : null}
-          <h5>Petición</h5>
+          <h5>{tr('Petición')}</h5>
           <Request method={method} path={path} sample={best(seen)} mock={mock} />
-          <h5>Respuestas y errores</h5>
+          <h5>{tr('Respuestas y errores')}</h5>
           <Responses seen={seen} errors={errors} mock={mock} />
         </div>
       )}
@@ -96,7 +99,7 @@ function best(seen?: SeenEndpoint): Sample | undefined {
   return xs.find((x) => ok(x) && x.req?.text) ?? xs.find((x) => x.req?.text) ?? xs.find(ok) ?? xs[0];
 }
 
-const Source = ({ s }: { s: Sample }) => <p className="op-src"><Origin of="observed" label={false} />Ejemplo real: <a className="rowlink" href={href('runs', s.run, s.flow)}>run {s.run}</a> · {s.flow}</p>;
+const Source = ({ s }: { s: Sample }) => <p className="op-src"><Origin of="observed" label={false} />{tr('Ejemplo real:')}{' '}<a className="rowlink" href={href('runs', s.run, s.flow)}>run {s.run}</a> · {s.flow}</p>;
 
 function Request({ method, path, sample, mock }: { method: string; path: string; sample?: Sample; mock?: MockOperation }) {
   if (sample) {
@@ -104,14 +107,14 @@ function Request({ method, path, sample, mock }: { method: string; path: string;
     return (
       <>
         <Source s={sample} />
-        <CodeBlock text={head} lang="http" label="Petición de ejemplo" />
-        {sample.req?.text && <CodeBlock text={sample.req.text} lang={langOf(sample.req.text, sample.reqType)} format label="Cuerpo de la petición de ejemplo" />}
-        {sample.req?.note ? <p className="faint op-note">{sample.req.note}</p> : !sample.req?.text && <p className="faint op-note">Sin cuerpo.</p>}
+        <CodeBlock text={head} lang="http" label={tr('Petición de ejemplo')} />
+        {sample.req?.text && <CodeBlock text={sample.req.text} lang={langOf(sample.req.text, sample.reqType)} format label={tr('Cuerpo de la petición de ejemplo')} />}
+        {sample.req?.note ? <p className="faint op-note">{sample.req.note}</p> : !sample.req?.text && <p className="faint op-note">{tr('Sin cuerpo.')}</p>}
       </>
     );
   }
-  if (mock?.request) return <><p className="op-src"><Origin of="declared" label={false} />Ejemplo del contrato del mock</p><CodeBlock text={mock.request} lang="json" format label="Cuerpo de la petición según el mock" /></>;
-  return <p className="faint op-note">{mock ? 'El contrato del mock no describe un cuerpo.' : 'Ningún run la ha llamado todavía: no hay un ejemplo real.'}</p>;
+  if (mock?.request) return <><p className="op-src"><Origin of="declared" label={false} />{tr('Ejemplo del contrato del mock')}</p><CodeBlock text={mock.request} lang="json" format label={tr('Cuerpo de la petición según el mock')} /></>;
+  return <p className="faint op-note">{mock ? tr('El contrato del mock no describe un cuerpo.') : tr('Ningún run la ha llamado todavía: no hay un ejemplo real.')}</p>;
 }
 
 interface Resp { status: string; when?: string; declared?: boolean; count?: number; sample?: Sample; example?: string }
@@ -123,7 +126,7 @@ function Responses({ seen, errors, mock }: { seen?: SeenEndpoint; errors?: Array
   for (const e of errors ?? []) Object.assign(at(e.status), { when: e.when, declared: true });
   for (const [s, n] of Object.entries(seen?.statuses ?? {})) Object.assign(at(s), { count: n, sample: seen!.samples[s] });
   const rows = order([...by.keys()]).map((s) => by.get(s)!);
-  if (!rows.length) return <p className="faint op-note">Ni el contrato ni los runs dicen qué responde.</p>;
+  if (!rows.length) return <p className="faint op-note">{tr('Ni el contrato ni los runs dicen qué responde.')}</p>;
   const first = rows.findIndex((r) => r.sample?.res?.text || r.example);
   return (
     <ul className="resps">
@@ -134,17 +137,17 @@ function Responses({ seen, errors, mock }: { seen?: SeenEndpoint; errors?: Array
           <li key={r.status}>
             <div className="resp-h">
               {statusOf(r.status)}
-              <span className="resp-when"><Inline text={r.when || (r.status === 'error' ? 'La llamada no obtuvo respuesta.' : '')} /></span>
+              <span className="resp-when"><Inline text={r.when || (r.status === 'error' ? tr('La llamada no obtuvo respuesta.') : '')} /></span>
               <span className="resp-marks">
                 {r.declared && <Origin of="declared" />}
-                {r.count ? <span className="faint num"><Origin of="observed" label={false} />{plural(r.count, 'vez', 'veces')}</span> : r.declared ? <span className="faint">no vista en los runs</span> : null}
-                {off ? <Drift>No está en el contrato</Drift> : null}
+                {r.count ? <span className="faint num"><Origin of="observed" label={false} />{plural(r.count, tr('vez'), tr('veces'))}</span> : r.declared ? <span className="faint">{tr('no vista en los runs')}</span> : null}
+                {off ? <Drift>{tr('No está en el contrato')}</Drift> : null}
               </span>
             </div>
             {text ? (
               <details className="resp-ex" open={i === first}>
-                <summary>Ejemplo {r.sample ? `del run ${r.sample.run}` : 'del mock'}</summary>
-                <CodeBlock text={text} lang={langOf(text, r.sample?.resType)} format label={`Respuesta ${r.status} de ejemplo`} />
+                <summary>{tr('Ejemplo')}{' '}{r.sample ? tr('del run {run}', { run: r.sample.run }) : tr('del mock')}</summary>
+                <CodeBlock text={text} lang={langOf(text, r.sample?.resType)} format label={tr('Respuesta {status} de ejemplo', { status: r.status })} />
               </details>
             ) : r.sample?.res?.note ? <p className="faint op-note">{r.sample.res.note}</p> : null}
           </li>
@@ -165,11 +168,11 @@ export function useOpen(initial: string[] = []) {
   };
 }
 export const AllButton = ({ o, keys }: { o: ReturnType<typeof useOpen>; keys: string[] }) =>
-  keys.length ? <button type="button" className="btn sm" onClick={() => o.all(keys, !o.any)}>{o.any ? 'Plegar todo' : 'Desplegar todo'}</button> : null;
+  keys.length ? <button type="button" className="btn sm" onClick={() => o.all(keys, !o.any)}>{o.any ? tr('Plegar todo') : tr('Desplegar todo')}</button> : null;
 
 /* -------------------------------- a contract -------------------------------- */
 
-export const DIRECTION: Record<string, string> = { publishes: 'Publica', consumes: 'Consume' };
+export const DIRECTION: Record<string, string> = { publishes: tr('Publica'), consumes: tr('Consume') };
 export const slug = (s: string) => s.replace(/[^\w-]+/g, '-');
 
 /**
@@ -200,43 +203,43 @@ export function ContractReference({ k, g, p, seen, focus }: { k: KnowledgeData; 
   return (
     <div className="ref" ref={box}>
       {purpose && <section className="panel"><div className="body"><Markdown text={purpose} /></div></section>}
-      {seen.error && <div className="notice warn"><CircleAlert /><div>No se pudo leer lo que vieron los runs: {seen.error}. La referencia sale solo del contrato y del código.</div></div>}
+      {seen.error && <div className="notice warn"><CircleAlert /><div>{tr('No se pudo leer lo que vieron los runs:')}{' '}{seen.error}{tr('. La referencia sale solo del contrato y del código.')}</div></div>}
       <section className="panel" aria-labelledby="ref-ops-h">
         <header>
-          <h3 id="ref-ops-h">Operaciones</h3>
+          <h3 id="ref-ops-h">{tr('Operaciones')}</h3>
           <div className="meta">
-            <span>{plural(ops.length, 'operación', 'operaciones')} · {plural(paths.length, 'ruta', 'rutas')}{missing ? ' · ' : ''}{missing ? <span className="run-ink">{missing} sin implementar</span> : null}</span>
+            <span>{plural(ops.length, tr('operación'), tr('operaciones'))} · {plural(paths.length, tr('ruta'), tr('rutas'))}{missing ? ' · ' : ''}{missing ? <span className="run-ink">{missing}{' '}{tr('sin implementar')}</span> : null}</span>
             <AllButton o={o} keys={keys} />
           </div>
         </header>
-        {!ops.length ? <div className="empty">Este contrato no declara operaciones HTTP.</div> : paths.map(([path, list]) => (
-          <section key={path} className="api-path" aria-label={`Ruta ${path}`}>
+        {!ops.length ? <div className="empty">{tr('Este contrato no declara operaciones HTTP.')}</div> : paths.map(([path, list]) => (
+          <section key={path} className="api-path" aria-label={tr('Ruta {path}', { path })}>
             <h4 className="mono">{path}</h4>
             {list.map((x) => {
               const ep = endpointOfOp(g, x), s = ep ? seen.data?.endpoints[ep.id] : undefined, svc = g?.nodes.get(x.service);
               const facts: Array<[string, ReactNode]> = [
-                ['Servicio', svc ? <a className="rowlink" href={href('map', svc.id)}>{svc.name}</a> : <span className="mono">{x.service || '—'}</span>],
-                ['En el código', !g ? <span className="faint">Sin mapa: pulsa «Releer el código» en Proyectos.</span> : ep ? <><Origin of="extracted" label={false} /> <span className="mono" title={ep.anchor ? `${ep.anchor.repo}:${ep.anchor.path}` : undefined}>{String(ep.attrs?.handler ?? ep.name)} {where(ep)}</span></> : <Drift>Ningún endpoint de {svc?.name ?? x.service} responde {opKey(x)}</Drift>],
-                ['Visto en los runs', s ? <>{plural(s.count, 'llamada', 'llamadas')}, la última en el <a className="rowlink" href={href('runs', s.run)}>run {s.run}</a> · {s.flows.join(', ')}</> : <span className="faint">{seen.data ? 'Ningún flujo la ha llamado en su último run.' : seen.error ? '—' : 'Leyendo…'}</span>],
-                ...(s?.drift.length ? [['El mock vio', <ul className="plain">{s.drift.map((d) => <li key={d} className="mono">{d}</li>)}</ul>] as [string, ReactNode]] : []),
+                [tr('Servicio'), svc ? <a className="rowlink" href={href('map', svc.id)}>{svc.name}</a> : <span className="mono">{x.service || '—'}</span>],
+                [tr('En el código'), !g ? <span className="faint">{tr('Sin mapa: pulsa «Releer el código» en Proyectos.')}</span> : ep ? <><Origin of="extracted" label={false} /> <span className="mono" title={ep.anchor ? `${ep.anchor.repo}:${ep.anchor.path}` : undefined}>{String(ep.attrs?.handler ?? ep.name)} {where(ep)}</span></> : <Drift>{tr('Ningún endpoint de')}{' '}{svc?.name ?? x.service}{' '}{tr('responde')}{' '}{opKey(x)}</Drift>],
+                [tr('Visto en los runs'), s ? <>{plural(s.count, tr('llamada'), tr('llamadas'))}{tr(', la última en el')}{' '}<a className="rowlink" href={href('runs', s.run)}>run {s.run}</a> · {s.flows.join(', ')}</> : <span className="faint">{seen.data ? tr('Ningún flujo la ha llamado en su último run.') : seen.error ? '—' : tr('Leyendo…')}</span>],
+                ...(s?.drift.length ? [[tr('El mock vio'), <ul className="plain">{s.drift.map((d) => <li key={d} className="mono">{d}</li>)}</ul>] as [string, ReactNode]] : []),
               ];
               return <Operation key={opKey(x)} id={`op-${slug(opKey(x))}`} method={x.method} path={x.path} summary={x.summary} seen={s} errors={errors} facts={facts}
-                chips={g && !ep ? <Drift>No está en el código</Drift> : null} open={o.has(opKey(x))} onToggle={() => o.toggle(opKey(x))} />;
+                chips={g && !ep ? <Drift>{tr('No está en el código')}</Drift> : null} open={o.has(opKey(x))} onToggle={() => o.toggle(opKey(x))} grouped />;
             })}
           </section>
         ))}
       </section>
       {evs.length > 0 && <Events evs={evs} g={g} seen={seen.data} />}
       <section className="panel" aria-labelledby="ref-err-h">
-        <header><h3 id="ref-err-h">Errores</h3><div className="meta">Los que debe tratar quien llama</div></header>
-        {!errors.length && !off.length ? <div className="empty">El contrato no declara errores: cualquier 4xx o 5xx que vean los runs saldrá como diferencia.</div> : (
+        <header><h3 id="ref-err-h">{tr('Errores')}</h3><div className="meta">{tr('Los que debe tratar quien llama')}</div></header>
+        {!errors.length && !off.length ? <div className="empty">{tr('El contrato no declara errores: cualquier 4xx o 5xx que vean los runs saldrá como diferencia.')}</div> : (
           <ul className="resps errs">
             {errors.map((e) => {
               const n = stats.filter(([st]) => listed(st, [e])).reduce((a, [, c]) => a + c, 0);
-              return <li key={e.status}><div className="resp-h">{statusOf(e.status)}<span className="resp-when"><Inline text={e.when} /></span><span className="resp-marks"><Origin of="declared" />{n ? <span className="faint num"><Origin of="observed" label={false} />{plural(n, 'vez', 'veces')}</span> : <span className="faint">no visto en los runs</span>}</span></div></li>;
+              return <li key={e.status}><div className="resp-h">{statusOf(e.status)}<span className="resp-when"><Inline text={e.when} /></span><span className="resp-marks"><Origin of="declared" />{n ? <span className="faint num"><Origin of="observed" label={false} />{plural(n, tr('vez'), tr('veces'))}</span> : <span className="faint">{tr('no visto en los runs')}</span>}</span></div></li>;
             })}
             {off.map(([st, list]) => (
-              <li key={st}><div className="resp-h">{statusOf(st)}<span className="resp-when">Lo respondió {list.map((x, i) => <span key={x}>{i ? ', ' : ''}<span className="mono">{x}</span></span>)}</span><span className="resp-marks"><span className="faint num"><Origin of="observed" label={false} />{plural(stats.filter(([s]) => s === st).reduce((a, [, c]) => a + c, 0), 'vez', 'veces')}</span><Drift>No está en el contrato</Drift></span></div></li>
+              <li key={st}><div className="resp-h">{statusOf(st)}<span className="resp-when">{tr('Lo respondió')}{' '}{list.map((x, i) => <span key={x}>{i ? ', ' : ''}<span className="mono">{x}</span></span>)}</span><span className="resp-marks"><span className="faint num"><Origin of="observed" label={false} />{plural(stats.filter(([s]) => s === st).reduce((a, [, c]) => a + c, 0), tr('vez'), tr('veces'))}</span><Drift>{tr('No está en el contrato')}</Drift></span></div></li>
             ))}
           </ul>
         )}
@@ -249,7 +252,7 @@ export function ContractReference({ k, g, p, seen, focus }: { k: KnowledgeData; 
 function Events({ evs, g, seen }: { evs: Ev[]; g: Indexed | null; seen?: Seen }) {
   return (
     <section className="panel" aria-labelledby="ref-ev-h">
-      <header><h3 id="ref-ev-h">Eventos</h3><div className="meta">{plural(evs.length, 'evento', 'eventos')}</div></header>
+      <header><h3 id="ref-ev-h">{tr('Eventos')}</h3><div className="meta">{plural(evs.length, tr('evento'), tr('eventos'))}</div></header>
       <ul className="evs">{evs.map((e, i) => <EventRow key={i} e={e} g={g} seen={seen} />)}</ul>
     </section>
   );
@@ -270,14 +273,14 @@ export function EventRow({ e, g, seen, self, unlisted: off }: { e: Omit<Ev, 'con
         {!self && <span className="faint">{svc ? <a className="rowlink" href={href('map', svc.id)}>{svc.name}</a> : e.service}</span>}
         <span className="op-tags">
           {self && e.contract && <a className="chip ctr" href={href('docs', e.contract.id)}><Braces />{e.contract.title}</a>}
-          {off && <Drift>Sin contrato</Drift>}
-          {g && e.contract && inCode === false && <Drift>No está en el código</Drift>}
-          {t && <span className="faint num" title={`Visto en el run ${t.run}`}><Origin of="observed" label={false} />{saw ? (e.direction === 'publishes' ? plural(t.count, 'mensaje', 'mensajes') : 'consumido en los runs') : 'no visto en este servicio'}</span>}
+          {off && <Drift>{tr('Sin contrato')}</Drift>}
+          {g && e.contract && inCode === false && <Drift>{tr('No está en el código')}</Drift>}
+          {t && <span className="faint num" title={tr('Visto en el run {run}', { run: t.run })}><Origin of="observed" label={false} />{saw ? (e.direction === 'publishes' ? plural(t.count, tr('mensaje'), tr('mensajes')) : tr('consumido en los runs')) : tr('no visto en este servicio')}</span>}
         </span>
       </div>
-      {e.payload && <p className="ev-payload"><span className="faint">Contenido:</span> <Inline text={e.payload} /></p>}
+      {e.payload && <p className="ev-payload"><span className="faint">{tr('Contenido:')}</span> <Inline text={e.payload} /></p>}
       {t?.sample?.req?.text && e.direction === 'publishes' && saw && (
-        <details className="resp-ex"><summary>Mensaje real del run {t.sample.run}</summary><CodeBlock text={t.sample.req.text} lang={langOf(t.sample.req.text)} format label={`Mensaje de ${e.topic}`} /></details>
+        <details className="resp-ex"><summary>{tr('Mensaje real del run')}{' '}{t.sample.run}</summary><CodeBlock text={t.sample.req.text} lang={langOf(t.sample.req.text)} format label={tr('Mensaje de {topic}', { topic: e.topic })} /></details>
       )}
     </li>
   );
@@ -285,9 +288,9 @@ export function EventRow({ e, g, seen, self, unlisted: off }: { e: Omit<Ev, 'con
 
 /* ------------------------------- a data model ------------------------------- */
 
-const VERB: Record<string, string> = { 'maps-table': 'la mapea', 'defines-table': 'la define', reads: 'la lee', writes: 'la escribe' };
+const VERB: Record<string, string> = { 'maps-table': tr('la mapea'), 'defines-table': tr('la define'), reads: tr('la lee'), writes: tr('la escribe') };
 /** «la mapea, la lee y la escribe» */
-const and = (xs: string[]) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} y ${xs.at(-1)}`);
+const and = (xs: string[]) => (xs.length < 2 ? xs.join('') : tr('{join} y {at}', { join: xs.slice(0, -1).join(', '), at: xs.at(-1) }));
 
 /** A data model as its entities on their tables: owner, notes, what the code and the runs say of each table; then its rules. */
 export function DataModelReference({ p, g }: { p: DocPiece; g: Indexed | null }) {
@@ -299,13 +302,13 @@ export function DataModelReference({ p, g }: { p: DocPiece; g: Indexed | null })
     <div className="ref">
       {purpose && <section className="panel"><div className="body"><Markdown text={purpose} /></div></section>}
       <section className="panel" aria-labelledby="dm-ent-h">
-        <header><h3 id="dm-ent-h">Entidades</h3><div className="meta">{plural(ents.length, 'entidad', 'entidades')}{missing ? <span className="run-ink">{missing} sin tabla en el código</span> : null}</div></header>
-        {!ents.length ? <div className="empty">Este modelo no declara entidades.</div> : <div className="ents">{ents.map((e) => <EntityRow key={e.entity + (e.table ?? '')} e={e} g={g} />)}</div>}
+        <header><h3 id="dm-ent-h">{tr('Entidades')}</h3><div className="meta">{plural(ents.length, tr('entidad'), tr('entidades'))}{missing ? <span className="run-ink">{missing}{' '}{tr('sin tabla en el código')}</span> : null}</div></header>
+        {!ents.length ? <div className="empty">{tr('Este modelo no declara entidades.')}</div> : <div className="ents">{ents.map((e) => <EntityRow key={e.entity + (e.table ?? '')} e={e} g={g} />)}</div>}
       </section>
       {ents.some((e) => e.table) && <DiagramViewer id={`er:${p.id}`} height={360} />}
       <section className="panel" aria-labelledby="dm-rules-h">
-        <header><h3 id="dm-rules-h">Reglas</h3><div className="meta">{plural(rules.length, 'regla', 'reglas')}</div></header>
-        {rules.length ? <ul className="rules">{rules.map((r, i) => <li key={i}><Markdown text={r} /></li>)}</ul> : <div className="empty">Sin reglas escritas sobre estos datos.</div>}
+        <header><h3 id="dm-rules-h">{tr('Reglas')}</h3><div className="meta">{plural(rules.length, tr('regla'), tr('reglas'))}</div></header>
+        {rules.length ? <ul className="rules">{rules.map((r, i) => <li key={i}><Markdown text={r} /></li>)}</ul> : <div className="empty">{tr('Sin reglas escritas sobre estos datos.')}</div>}
       </section>
     </div>
   );
@@ -322,25 +325,25 @@ export function EntityRow({ e, g, self }: { e: { model?: DocPiece; entity?: stri
   const said = [...Map.groupBy(facts, (f) => f.s)].map(([s, fs]) => {
     const n = g!.nodes.get(s)?.name ?? s.replace(/^\w+:/, '');
     const seen = fs.find((f) => f.seen)?.seen;
-    return <span key={s}>{n} {and([...new Set(fs.map((f) => VERB[f.p]))])}{seen ? <span className="faint"> (run {seen.run})</span> : null}</span>;
+    return <span key={s}>{n} {and([...new Set(fs.map((f) => VERB[f.p]))])}{seen ? <span className="faint">{' '}{tr('(run')}{' '}{seen.run})</span> : null}</span>;
   });
   const others = facts.filter((f) => f.p === 'writes' && e.owner && f.s !== e.owner).map((f) => g!.nodes.get(f.s)?.name ?? f.s);
   return (
     <div className="ent">
       <div className="ent-h">
         <Table /><b>{e.entity ?? e.table}</b>
-        {e.entity && (e.table ? (g?.nodes.has(id) ? <a className="mono rowlink k-sql-ink" href={href('map', id)}>{e.table}</a> : <span className="mono">{e.table}</span>) : <span className="faint">sin tabla</span>)}
+        {e.entity && (e.table ? (g?.nodes.has(id) ? <a className="mono rowlink k-sql-ink" href={href('map', id)}>{e.table}</a> : <span className="mono">{e.table}</span>) : <span className="faint">{tr('sin tabla')}</span>)}
         <span className="op-tags">
           {self && e.model && <a className="chip ctr" href={href('docs', e.model.id)}><Table />{e.model.title}</a>}
-          {!e.model && <Drift>Ningún modelo de datos la describe</Drift>}
-          {g && e.table && !g.nodes.has(id) && <Drift>No está en el código</Drift>}
-          {others.length > 0 && <Drift title={`Su dueño es ${owner?.name ?? e.owner}`}>También la escribe {[...new Set(others)].join(', ')}</Drift>}
+          {!e.model && <Drift>{tr('Ningún modelo de datos la describe')}</Drift>}
+          {g && e.table && !g.nodes.has(id) && <Drift>{tr('No está en el código')}</Drift>}
+          {others.length > 0 && <Drift title={tr('Su dueño es {p0}', { p0: owner?.name ?? e.owner })}>{tr('También la escribe')}{' '}{[...new Set(others)].join(', ')}</Drift>}
         </span>
       </div>
       <dl className="op-facts">
-        {e.model && <div><dt>Dueño</dt><dd>{owner ? <a className="rowlink" href={href('map', owner.id)}>{owner.name}</a> : e.owner ? <span className="mono">{e.owner}</span> : <span className="faint">—</span>}{self && e.owner && e.owner !== self ? <span className="faint"> (no es este servicio)</span> : null}</dd></div>}
-        {e.notes && <div><dt>Notas</dt><dd><Inline text={e.notes} /></dd></div>}
-        {said.length > 0 && <div><dt>En el código y los runs</dt><dd className="said">{said}</dd></div>}
+        {e.model && <div><dt>{tr('Dueño')}</dt><dd>{owner ? <a className="rowlink" href={href('map', owner.id)}>{owner.name}</a> : e.owner ? <span className="mono">{e.owner}</span> : <span className="faint">—</span>}{self && e.owner && e.owner !== self ? <span className="faint">{' '}{tr('(no es este servicio)')}</span> : null}</dd></div>}
+        {e.notes && <div><dt>{tr('Notas')}</dt><dd><Inline text={e.notes} /></dd></div>}
+        {said.length > 0 && <div><dt>{tr('En el código y los runs')}</dt><dd className="said">{said}</dd></div>}
       </dl>
     </div>
   );
@@ -356,28 +359,28 @@ export function DesignList({ k, g, p, seen }: { k: KnowledgeData; g: Indexed | n
   const byId = new Map(k.pieces.map((x) => [x.id, x]));
   return (
     <section className="panel design" aria-labelledby="design-h">
-      <header><h3 id="design-h">Contratos y modelos de datos</h3><div className="meta">{plural(list.length, 'pieza', 'piezas')} de diseño</div></header>
+      <header><h3 id="design-h">{tr('Contratos y modelos de datos')}</h3><div className="meta">{plural(list.length, tr('pieza'), tr('piezas'))}{' '}{tr('de diseño')}</div></header>
       <ul>{list.map((x) => {
         const home = x.parent !== p.id ? byId.get(x.parent ?? '') : undefined;
         let stats: string, drift = 0, off = 0;
         if (x.type === 'contract') {
           const ops = opsOf([x]), evs = eventsOf([x]), errs = errorsOf(x);
-          stats = [plural(ops.length, 'operación', 'operaciones'), evs.length && plural(evs.length, 'evento', 'eventos'), errs.length && plural(errs.length, 'error', 'errores')].filter(Boolean).join(' · ');
+          stats = [plural(ops.length, tr('operación'), tr('operaciones')), evs.length && plural(evs.length, tr('evento'), tr('eventos')), errs.length && plural(errs.length, tr('error'), tr('errores'))].filter(Boolean).join(' · ');
           if (g) for (const op of ops) { const ep = endpointOfOp(g, op); if (!ep) drift++; else if (unlisted(seen?.endpoints[ep.id]?.statuses, errs).length) off++; }
         } else {
           const ents = entitiesOf([x]);
-          stats = [plural(ents.length, 'entidad', 'entidades'), ((x.fields.rules ?? []) as string[]).length && plural(((x.fields.rules ?? []) as string[]).length, 'regla', 'reglas')].filter(Boolean).join(' · ');
+          stats = [plural(ents.length, tr('entidad'), tr('entidades')), ((x.fields.rules ?? []) as string[]).length && plural(((x.fields.rules ?? []) as string[]).length, tr('regla'), tr('reglas'))].filter(Boolean).join(' · ');
           if (g) drift = ents.filter((e) => e.table && !g.nodes.has(`tbl:${e.table}`)).length;
         }
         const Icon = x.type === 'contract' ? Braces : Table;
         return (
           <li key={x.id}>
             <Icon />
-            <div className="design-main"><a className="rowlink ttl" href={href('docs', x.id)}>{x.title}</a> <code className="faint">{x.id}</code><div className="faint">{stats}{home ? ` · en ${home.title}` : ''}</div></div>
+            <div className="design-main"><a className="rowlink ttl" href={href('docs', x.id)}>{x.title}</a> <code className="faint">{x.id}</code><div className="faint">{stats}{home ? tr(' · en {title}', { title: home.title }) : ''}</div></div>
             <span className="op-tags">
               <Status state={['implemented', 'active'].includes(x.status) ? 'ok' : x.status === 'deprecated' ? 'idle' : 'queue'}>{STATUS[x.status] ?? x.status}</Status>
-              {drift > 0 && <Drift>{x.type === 'contract' ? `${drift} sin implementar` : `${drift} sin tabla`}</Drift>}
-              {off > 0 && <Drift>{plural(off, 'operación responde', 'operaciones responden')} fuera de contrato</Drift>}
+              {drift > 0 && <Drift>{x.type === 'contract' ? tr('{drift} sin implementar', { drift }) : tr('{drift} sin tabla', { drift })}</Drift>}
+              {off > 0 && <Drift>{plural(off, tr('operación responde'), tr('operaciones responden'))}{' '}{tr('fuera de contrato')}</Drift>}
             </span>
           </li>
         );
@@ -407,10 +410,10 @@ export function ExchangeContract({ ex, exchanges, k, types, g, match }: { ex: Ex
     const when = s !== undefined && s >= 400 ? errs.find((x) => listed(String(s), [x]))?.when : undefined;
     return (
       <>
-        <p>{via ? <>La llamada sigue hasta <b>{e.to}</b>, que ejerce </> : 'Ejerce '}<a className="rowlink" href={opHref(op)}><Method m={op.method} /><span className="mono">{op.path}</span></a> de <a className="rowlink" href={href('docs', op.contract.id)}>«{op.contract.title}»</a>.</p>
-        {s === undefined ? <p className="faint">{e.error ? 'No llegó respuesta: no se puede contrastar.' : 'Sin estado que contrastar.'}</p>
-          : fine ? <Status state="ok"><span><HttpStatus n={s} /> {s < 400 ? 'Respuesta correcta.' : `Error previsto en el contrato${when ? `: ${when}` : '.'}`}</span></Status>
-          : <Warn><span><HttpStatus n={s} /> no está entre los errores de «{op.contract.title}».</span></Warn>}
+        <p>{via ? <>{tr('La llamada sigue hasta')}{' '}<b>{e.to}</b>{tr(', que ejerce')}{' '}</> : tr('Ejerce ')}<a className="rowlink" href={opHref(op)}><Method m={op.method} /><span className="mono">{op.path}</span></a>{' '}{tr('de')}{' '}<a className="rowlink" href={href('docs', op.contract.id)}>«{op.contract.title}»</a>.</p>
+        {s === undefined ? <p className="faint">{e.error ? tr('No llegó respuesta: no se puede contrastar.') : tr('Sin estado que contrastar.')}</p>
+          : fine ? <Status state="ok"><span><HttpStatus n={s} /> {s < 400 ? tr('Respuesta correcta.') : tr('Error previsto en el contrato{p0}', { p0: when ? `: ${when}` : '.' })}</span></Status>
+          : <Warn><span><HttpStatus n={s} />{' '}{tr('no está entre los errores de «')}{op.contract.title}».</span></Warn>}
       </>
     );
   };
@@ -429,7 +432,7 @@ export function ExchangeContract({ ex, exchanges, k, types, g, match }: { ex: Ex
         found = next && opAt(next);
       }
       if (found && next) lines.push(<div key="op">{opLine(found, next, true)}</div>);
-      else if (ops.some((o) => o.service === `svc:${ex.to}`)) lines.push(<div key="op"><Warn><span>Ningún contrato de {ex.to} declara <Method m={ex.method} /><span className="mono">{ex.path}</span>.</span></Warn></div>);
+      else if (ops.some((o) => o.service === `svc:${ex.to}`)) lines.push(<div key="op"><Warn><span>{tr('Ningún contrato de')}{' '}{ex.to}{' '}{tr('declara')}{' '}<Method m={ex.method} /><span className="mono">{ex.path}</span>.</span></Warn></div>);
     }
   }
   if (ex.kind === 'kafka' && ex.topic) {
@@ -437,19 +440,19 @@ export function ExchangeContract({ ex, exchanges, k, types, g, match }: { ex: Ex
     const consume = types.get(ex.from) === 'datastore';
     const who = consume ? ex.to : ex.from, dir = consume ? 'consumes' : 'publishes';
     const ev = evs.find((e) => e.direction === dir && e.service === `svc:${who}`);
-    if (ev) lines.push(<div key="ev"><p>Evento <span className="mono">{ex.topic}</span> de <a className="rowlink" href={href('docs', ev.contract.id)}>«{ev.contract.title}»</a>{ev.payload ? <>: <span className="faint">{ev.payload}</span></> : '.'}</p><Status state="ok">{who} lo {consume ? 'consume' : 'publica'}, como dice el contrato.</Status></div>);
-    else if (evs.length) lines.push(<div key="ev"><Warn><span>Ningún contrato dice que {who} {consume ? 'consuma' : 'publique'} <span className="mono">{ex.topic}</span>; «{evs[0].contract.title}» lo declara para otros.</span></Warn></div>);
+    if (ev) lines.push(<div key="ev"><p>{tr('Evento')}{' '}<span className="mono">{ex.topic}</span>{' '}{tr('de')}{' '}<a className="rowlink" href={href('docs', ev.contract.id)}>«{ev.contract.title}»</a>{ev.payload ? <>: <span className="faint">{ev.payload}</span></> : '.'}</p><Status state="ok">{who}{' '}{tr('lo')}{' '}{consume ? tr('consume') : tr('publica')}{tr(', como dice el contrato.')}</Status></div>);
+    else if (evs.length) lines.push(<div key="ev"><Warn><span>{tr('Ningún contrato dice que')}{' '}{who} {consume ? tr('consuma') : tr('publique')} <span className="mono">{ex.topic}</span>; «{evs[0].contract.title}{tr('» lo declara para otros.')}</span></Warn></div>);
   }
   if (ex.kind === 'sql' && ex.table) {
     const e = entitiesOf(k.pieces).find((x) => x.table === ex.table);
     if (e) {
       const owner = e.owner?.replace(/^svc:/, '');
       const writes = WRITE.test(ex.label);
-      lines.push(<div key="tbl"><p>Tabla <span className="mono">{ex.table}</span>: entidad «{e.entity}» de <a className="rowlink" href={href('docs', e.model.id)}>«{e.model.title}»</a>{owner ? `, cuyo dueño es ${owner}` : ''}.</p>
-        {writes && owner && owner !== ex.from ? <Warn>{ex.from} la escribe sin ser su dueño.</Warn> : null}</div>);
+      lines.push(<div key="tbl"><p>{tr('Tabla')}{' '}<span className="mono">{ex.table}</span>{tr(': entidad «')}{e.entity}{tr('» de')}{' '}<a className="rowlink" href={href('docs', e.model.id)}>«{e.model.title}»</a>{owner ? tr(', cuyo dueño es {owner}', { owner }) : ''}.</p>
+        {writes && owner && owner !== ex.from ? <Warn>{ex.from}{' '}{tr('la escribe sin ser su dueño.')}</Warn> : null}</div>);
     }
   }
-  for (const d of ex.drift ?? []) lines.push(<div key={d}><Warn><span>El mock vio que se sale de su contrato: <span className="mono">{d}</span></span></Warn></div>);
+  for (const d of ex.drift ?? []) lines.push(<div key={d}><Warn><span>{tr('El mock vio que se sale de su contrato:')}{' '}<span className="mono">{d}</span></span></Warn></div>);
   if (!lines.length) return null;
-  return <div className="ex-contract" aria-label="Contrato"><Braces />{<div className="ex-lines">{lines}</div>}</div>;
+  return <div className="ex-contract" aria-label={tr('Contrato')}><Braces />{<div className="ex-lines">{lines}</div>}</div>;
 }

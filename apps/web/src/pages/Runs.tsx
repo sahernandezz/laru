@@ -8,8 +8,6 @@ import {
   FlaskConical, Layers, Maximize2, Minimize2, Monitor, Pause, Play, RotateCw, ScrollText, Search, Smartphone, Terminal, X, Zap,
 } from 'lucide-react';
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode, type RefObject } from 'react';
-import { Replayer } from '@rrweb/replay';
-import '@rrweb/replay/dist/style.css';
 import { endpointMatcher } from '@laru/trace/assemble';
 import { chain as chainOf, type Cause } from '@laru/trace/chain';
 import { hopWhat } from '@laru/trace/summarize';
@@ -18,8 +16,8 @@ import { ExchangeContract } from '../components/Contract.tsx';
 import { EdgeLabel, MapCanvas, NodeBox } from '../components/MapCanvas.tsx';
 import { ActionButton, PathChip, Code, CodeBlock, copy, Dialog, Dot, HttpStatus, Kind, Level, Origin, Segmented, Skeleton, Status, Tabs, toast, type DotState } from '../components/ui.tsx';
 import { askFirst } from '../lib/ask.ts';
-import { devicesOf, onlyDevice } from '../lib/devices.ts';
-import { ago, KIND, plural, RUN_DOT, RUN_PHASE, RUN_STATUS, secs, size } from '../lib/es.ts';
+import { devicesOf, isMagenta, onlyDevice } from '../lib/devices.ts';
+import { ago, KIND, midCut, plural, RUN_DOT, RUN_PHASE, RUN_STATUS, secs, size, faultLabel, participantName } from '../lib/es.ts';
 import { href, liveHref, partsOf, queryOf, splitStop, stopIn, withStop } from '../lib/route.ts';
 import { filterRuns, filtersOf, flowsOf, NO_FILTERS, queryString, type RunFilters } from '../lib/runsFilter.ts';
 import { at as atMs, say, sayCtx } from '../lib/say.ts';
@@ -28,6 +26,7 @@ import { archGraph, layout as mapLayout, type FlowEdge, type Layout, type Lit, t
 import { langOf, statusClass } from '../lib/syntax.ts';
 import { actName, ChainTab, StepCard, whereOf, type Where } from './Chain.tsx';
 import { ExchangeIO, Journey, RouteStrip } from './Journey.tsx';
+import { tr, LOCALE } from '../lib/i18n.ts';
 
 const fileUrl = (id: string, path: string) => apiUrl(`/api/run-file?id=${encodeURIComponent(id)}&path=${encodeURIComponent(path)}`);
 /** A device's kind from its name: a phone, the test itself, another machine, else a browser. */
@@ -94,7 +93,7 @@ export function Splitter({ axis, label, area, onMove, panel }: { axis: 'x' | 'y'
   return (
     <div className={`st-edge st-edge-${axis}`} style={{ gridArea: area }}>
       {!panel.hidden && <SplitBar axis={axis} label={label} onMove={onMove} />}
-      <button type="button" className="st-flip" aria-expanded={!panel.hidden} onClick={panel.onFlip} aria-label={panel.hidden ? `Mostrar «${panel.name}»` : `Ocultar «${panel.name}»`} title={panel.hidden ? `Mostrar «${panel.name}»` : `Ocultar «${panel.name}»`}><Icon /></button>
+      <button type="button" className="st-flip" aria-expanded={!panel.hidden} onClick={panel.onFlip} aria-label={panel.hidden ? tr('Mostrar «{name}»', { name: panel.name }) : tr('Ocultar «{name}»', { name: panel.name })} title={panel.hidden ? tr('Mostrar «{name}»', { name: panel.name }) : tr('Ocultar «{name}»', { name: panel.name })}><Icon /></button>
     </div>
   );
 }
@@ -134,30 +133,28 @@ function RunList() {
   const filtered = Boolean(filters.flujo || filters.estado);
   return (
     <div className="page wide">
-      <div className="head"><div><h1>Runs</h1><p>Cada ejecución de flujos, con su vídeo, su traza y lo que el entorno vio mientras corría. Se guardan en <a className="rowlink mono" href={href('files')} title="Archivos locales: dónde está cada run y cuánto ocupa">.laru/runs</a>.</p></div></div>
+      <div className="head"><div><h1>Runs</h1><p>{tr('Cada ejecución de flujos, con su vídeo, su traza y lo que el entorno vio mientras corría. Se guardan en')}{' '}<a className="rowlink mono" href={href('files')} title={tr('Archivos locales: dónde está cada run y cuánto ocupa')}>.laru/runs</a>.</p></div></div>
       <ChangesBar />
       {all.length > 0 && (
-        <div className="run-filters" role="search" aria-label="Filtrar runs">
-          <label>Flujo
-            <select value={filters.flujo} onChange={(e) => setFilters((f) => ({ ...f, flujo: e.target.value }))}>
-              <option value="">Todos los flujos</option>
+        <div className="run-filters" role="search" aria-label={tr('Filtrar runs')}>
+          <label>{tr('Flujo')}<select value={filters.flujo} onChange={(e) => setFilters((f) => ({ ...f, flujo: e.target.value }))}>
+              <option value="">{tr('Todos los flujos')}</option>
               {flowsOf(all).map((f) => <option key={f} value={f}>{f}</option>)}
             </select>
           </label>
-          <label>Estado
-            <select value={filters.estado} onChange={(e) => setFilters((f) => ({ ...f, estado: e.target.value }))}>
-              <option value="">Todos</option>
+          <label>{tr('Estado')}<select value={filters.estado} onChange={(e) => setFilters((f) => ({ ...f, estado: e.target.value }))}>
+              <option value="">{tr('Todos')}</option>
               {['running', 'passed', 'failed', 'error', 'cancelled', 'interrupted'].map((s) => <option key={s} value={s}>{RUN_STATUS[s]}</option>)}
             </select>
           </label>
-          <span className="faint num" aria-live="polite">{filtered ? `${list.length} de ${plural(all.length, 'run', 'runs')}` : plural(all.length, 'run', 'runs')}</span>
-          {filtered && <button className="btn sm" onClick={() => setFilters(NO_FILTERS)}>Quitar filtros</button>}
+          <span className="faint num" aria-live="polite">{filtered ? tr('{length} de {plural}', { length: list.length, plural: plural(all.length, 'run', 'runs') }) : plural(all.length, 'run', 'runs')}</span>
+          {filtered && <button className="btn sm" onClick={() => setFilters(NO_FILTERS)}>{tr('Quitar filtros')}</button>}
         </div>
       )}
       {runs.error ? <div className="notice" role="alert"><CircleX />{runs.error}</div> : !runs.data ? <Skeleton lines={6} /> : !all.length ? (
-        <section className="panel"><div className="empty">Todavía no hay runs. Ejecuta flujos desde <a className="rowlink" href={href('docs')}>Documentación y flujos</a>, con «Probar aquí» en un entorno o con <code>laru test</code>.</div></section>
+        <section className="panel"><div className="empty">{tr('Todavía no hay runs. Ejecuta flujos desde')}{' '}<a className="rowlink" href={href('docs')}>{tr('Documentación y flujos')}</a>{tr(', con «Probar aquí» en un entorno o con')}{' '}<code>laru test</code>.</div></section>
       ) : !list.length ? (
-        <section className="panel"><div className="empty">Ningún run coincide con esos filtros. <button className="btn sm" onClick={() => setFilters(NO_FILTERS)}>Quitar filtros</button></div></section>
+        <section className="panel"><div className="empty">{tr('Ningún run coincide con esos filtros.')}{' '}<button className="btn sm" onClick={() => setFilters(NO_FILTERS)}>{tr('Quitar filtros')}</button></div></section>
       ) : (
         <div className="run-cards">
           {list.map((r) => <RunCard key={r.id} r={r} />)}
@@ -226,31 +223,31 @@ function Run({ id, slug: slugArg, test, g }: { id: string; slug?: string; test?:
 
   return (
     <div className="page wide">
-      <nav className="crumbs" aria-label="Migas"><a href={href('runs')}>Runs</a><ChevronRight /><span>Run {run.id}</span>{slug ? <><ChevronRight /><a href={href('docs', `flow:${slug}`)} title="El flujo en Documentación y flujos">{slug}</a></> : null}</nav>
+      <nav className="crumbs" aria-label={tr('Migas')}><a href={href('runs')}>Runs</a><ChevronRight /><span>Run {run.id}</span>{slug ? <><ChevronRight /><a href={href('docs', `flow:${slug}`)} title={tr('El flujo en Documentación y flujos')}>{slug}</a></> : null}</nav>
       <div className="head">
         <div style={{ minWidth: 0 }}>
           <div className={`status run-state ${dot}`} aria-live="polite" ref={headline} tabIndex={-1}><Dot state={dot} />{label}</div>
           <h1 style={{ marginTop: 6 }}>{run.kind === 'session' ? run.title : run.flows.length === 1 ? flow?.title ?? slug : `Run ${run.id}`}</h1>
           <p>
-            Run {run.id} en <a className="rowlink mono" href={href('envs', run.env)}>{run.env}</a>{detail?.projects ? ` (${detail.projects.join(' · ')})` : ''}{run.ephemeral ? ', un entorno efímero' : ''}, lanzado {ago(run.startedAt)}
-            {took(run) ? `; duró ${took(run)}` : ''}.{run.flows.length > 1 ? ` ${plural(run.flows.length, 'flujo', 'flujos')}.` : ''}
+            Run {run.id}{' '}{tr('en')}{' '}<a className="rowlink mono" href={href('envs', run.env)}>{run.env}</a>{detail?.projects ? ` (${detail.projects.join(' · ')})` : ''}{run.ephemeral ? tr(', un entorno efímero') : ''}{tr(', lanzado')}{' '}{ago(run.startedAt)}
+            {took(run) ? tr('; duró {took}', { took: took(run) }) : ''}.{run.flows.length > 1 ? ` ${plural(run.flows.length, tr('flujo'), tr('flujos'))}.` : ''}
           </p>
           {detail && <p className="run-dir"><PathChip path={detail.dir} reveal={{ what: 'run', id: run.id }} /> <span className="faint num">{size(detail.bytes)}</span></p>}
         </div>
         <div className="actions">
-          {done && <button className="btn" ref={compareBtn} onClick={() => setComparing(true)}><GitCompare />Comparar</button>}
-          {!done && run.kind !== 'session' && <ActionButton icon={Ban} run={() => api('/api/runs/cancel', { method: 'POST', body: { id: run.id } })} done={() => `Run ${run.id} cancelado`}>Cancelar</ActionButton>}
-          {run.kind === 'session' && !done && <a className="btn primary" href={liveHref(run)}>Ver en vivo</a>}
-          {done && run.kind !== 'session' && failedHere.length > 0 && failedHere.length < run.flows.length && <ActionButton icon={RotateCw} run={() => askFirst((confirm) => api<{ id: string }>('/api/runs/start', { method: 'POST', body: { env: run.env, flows: failedHere, ephemeral: run.ephemeral, confirm } }).then((r) => { location.hash = href('runs', r.id); }), 'Ejecutar')} title={failedHere.join(', ')}>Repetir lo que falló</ActionButton>}
-          {done && run.kind !== 'session' && <ActionButton icon={RotateCw} primary run={() => askFirst((confirm) => api<{ id: string }>('/api/runs/start', { method: 'POST', body: { env: run.env, flows: run.flows, ephemeral: run.ephemeral, confirm } }).then((r) => { location.hash = href('runs', r.id); }), 'Ejecutar')}>Volver a ejecutar</ActionButton>}
+          {done && <button className="btn" ref={compareBtn} onClick={() => setComparing(true)}><GitCompare />{tr('Comparar')}</button>}
+          {!done && run.kind !== 'session' && <ActionButton icon={Ban} run={() => api('/api/runs/cancel', { method: 'POST', body: { id: run.id } })} done={() => tr('Run {id} cancelado', { id: run.id })}>{tr('Cancelar')}</ActionButton>}
+          {run.kind === 'session' && !done && <a className="btn primary" href={liveHref(run)}>{tr('Ver en vivo')}</a>}
+          {done && run.kind !== 'session' && failedHere.length > 0 && failedHere.length < run.flows.length && <ActionButton icon={RotateCw} run={() => askFirst((confirm) => api<{ id: string }>('/api/runs/start', { method: 'POST', body: { env: run.env, flows: failedHere, ephemeral: run.ephemeral, confirm } }).then((r) => { location.hash = href('runs', r.id); }), tr('Ejecutar'))} title={failedHere.join(', ')}>{tr('Repetir lo que falló')}</ActionButton>}
+          {done && run.kind !== 'session' && <ActionButton icon={RotateCw} primary run={() => askFirst((confirm) => api<{ id: string }>('/api/runs/start', { method: 'POST', body: { env: run.env, flows: run.flows, ephemeral: run.ephemeral, confirm } }).then((r) => { location.hash = href('runs', r.id); }), tr('Ejecutar'))}>{tr('Volver a ejecutar')}</ActionButton>}
         </div>
       </div>
 
-      {run.error && <div className="notice" role="alert"><CircleX /><div><b>{run.status === 'error' ? 'No llegó a terminar.' : 'Aviso.'}</b> <span className="mono pre-line">{run.error}</span></div></div>}
-      {run.note && <div className="notice info" role="status"><Info /><div>{run.note}{run.waiting && <> <a className="rowlink" href={href('live', run.waiting)}>Ver la sesión</a></>}</div></div>}
+      {run.error && <div className="notice" role="alert"><CircleX /><div><b>{run.status === 'error' ? tr('No llegó a terminar.') : tr('Aviso.')}</b> <span className="mono pre-line">{run.error}</span></div></div>}
+      {run.note && <div className="notice info" role="status"><Info /><div>{run.note}{run.waiting && <> <a className="rowlink" href={href('live', run.waiting)}>{tr('Ver la sesión')}</a></>}</div></div>}
       {run.kind !== 'session' && <Phases run={run} />}
       {run.flows.length > 1 && (
-        <nav className="seg flow-switch" aria-label="Flujo del run">
+        <nav className="seg flow-switch" aria-label={tr('Flujo del run')}>
           {run.flows.map((f) => <a key={f} href={href('runs', run.id, f)} aria-current={f === slug ? 'page' : undefined}><Dot state={RUN_DOT[flowStatus(f)] ?? 'idle'} />{f}<span className="sr-only">, {RUN_STATUS[flowStatus(f)] ?? flowStatus(f)}</span></a>)}
         </nav>
       )}
@@ -262,13 +259,13 @@ function Run({ id, slug: slugArg, test, g }: { id: string; slug?: string; test?:
 }
 
 function runHeadline(run: RunInfo, result: RunInfo['results'][string] | undefined, flow?: FlowInfo): [DotState, string] {
-  if (run.phase !== 'done') return ['run', `En curso: ${RUN_PHASE[run.phase].toLowerCase()}`];
+  if (run.phase !== 'done') return ['run', tr('En curso: {toLowerCase}', { toLowerCase: RUN_PHASE[run.phase].toLowerCase() })];
   // The flow on screen speaks for itself; the run's status only when the flow has no result of its own.
   const status = result?.status ?? run.status;
   if (status === 'failed' && result?.failedStep) {
     const step = flow?.steps[result.failedStep - 1]?.step;
     const total = flow?.steps.length;
-    return ['err', `Falló en el paso ${result.failedStep}${total ? ` de ${total}` : ''}${step ? `, «${step}»` : ''}`];
+    return ['err', tr('Falló en el paso {failedStep}{p1}{p2}', { failedStep: result.failedStep, p1: total ? tr(' de {total}', { total }) : '', p2: step ? `, «${step}»` : '' })];
   }
   return [RUN_DOT[status] ?? 'idle', RUN_STATUS[status] ?? status];
 }
@@ -280,28 +277,28 @@ function Phases({ run }: { run: RunInfo }) {
   const results = Object.values(run.results);
   const testsMs = results.reduce((s, r) => s + (r.ms ?? 0), 0);
   const cells = PHASES.map((p, i): [RunInfo['phase'], DotState, string] => {
-    if (p === 'destroy' && !run.ephemeral) return [p, 'idle', 'No aplica: persistente'];
+    if (p === 'destroy' && !run.ephemeral) return [p, 'idle', tr('No aplica: persistente')];
     if (run.phase !== 'done') {
       const cur = PHASES.indexOf(run.phase);
-      return [p, i < cur ? 'ok' : i === cur ? 'run' : 'idle', i < cur ? 'Hecho' : i === cur ? 'En curso' : 'Pendiente'];
+      return [p, i < cur ? 'ok' : i === cur ? 'run' : 'idle', i < cur ? tr('Hecho') : i === cur ? tr('En curso') : tr('Pendiente')];
     }
     // Done: how far it got. With results the tests ran; without them it stopped before.
     const ran = results.length > 0;
     const stopped: DotState = run.status === 'error' ? 'err' : 'idle';
-    const why = run.status === 'error' ? 'Aquí se detuvo' : RUN_STATUS[run.status];
-    if (p === 'queued') return [p, 'ok', 'Hecho'];
-    if (p === 'up') return ran ? [p, 'ok', 'Listo'] : [p, stopped, why];
+    const why = run.status === 'error' ? tr('Aquí se detuvo') : RUN_STATUS[run.status];
+    if (p === 'queued') return [p, 'ok', tr('Hecho')];
+    if (p === 'up') return ran ? [p, 'ok', tr('Listo')] : [p, stopped, why];
     if (p === 'tests') {
-      if (!ran) return [p, 'idle', 'No llegó'];
+      if (!ran) return [p, 'idle', tr('No llegó')];
       const bad = results.filter((r) => r.status === 'failed' || r.status === 'error').length;
       const known = results.reduce((n, r) => n + (r.known ?? 0), 0);
-      return [p, bad ? 'err' : 'ok', bad ? `${bad} con fallos, ${secs(testsMs)}` : known ? `${secs(testsMs)}, ${plural(known, 'desviación conocida', 'desviaciones conocidas')}` : secs(testsMs)];
+      return [p, bad ? 'err' : 'ok', bad ? tr('{bad} con fallos, {secs}', { bad, secs: secs(testsMs) }) : known ? `${secs(testsMs)}, ${plural(known, tr('desviación conocida'), tr('desviaciones conocidas'))}` : secs(testsMs)];
     }
-    if (p === 'evidence') return ran ? [p, 'ok', 'Guardada'] : [p, 'idle', 'No llegó'];
-    return [p, run.status === 'passed' || run.status === 'failed' ? 'ok' : stopped, 'Destruido'];
+    if (p === 'evidence') return ran ? [p, 'ok', tr('Guardada')] : [p, 'idle', tr('No llegó')];
+    return [p, run.status === 'passed' || run.status === 'failed' ? 'ok' : stopped, tr('Destruido')];
   });
   return (
-    <ol className="phases" aria-label="Fases del run">
+    <ol className="phases" aria-label={tr('Fases del run')}>
       {cells.map(([p, s, d]) => <li key={p} className={`phase ${s}`}><span className="n"><Dot state={s} />{RUN_PHASE[p]}</span><span className="d">{d}</span></li>)}
     </ol>
   );
@@ -329,19 +326,19 @@ function LiveView({ run, slug, events, flow }: { run: RunInfo; slug: string; eve
   const cur = tests.find((t) => t.story) ?? tests.at(-1);
   return (
     <>
-      {!tests.length && <p className="faint live-wait">{run.phase === 'tests' ? 'El runner está arrancando el navegador…' : `${RUN_PHASE[run.phase]}: las pruebas empiezan después.`}</p>}
+      {!tests.length && <p className="faint live-wait">{run.phase === 'tests' ? tr('El runner está arrancando el navegador…') : tr('{p0}: las pruebas empiezan después.', { p0: RUN_PHASE[run.phase] })}</p>}
       <section className="panel" aria-labelledby="live-h">
-        <header><h3 id="live-h">Pasos{cur ? ` de «${cur.title}»` : ''}</h3><div className="meta">El vídeo, la secuencia y la red llegan al guardar la evidencia</div></header>
+        <header><h3 id="live-h">{tr('Pasos')}{cur ? tr(' de «{title}»', { title: cur.title }) : ''}</h3><div className="meta">{tr('El vídeo, la secuencia y la red llegan al guardar la evidencia')}</div></header>
         <ol className="steps live" aria-live="polite">
           {(cur?.steps ?? []).map((s, i) => (
             <li key={i}>
               <Dot state={!s.status ? 'run' : s.status === 'passed' ? 'ok' : s.status === 'failed' ? 'err' : 'idle'} />
-              <span>{i + 1}. {s.title}{flow?.steps[i]?.expected ? <span className="exp">Se espera: {String(flow.steps[i].expected)}</span> : null}</span>
-              <span className="faint num">{s.ms !== undefined ? secs(s.ms) : 'en curso'}</span>
+              <span>{i + 1}. {s.title}{flow?.steps[i]?.expected ? <span className="exp">{tr('Se espera:')}{' '}{String(flow.steps[i].expected)}</span> : null}</span>
+              <span className="faint num">{s.ms !== undefined ? secs(s.ms) : tr('en curso')}</span>
               {s.error && <span className="why">{s.error}</span>}
             </li>
           ))}
-          {cur && !cur.steps.length && <li className="faint">Sin pasos todavía.</li>}
+          {cur && !cur.steps.length && <li className="faint">{tr('Sin pasos todavía.')}</li>}
         </ol>
       </section>
     </>
@@ -368,8 +365,8 @@ export function FlowEvidence({ run, slug, flow, g, view, onView, test, address, 
   const cached = run.results[slug]?.status === 'cached' ? run.results[slug]?.cachedFrom : undefined;
   if (cached) return (
     <section className="panel"><div className="empty">
-      <span>{slug} no se volvió a ejecutar: sus entradas no cambiaron desde el run {cached}, que lo probó.</span>
-      <span><a className="rowlink" href={href('runs', cached, slug)}>Ver la evidencia en el run {cached}</a></span>
+      <span>{slug}{' '}{tr('no se volvió a ejecutar: sus entradas no cambiaron desde el run')}{' '}{cached}{tr(', que lo probó.')}</span>
+      <span><a className="rowlink" href={href('runs', cached, slug)}>{tr('Ver la evidencia en el run')}{' '}{cached}</a></span>
     </div></section>
   );
   // another flow, run or named test starts over from what it opens on
@@ -382,7 +379,7 @@ export function Studio({ parts, g }: { parts: string[]; g: Indexed | null }) {
   const { run, error } = useRun(id);
   const flows = useApi<FlowInfo[]>('/api/flows');
   const k = useApi<KnowledgeData>('/api/knowledge').data;
-  if (error) return <div className="page"><div className="notice" role="alert">{error} <a className="rowlink" href={href('runs')}>Ir a los runs</a></div></div>;
+  if (error) return <div className="page"><div className="notice" role="alert">{error} <a className="rowlink" href={href('runs')}>{tr('Ir a los runs')}</a></div></div>;
   if (!run) return <div className="page"><Skeleton lines={10} /></div>;
   return <FlowEvidence key={`${slug}/${test ?? ''}`} run={run} slug={slug} flow={flows.data?.find((f) => f.slug === slug)} g={g} test={test} address={(_, t) => href('studio', id, slug, ...(t ? [t] : []))} k={k} only />;
 }
@@ -409,27 +406,27 @@ function FlowTraces({ run, slug, flow, g, view, onView, address, k, studio, only
   if (!res.data) return <><Skeleton lines={2} /><div style={{ height: 16 }} /><Skeleton lines={10} /></>;
   if (!test) return (
     <section className="panel"><div className="empty">
-      <span>{slug} no dejó traza en este run{run.results[slug]?.status === 'error' ? ': no llegó a correr ninguna prueba' : ''}.</span>
-      <span>Lo que el runner escribió está en <code>.laru/runs/{run.id}/out/runner.log</code>.</span>
+      <span>{slug}{' '}{tr('no dejó traza en este run')}{run.results[slug]?.status === 'error' ? tr(': no llegó a correr ninguna prueba') : ''}.</span>
+      <span>{tr('Lo que el runner escribió está en')}{' '}<code>.laru/runs/{run.id}/out/runner.log</code>.</span>
     </div></section>
   );
   const at = 0;
   // one device has nothing to pick
   // which device to follow: a few side by side, each with its kind's icon and how many messages it sent; many, a picker
   const follow = devices && devices.list.length > 1 && (devices.list.length <= 3 ? (
-    <div className="dev-seg" role="group" aria-label="Dispositivo: solo lo que envió y lo que provocó en el sistema">
-      <button type="button" aria-pressed={!device} onClick={() => setDevice('')} title="Todos los dispositivos"><Layers />Todos</button>
+    <div className="dev-seg" role="group" aria-label={tr('Dispositivo: solo lo que envió y lo que provocó en el sistema')}>
+      <button type="button" aria-pressed={!device} onClick={() => setDevice('')} title={tr('Todos los dispositivos')}><Layers />{tr('Todos')}</button>
       {devices.list.map((d) => { const I = deviceIcon(d.name); return (
-        <button type="button" key={d.name} aria-pressed={device === d.name} onClick={() => setDevice(d.name)} title={`${d.name}: ${plural(d.count, 'mensaje', 'mensajes')}`}>
+        <button type="button" key={d.name} aria-pressed={device === d.name} onClick={() => setDevice(d.name)} title={`${d.name}: ${plural(d.count, tr('mensaje'), tr('mensajes'))}`}>
           <I /><span className="dev-name">{d.name}</span><span className="dev-n num">{d.count}</span>
         </button>
       ); })}
     </div>
   ) : (
-    <label className="dev-pick" title="Solo lo que envió ese dispositivo y lo que provocó en el sistema">
+    <label className="dev-pick" title={tr('Solo lo que envió ese dispositivo y lo que provocó en el sistema')}>
       {(() => { const I = device ? deviceIcon(device) : Layers; return <I aria-hidden="true" />; })()}
-      <select value={device} onChange={(e) => setDevice(e.target.value)} aria-label="Dispositivo">
-        <option value="">Todos los dispositivos</option>
+      <select value={device} onChange={(e) => setDevice(e.target.value)} aria-label={tr('Dispositivo')}>
+        <option value="">{tr('Todos los dispositivos')}</option>
         {devices.list.map((d) => <option key={d.name} value={d.name}>{d.name} · {d.count}</option>)}
       </select>
       <ChevronDown aria-hidden="true" />
@@ -504,8 +501,6 @@ function Player({ run, slug, trace, story, flow, g, view: asked, onView, k, arch
   const blank = useBlank(video);
   const [dims, setDims] = useState('');
   const [ratio, setRatio] = useState<number>();
-  // the page as rrweb recorded it, over the video (which keeps the clock): inspected, not watched
-  const [asReplica, setAsReplica] = useState(false);
   // The video at the stage's full width, the sequence under it; kept for the next run this browser opens.
   const [big, setBig] = useState(() => { try { return localStorage.getItem(BIG) === '1'; } catch { return false; } });
   // screens opened in their own floating window ('' is the story's own video), each on the same clock
@@ -770,15 +765,15 @@ function Player({ run, slug, trace, story, flow, g, view: asked, onView, k, arch
 
   const row = cur?.kind === 'row' ? layout.rows[cur.i] : undefined;
   const selected = row?.ex;
-  const names = useMemo(() => new Map(trace.participants.map((p) => [p.id, p.name])), [trace]);
+  const names = useMemo(() => new Map(trace.participants.map((p) => [p.id, participantName(p)])), [trace]);
   const types = useMemo(() => new Map<string, string>(trace.participants.map((p) => [p.id, p.type])), [trace]);
   const who = (id: string) => names.get(id) ?? id;
   const walkRows = useMemo(() => stops.flatMap((w) => (w.s.kind === 'row' ? [w.s.i] : [])), [stops]);
   const where = whereOf(cur, ctx, layout, walkRows, actNo, trace.steps, timeOf(cur));
   // What the inspector announces: in «Paso a paso», the stop's sentence; else a response says what it answers, and
   // every row says who talks to whom.
-  const said = mode === 'step' && cur ? `${actName(where)}${where.m ? `, mensaje ${where.m} de ${where.n}` : ''}: ${say(cur, ctx)}`
-    : row ? `${clock(row.t)}: ${row.reply ? `respuesta a ${row.ex.label}: ${row.label}, de ${who(row.ex.to)} a ${who(row.ex.from)}` : `${row.ex.label}, de ${who(ends(row.ex)[0])} a ${who(ends(row.ex)[1])}`}${row.ex.ok ? '' : ', falló'}` : '';
+  const said = mode === 'step' && cur ? `${actName(where)}${where.m ? tr(', mensaje {m} de {n}', { m: where.m, n: where.n }) : ''}: ${say(cur, ctx)}`
+    : row ? `${clock(row.t)}: ${row.reply ? tr('respuesta a {label}: {label2}, de {who} a {who2}', { label: row.ex.label, label2: row.label, who: who(row.ex.to), who2: who(row.ex.from) }) : tr('{label}, de {who} a {who2}', { label: row.ex.label, who: who(ends(row.ex)[0]), who2: who(ends(row.ex)[1]) })}${row.ex.ok ? '' : tr(', falló')}` : '';
   const failedAt = trace.failure ? trace.steps.find((s) => s.n === trace.failure!.step) : undefined;
   // The hop that failed, by name and template: matched against the map now, whatever test, run or age the trace is.
   const hop = layout.bad >= 0 ? layout.rows[layout.bad].ex : undefined;
@@ -810,16 +805,16 @@ function Player({ run, slug, trace, story, flow, g, view: asked, onView, k, arch
   const seqView = (
     <div key="seq" className="diagram">
       <div className="view-bar">
-        <Tabs id={vid} className="tabs view-tabs" label="Vista del flujo" value={shown} onChange={(v) => { setStage(v === 'journey' ? 'journey' : 'view'); if (v !== 'journey') pickView(v); }}
-          tabs={[...(studio ? [{ key: 'journey' as const, label: 'Recorrido' }] : []), { key: 'seq', label: 'Secuencia' }, { key: 'map', label: 'Mapa' }]} />
-        {shown === 'seq' && <span className="ex-kinds" aria-label="Tipos de intercambio en el diagrama">{[...new Set(trace.exchanges.map((e) => e.kind))].map((k) => <span key={k} className={`k-${k}`}><i aria-hidden="true" />{k}</span>)}</span>}
-        <span className="faint num">{mode === 'step' ? `Paso a paso · ${pos + 1 || '–'} de ${total}` : shown !== 'map' ? plural(trace.exchanges.length, 'mensaje', 'mensajes') : lit ? `${plural(lit.edges.size, 'conexión', 'conexiones')}${badEdges ? ` · ${badEdges} ${badEdges === 1 ? 'falló' : 'fallaron'}` : ''}` : ''}</span>
+        <Tabs id={vid} className="tabs view-tabs" label={tr('Vista del flujo')} value={shown} onChange={(v) => { setStage(v === 'journey' ? 'journey' : 'view'); if (v !== 'journey') pickView(v); }}
+          tabs={[...(studio ? [{ key: 'journey' as const, label: tr('Recorrido') }] : []), { key: 'seq', label: tr('Secuencia') }, { key: 'map', label: tr('Mapa') }]} />
+        {shown === 'seq' && <span className="ex-kinds" aria-label={tr('Tipos de intercambio en el diagrama')}>{[...new Set(trace.exchanges.map((e) => e.kind))].map((k) => <span key={k} className={`k-${k}`}><i aria-hidden="true" />{k}</span>)}</span>}
+        <span className="faint num">{mode === 'step' ? tr('Paso a paso · {p0} de {total}', { p0: pos + 1 || '–', total }) : shown !== 'map' ? plural(trace.exchanges.length, tr('mensaje'), tr('mensajes')) : lit ? `${plural(lit.edges.size, tr('conexión'), tr('conexiones'))}${badEdges ? ` · ${badEdges} ${badEdges === 1 ? tr('falló') : tr('fallaron')}` : ''}` : ''}</span>
       </div>
       <div role="tabpanel" id={`${vid}-panel`} aria-labelledby={`${vid}-tab-${shown}`} className="diagram-panel">
         {journey ? <Journey trace={trace} ctx={ctx} lanes={layout.lanes} sel={selected?.id} onPick={(id) => { c.pause(); pickEx(id); }} hot={hot} time={clock} />
           : view === 'seq' ?<SeqView layout={layout} now={c.now} sel={sel} onPick={pickSeq} wrap={wrap} onStep={mode === 'step' ? stepSeq : undefined} folded={folded} />
           : arch && lit ? <FlowMap lay={arch.lay} pieces={arch.pieces} lit={lit} sel={row?.ex.id} hot={hot} path={path} onPick={pickEdge} />
-          : <p className="empty flow-map">Sin mapa: pulsa «Releer el código» en <a className="rowlink" href={href('repos')}>Proyectos</a>.</p>}
+          : <p className="empty flow-map">{tr('Sin mapa: pulsa «Releer el código» en')}{' '}<a className="rowlink" href={href('repos')}>{tr('Proyectos')}</a>.</p>}
       </div>
     </div>
   );
@@ -845,14 +840,13 @@ function Player({ run, slug, trace, story, flow, g, view: asked, onView, k, arch
 
   const screen = (
         <div className="screen">
-          <div className="screen-meta"><span>{mode === 'step' ? (src ? `Fotograma de ${atMs(c.now)} · en pausa` : story ? 'Sin vídeo: el fotograma no aplica.' : 'Sin vídeo en los casos cortos: el fotograma no aplica.') : src ? 'Grabación de la historia' : 'Esta prueba no graba vídeo'}</span><span className="screen-tools"><span className="mono num">{clock(c.now)}</span>
-            {trace.replay && src && <button className="icon-btn" aria-pressed={asReplica} onClick={() => setAsReplica((x) => !x)} aria-label="Réplica de la página" title={asReplica ? 'Volver al vídeo' : 'Réplica de la página: lo que se grabó del navegador, no una imagen; se selecciona, se inspecciona y sigue el mismo reloj'}><Monitor /></button>}{trace.replay && <ReplicaVideo run={run.id} slug={slug} />}{trace.video && <OneVideo run={run.id} slug={slug} video={trace.video} several={(trace.screens ?? []).some((x) => x.video && x.startMs !== undefined)} />}{src && !studio && <button className="icon-btn" aria-pressed={big} onClick={toggleBig} aria-label="Vídeo grande" title={big ? 'Volver al vídeo junto a la secuencia' : 'Vídeo a todo el ancho, la secuencia debajo'}>{big ? <Minimize2 /> : <Maximize2 />}</button>}{src && <button className="icon-btn" onClick={() => openFloat('')} aria-label="Abrir el vídeo en una ventana" title="Abrir el vídeo en una ventana flotante que se mueve y cambia de tamaño"><ArrowUpRight /></button>}</span></div>
+          <div className="screen-meta"><span>{mode === 'step' ? (src ? tr('Fotograma de {atMs} · en pausa', { atMs: atMs(c.now) }) : story ? tr('Sin vídeo: el fotograma no aplica.') : tr('Sin vídeo en los casos cortos: el fotograma no aplica.')) : src ? tr('Grabación de la historia') : tr('Esta prueba no graba vídeo')}</span><span className="mono num">{clock(c.now)}</span><span className="screen-tools">
+            {trace.video && <OneVideo run={run.id} slug={slug} video={trace.video} several={(trace.screens ?? []).some((x) => x.video && x.startMs !== undefined)} />}{src && !studio && <button className="icon-btn big-toggle" aria-pressed={big} onClick={toggleBig} aria-label={tr('Vídeo grande')} title={big ? tr('Volver al vídeo junto a la secuencia') : tr('Vídeo a todo el ancho, la secuencia debajo')}>{big ? <Minimize2 /> : <Maximize2 />}</button>}{src && <button className="icon-btn labeled" onClick={() => openFloat('')} title={tr('Abrir el vídeo en una ventana flotante que se mueve y cambia de tamaño')}><ArrowUpRight /><span>{tr('Ventana')}</span></button>}</span></div>
           <div className="player" style={ratio ? ({ '--ar': ratio } as React.CSSProperties) : undefined}>
-            {src ? <video ref={setVideo} src={src} muted playsInline preload="auto" aria-label={`Vídeo de «${trace.test}»`} onClick={mode === 'step' ? () => leave(true) : c.toggle} onLoadedMetadata={(e) => { const v = e.currentTarget; setDims(`${v.videoWidth} × ${v.videoHeight}`); if (v.videoWidth && v.videoHeight) setRatio(v.videoWidth / v.videoHeight); }}
+            {src ? <video ref={setVideo} src={src} muted playsInline preload="auto" aria-label={tr('Vídeo de «{test}»', { test: trace.test })} onClick={mode === 'step' ? () => leave(true) : c.toggle} onLoadedMetadata={(e) => { const v = e.currentTarget; setDims(`${v.videoWidth} × ${v.videoHeight}`); if (v.videoWidth && v.videoHeight) setRatio(v.videoWidth / v.videoHeight); }}
               onDurationChange={(e) => Number.isFinite(e.currentTarget.duration) && setVideoMs(e.currentTarget.duration * 1000)} />
-              : <div className="novideo"><Film /><span>Sin vídeo: el reloj es un temporizador de {secs(layout.duration)}.</span></div>}
-            {asReplica && trace.replay && <Replica run={run.id} slug={slug} file={trace.replay} t0={trace.t0} now={c.now} playing={c.playing} speed={c.speed} />}
-            {blank && <div className="novideo">Abriendo el navegador…</div>}
+              : <div className="novideo"><Film /><span>{tr('Sin vídeo: el reloj es un temporizador de')}{' '}{secs(layout.duration)}.</span></div>}
+            {blank && <div className="novideo">{tr('Abriendo el navegador…')}</div>}
             {step && !burned && <div className="caption">{step.n}. {step.title}</div>}
           </div>
           <OtherScreens run={run.id} slug={slug} trace={trace} now={c.now} playing={c.playing} speed={c.speed} onOpen={openFloat} />
@@ -860,10 +854,10 @@ function Player({ run, slug, trace, story, flow, g, view: asked, onView, k, arch
             const s = name ? (trace.screens ?? []).find((x) => x.name === name) : undefined;
             const fsrc = name ? (s?.video ? fileUrl(run.id, `flows/${slug}/${s.video}`) : null) : src;
             if (!fsrc) return null;
-            return <FloatingScreen key={name || '·'} index={i} phone={Boolean(name)} title={name ? `Pantalla de ${name}` : 'Grabación de la historia'} src={fsrc} startMs={s?.startMs ?? 0}
+            return <FloatingScreen key={name || '·'} index={i} phone={Boolean(name)} title={name ? tr('Pantalla de {name}', { name }) : tr('Grabación de la historia')} src={fsrc} startMs={s?.startMs ?? 0}
               now={c.now} playing={c.playing} speed={c.speed} onClose={() => setFloats((f) => f.filter((x) => x !== name))} />;
           })}
-          <div className="screen-meta"><span>{src ? 'El vídeo marca el reloj de todas las vistas' : 'El temporizador marca el reloj de todas las vistas'}</span><span className="num">{src ? dims : ''}</span></div>
+          <div className="screen-meta"><span>{src ? tr('El vídeo marca el reloj de todas las vistas') : tr('El temporizador marca el reloj de todas las vistas')}</span><span className="num">{src ? dims : ''}</span></div>
         </div>
   );
   const inspector = (
@@ -874,16 +868,16 @@ function Player({ run, slug, trace, story, flow, g, view: asked, onView, k, arch
   const side = journey && (tab === 'msg' || tab === 'chain') ? 'steps' : tab;
   const evidence = (
     <>
-          <Tabs id={`run-${run.id}-${slug}`} label="Evidencia del run" value={side} onChange={setTab} tabs={[
+          <Tabs id={`run-${run.id}-${slug}`} label={tr('Evidencia del run')} value={side} onChange={setTab} tabs={[
             // «Recorrido» already holds the message and the chain: the side keeps the rest
-            ...(studio && !journey ? [{ key: 'msg' as const, label: 'Mensaje' }] : []),
-            ...(journey ? [] : [{ key: 'chain' as const, label: 'Cadena', n: actNo.size }]),
-            { key: 'steps', label: 'Pasos', n: stepsTotal },
-            { key: 'net', label: 'Red', n: trace.exchanges.filter((e) => e.kind !== 'sql').length },
-            { key: 'logs', label: 'Logs', n: trace.logs.length },
-            { key: 'data', label: 'Datos', n: trace.exchanges.filter((e) => e.kind === 'sql').length },
-            ...(story && run.kind !== 'session' ? [{ key: 'behavior' as const, label: 'Comportamiento', n: run.results[slug]?.drift }] : []),
-            { key: 'files', label: 'Evidencias' },
+            ...(studio && !journey ? [{ key: 'msg' as const, label: tr('Mensaje') }] : []),
+            ...(journey ? [] : [{ key: 'chain' as const, label: tr('Cadena'), n: actNo.size }]),
+            { key: 'steps', label: tr('Pasos'), n: stepsTotal },
+            { key: 'net', label: tr('Red'), n: trace.exchanges.filter((e) => e.kind !== 'sql').length },
+            { key: 'logs', label: tr('Logs'), n: trace.logs.length },
+            { key: 'data', label: tr('Datos'), n: trace.exchanges.filter((e) => e.kind === 'sql').length },
+            ...(story && run.kind !== 'session' ? [{ key: 'behavior' as const, label: tr('Comportamiento'), n: run.results[slug]?.drift }] : []),
+            { key: 'files', label: tr('Evidencias') },
           ]} />
           <div role="tabpanel" id={`run-${run.id}-${slug}-panel`} aria-labelledby={`run-${run.id}-${slug}-tab-${side}`} className="run-tab">
             {side === 'msg' && inspector}
@@ -900,40 +894,40 @@ function Player({ run, slug, trace, story, flow, g, view: asked, onView, k, arch
   );
 
   if (studio) return (
-    <div ref={studioRef} className={`studio st-resizable${mode === 'step' ? ' stepping' : ''}`} tabIndex={-1} onKeyDown={studioKeys} role="region" aria-label={`Estudio de «${trace.test}»`}
+    <div ref={studioRef} className={`studio st-resizable${mode === 'step' ? ' stepping' : ''}`} tabIndex={-1} onKeyDown={studioKeys} role="region" aria-label={tr('Estudio de «{test}»', { test: trace.test })}
       style={panels}>
       <header className="st-bar">
         <b className="st-title" title={trace.test}>{trace.test}</b>
         <span className="faint num">run {run.id} · {run.env}</span>
         <span className="grow" />
         <details className="st-help">
-          <summary className="btn sm">Atajos</summary>
+          <summary className="btn sm">{tr('Atajos')}</summary>
           <dl className="st-help-pop">
-            <dt><kbd>Espacio</kbd></dt><dd>reproduce o pausa</dd>
-            <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>mensaje anterior o siguiente</dd>
-            <dt><kbd>⇧</kbd> <kbd>←</kbd> <kbd>→</kbd></dt><dd>acción anterior o siguiente</dd>
-            <dt><kbd>P</kbd></dt><dd>paso a paso</dd>
-            <dt><kbd>Esc</kbd></dt><dd>sale del estudio</dd>
+            <dt><kbd>{tr('Espacio')}</kbd></dt><dd>{tr('reproduce o pausa')}</dd>
+            <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>{tr('mensaje anterior o siguiente')}</dd>
+            <dt><kbd>⇧</kbd> <kbd>←</kbd> <kbd>→</kbd></dt><dd>{tr('acción anterior o siguiente')}</dd>
+            <dt><kbd>P</kbd></dt><dd>{tr('paso a paso')}</dd>
+            <dt><kbd>Esc</kbd></dt><dd>{tr('sale del estudio')}</dd>
           </dl>
         </details>
-        <button type="button" className="btn sm" onClick={toggleStudio} title="Volver a donde lo abriste (Esc)"><Minimize2 />Salir del estudio</button>
+        <button type="button" className="btn sm" onClick={toggleStudio} title={tr('Volver a donde lo abriste (Esc)')}><Minimize2 />{tr('Salir del estudio')}</button>
       </header>
       <div className="st-video" hidden={lay.hide.video}>{screen}</div>
-      <Splitter axis="x" area="vs" label="Ancho del vídeo" onMove={(d) => resize('video', d)} panel={{ name: 'Vídeo', hidden: Boolean(lay.hide.video), onFlip: () => flip('video'), side: 'left' }} />
+      <Splitter axis="x" area="vs" label={tr('Ancho del vídeo')} onMove={(d) => resize('video', d)} panel={{ name: tr('Vídeo'), hidden: Boolean(lay.hide.video), onFlip: () => flip('video'), side: 'left' }} />
       <div className="st-stage">{seqView}</div>
-      <Splitter axis="x" area="ss" label="Ancho del inspector" onMove={(d) => resize('side', -d)} panel={{ name: 'Inspector', hidden: Boolean(lay.hide.side), onFlip: () => flip('side'), side: 'right' }} />
-      <aside className="st-side" aria-label="Inspector" hidden={lay.hide.side}>{evidence}</aside>
+      <Splitter axis="x" area="ss" label={tr('Ancho del inspector')} onMove={(d) => resize('side', -d)} panel={{ name: tr('Inspector'), hidden: Boolean(lay.hide.side), onFlip: () => flip('side'), side: 'right' }} />
+      <aside className="st-side" aria-label={tr('Inspector')} hidden={lay.hide.side}>{evidence}</aside>
       <div className="st-transport">{transport}</div>
-      <Splitter axis="y" area="ts" label="Alto de las pistas" onMove={(d) => resize('tracks', -d)} panel={{ name: 'Pistas', hidden: Boolean(lay.hide.tracks), onFlip: () => flip('tracks'), side: 'down' }} />
+      <Splitter axis="y" area="ts" label={tr('Alto de las pistas')} onMove={(d) => resize('tracks', -d)} panel={{ name: tr('Pistas'), hidden: Boolean(lay.hide.tracks), onFlip: () => flip('tracks'), side: 'down' }} />
       <Tracks hidden={lay.hide.tracks} layout={layout} trace={trace} noise={ch.noise} now={c.now} T={Math.max(1, c.duration)} sel={selected?.id} onSeek={mode === 'step' ? (t) => goAt(t, Math.sign(t - c.now)) : c.seek} onPick={(i) => { c.pause(); go({ kind: 'row', i }); }} />
     </div>
   );
 
   return (
     <div className="run-player" onKeyDown={keys}>
-      {trace.foreign ? <div className="notice warn"><Zap /><div><b>Tráfico ajeno en la ventana.</b> {plural(trace.foreign, 'petición llegó', 'peticiones llegaron')} desde fuera del run mientras corría: la traza puede mezclarlas.</div></div> : null}
-      <p className="st-open"><button type="button" className="btn sm" onClick={toggleStudio}><Maximize2 />Abrir en el estudio</button><span className="faint">Vídeo, arquitectura, mensaje y línea de tiempo en una sola pantalla</span></p>
-      <section ref={stage} className={`${large ? 'stage-run big' : 'stage-run'}${mode === 'step' ? ' stepping' : ''}`} aria-label="Reproducción">
+      {trace.foreign ? <div className="notice warn"><Zap /><div><b>{tr('Tráfico ajeno en la ventana.')}</b> {plural(trace.foreign, tr('petición llegó'), tr('peticiones llegaron'))}{' '}{tr('desde fuera del run mientras corría: la traza puede mezclarlas.')}</div></div> : null}
+      <p className="st-open"><button type="button" className="btn sm" onClick={toggleStudio}><Maximize2 />{tr('Abrir en el estudio')}</button><span className="faint">{tr('Vídeo, arquitectura, mensaje y línea de tiempo en una sola pantalla')}</span></p>
+      <section ref={stage} className={`${large ? 'stage-run big' : 'stage-run'}${mode === 'step' ? ' stepping' : ''}`} aria-label={tr('Reproducción')}>
         {screen}
         {/* in the DOM in the order they are seen, so focus and reading follow the screen; keyed, so they move, not remount */}
         {(large ? [transport, seqView] : [seqView, transport])}
@@ -968,7 +962,7 @@ export const SeqView = memo(function SeqView({ layout, now, sel, onPick, wrap, s
   };
   return (
     <div className="seq-wrap" ref={wrap} tabIndex={0} role="group" onKeyDown={move}
-      aria-label={`Diagrama de secuencia, ${plural(layout.rows.length, 'mensaje', 'mensajes')}. ${onStep ? 'Paso a paso: las flechas arriba y abajo recorren los mensajes sin los plegados, con mayúsculas las acciones' : `Las flechas arriba y abajo recorren los mensajes${still ? '' : ' y llevan el vídeo a cada uno'}`}.`}>
+      aria-label={tr('Diagrama de secuencia, {plural}. {p1}.', { plural: plural(layout.rows.length, tr('mensaje'), tr('mensajes')), p1: onStep ? tr('Paso a paso: las flechas arriba y abajo recorren los mensajes sin los plegados, con mayúsculas las acciones') : tr('Las flechas arriba y abajo recorren los mensajes{p0}', { p0: still ? '' : tr(' y llevan el vídeo a cada uno') }) })}>
       <div className="seq-head" style={{ width: W }}>
         <svg className="seq" width={W} height={HEAD_H + (layout.projects.length ? PROJECT_H : 0)} aria-hidden="true">
           {layout.projects.map((b) => <g key={`${b.project}${b.x1}`} className="proj-band"><line x1={b.x1 + 6} x2={b.x2 - 6} y1={PROJECT_H - 3} y2={PROJECT_H - 3} /><text x={b.x1 + 8} y={PROJECT_H - 7}>{fit(b.project, b.x2 - b.x1 - 16)}</text></g>)}
@@ -987,7 +981,7 @@ export const SeqView = memo(function SeqView({ layout, now, sel, onPick, wrap, s
         {layout.items.map((it) => it.type === 'band' ? (
           <g key={`b${it.step.n}`} className={`step-band${it.step.status === 'failed' ? ' failed' : ''}`}>
             <line x1={12} x2={W - 12} y1={it.y + 4} y2={it.y + 4} />
-            <text x={14} y={it.y + 19}>{it.step.n}. {it.step.title}{it.step.status === 'failed' ? ' · falló' : ''}</text>
+            <text x={14} y={it.y + 19}>{it.step.n}. {it.step.title}{it.step.status === 'failed' ? tr(' · falló') : ''}</text>
           </g>
         ) : <Msg key={it.i} r={it} w={W} state={rowState(it, now)} sel={it.i === sel} fold={Boolean(folded?.has(it.ex.id))} onPick={onPick} />)}
       </svg>
@@ -995,7 +989,7 @@ export const SeqView = memo(function SeqView({ layout, now, sel, onPick, wrap, s
   );
 });
 
-const KIND_LEGEND: Array<[string, string]> = [['call', 'llamada'], ['event', 'evento'], ['store', 'almacén'], ['observed', 'no está en el código']];
+const KIND_LEGEND: Array<[string, string]> = [['call', tr('llamada')], ['event', tr('evento')], ['store', tr('almacén')], ['observed', tr('no está en el código')]];
 /** The dash patterns of a map's edges, said in words: colour never says it alone. */
 export const EdgeLegend = ({ extra }: { extra?: ReactNode }) => (
   <div className="legend">
@@ -1026,12 +1020,12 @@ export function FlowMap({ lay, pieces, lit, sel, hot, path, onPick, expected }: 
   const dim = all.filter((e) => !lit.edges.has(e.id));
   const selEdge = sel ? edges.find((e) => e.ex.includes(sel)) : undefined;
   const bad = edges.filter((e) => e.bad).length;
-  const said = (e: FlowEdge) => `${name(e.from)} a ${name(e.to)}${e.label ? `: ${(e.kind === 'call' && e.n ? e.label.replace(/^\d+/, plural(e.n, 'petición', 'peticiones')) : e.label).replaceAll(' · ', ', ')}` : ''}`;
+  const said = (e: FlowEdge) => `${name(e.from)} a ${name(e.to)}${e.label ? `: ${(e.kind === 'call' && e.n ? e.label.replace(/^\d+/, plural(e.n, tr('petición'), tr('peticiones'))) : e.label).replaceAll(' · ', ', ')}` : ''}`;
   const used = pieces.filter((p) => lit.nodes.has(p.id));
   const onPath = (e: FlowEdge) => Boolean(path && e !== selEdge && e.ex.some((id) => path.has(id)));
   return (
     <div className="flow-map">
-      <MapCanvas lay={lay} label={`${expected ? 'Mapa esperado del flujo' : 'Mapa del flujo'}: ${used.length} de ${plural(pieces.length, 'pieza', 'piezas')} usadas, ${plural(edges.length, 'conexión', 'conexiones')}${bad ? `, ${bad} ${bad === 1 ? 'falló' : 'fallaron'}` : ''}`} keep={selEdge?.to}>
+      <MapCanvas lay={lay} label={tr('{p0}: {length} de {plural} usadas, {plural2}{p4}', { p0: expected ? tr('Mapa esperado del flujo') : tr('Mapa del flujo'), length: used.length, plural: plural(pieces.length, tr('pieza'), tr('piezas')), plural2: plural(edges.length, tr('conexión'), tr('conexiones')), p4: bad ? `, ${bad} ${bad === 1 ? tr('falló') : tr('fallaron')}` : '' })} keep={selEdge?.to}>
         <g aria-hidden="true">{dim.map((e) => <path key={e.id} d={e.d} className={`e ${e.kind} dim`} />)}</g>
         {expected || !onPick ? (
           <g aria-hidden="true">{edges.map((e) => <path key={e.id} d={e.d} className={`e ${e.kind} ${expected ? 'expected' : 'flow'}`} markerEnd="url(#arrow)" />)}</g>
@@ -1055,10 +1049,10 @@ export function FlowMap({ lay, pieces, lit, sel, hot, path, onPick, expected }: 
         ))}</g>
         {lay.nodes.map(({ node, x, y }) => {
           const on = lit.nodes.has(node.id) || node.kind === 'actor';
-          return <NodeBox key={node.id} node={node} x={x} y={y} className={on ? 'static' : 'static untouched'} sub={!on ? (expected ? 'no lo usaría' : 'no lo usó') : node.kind === 'actor' ? 'actor' : KIND[node.kind ?? ''] ?? node.kind ?? ''} />;
+          return <NodeBox key={node.id} node={node} x={x} y={y} className={on ? 'static' : 'static untouched'} sub={!on ? (expected ? tr('no lo usaría') : tr('no lo usó')) : node.kind === 'actor' ? tr('actor') : KIND[node.kind ?? ''] ?? node.kind ?? ''} />;
         })}
       </MapCanvas>
-      <EdgeLegend extra={expected ? <span>«esperado»: lo dice el código; ningún run lo ha visto</span> : <><span><span className="err-ink">rojo y «falló»</span>: el salto que falló</span><span>atenuado y «no lo usó»: esta prueba no pasó por ahí</span></>} />
+      <EdgeLegend extra={expected ? <span>{tr('«esperado»: lo dice el código; ningún run lo ha visto')}</span> : <><span><span className="err-ink">{tr('rojo y «falló»')}</span>{tr(': el salto que falló')}</span><span>{tr('atenuado y «no lo usó»: esta prueba no pasó por ahí')}</span></>} />
     </div>
   );
 }
@@ -1079,13 +1073,13 @@ const Msg = memo(function Msg({ r, w, state, sel, fold, onPick }: { r: Row; w: n
   const self = x1 === x2;
   return (
     <g className={cls} onClick={() => onPick(r.i)}>
-      <title>{`${clock(r.t)} ${r.ex.kind} ${r.label}${r.ex.origin === 'derived' ? ' (derivado)' : ''}${fold ? ' (plegado)' : ''}`}</title>
+      <title>{`${clock(r.t)} ${r.ex.kind} ${r.label}${r.ex.origin === 'derived' ? tr(' (derivado)') : ''}${fold ? tr(' (plegado)') : ''}`}</title>
       <rect className="hit" x={8} y={y - ROW_H / 2 + 1} width={w - 16} height={ROW_H - 2} rx={4} />
       <rect className="tick" x={2} y={y - ROW_H / 2 + 1} width={3} height={ROW_H - 2} rx={1.5} />
       {self ? <path className={dash} d={`M${x1} ${y - 6} h22 v12 h-22`} /> : <line className={dash} x1={x1} x2={x2} y1={y} y2={y} />}
       {state !== 'future' && <path d={self ? `M${x1 + 6} ${y + 2} L${x1} ${y + 6} L${x1 + 6} ${y + 10}` : `M${x2 - dir * 7} ${y - 4} L${x2} ${y} L${x2 - dir * 7} ${y + 4}`} />}
       <Label text={fit(r.label, labelRoom(r, w))} x={Math.min(x1, x2) + 8} y={y - 5} className={r.reply && r.ex.status !== undefined ? `st-${statusClass(r.ex.status)}` : undefined} />
-      {r.fault && <text className="f" x={Math.max(x1, x2) - 8} y={y - 5} textAnchor="end">{r.fault}</text>}
+      {r.fault && <text className="f" x={Math.max(x1, x2) - 8} y={y - 5} textAnchor="end">{faultLabel(r.fault)}</text>}
     </g>
   );
 });
@@ -1121,7 +1115,7 @@ function Transport({ layout, trace, c, onFail, walking, following, onFollow, fol
     return () => io.disconnect();
   }, [on]);
   const scrubber = (
-    <div className="scrub" ref={scrub} role="slider" tabIndex={0} aria-label="Tiempo" aria-valuemin={0} aria-valuemax={Math.round(T)} aria-valuenow={Math.round(c.now)} aria-valuetext={clock(c.now)}
+    <div className="scrub" ref={scrub} role="slider" tabIndex={0} aria-label={tr('Tiempo')} aria-valuemin={0} aria-valuemax={Math.round(T)} aria-valuenow={Math.round(c.now)} aria-valuetext={clock(c.now)}
       onKeyDown={keys} onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); fromX(e); }} onPointerMove={(e) => e.currentTarget.hasPointerCapture(e.pointerId) && fromX(e)}>
       <div className="bands">{steps.map((s) => <span key={s.n} className={s.status === 'failed' ? 'err' : undefined} style={{ left: `${(s.t0 / T) * 100}%`, width: `${(Math.max(0, s.t1 - s.t0) / T) * 100}%` }} title={`${s.n}. ${s.title}`} />)}</div>
       <div className="evs">{layout.rows.filter((r) => !r.reply).map((r) => <i key={r.i} className={r.bad || r.ex.ok === false ? 'bad' : undefined} style={{ left: `${(r.t / T) * 100}%` }} />)}</div>
@@ -1129,53 +1123,53 @@ function Transport({ layout, trace, c, onFail, walking, following, onFollow, fol
     </div>
   );
   if (walking && w) return (
-    <div className="transport walking" role="group" aria-label="Paso a paso" ref={bar}>
+    <div className="transport walking" role="group" aria-label={tr('Paso a paso')} ref={bar}>
       <div className="walk-row" ref={buttons}>
-        <button type="button" className="btn sm" onClick={walking.prev} aria-keyshortcuts="ArrowUp"><ChevronLeft />Anterior <kbd>↑</kbd></button>
-        <button type="button" className="btn sm" onClick={walking.next} aria-keyshortcuts="ArrowDown">Siguiente <kbd>↓</kbd><ChevronRight /></button>
-        <button type="button" className="btn sm" onClick={walking.prevAct} aria-keyshortcuts="Shift+ArrowUp"><ChevronsLeft />Acción <kbd>⇧↑</kbd></button>
-        <button type="button" className="btn sm" onClick={walking.nextAct} aria-keyshortcuts="Shift+ArrowDown">Acción <kbd>⇧↓</kbd><ChevronsRight /></button>
-        <span className="walk-where num">{actName(w)}{w.act && w.act.id !== 'preparacion' ? ` de ${w.acts}` : ''}{w.m ? ` · mensaje ${w.m} de ${w.n}` : ''}{w.step ? ` · paso ${w.step.n}` : ''}</span>
+        <button type="button" className="btn sm" onClick={walking.prev} aria-keyshortcuts="ArrowUp"><ChevronLeft />{tr('Anterior')}{' '}<kbd>↑</kbd></button>
+        <button type="button" className="btn sm" onClick={walking.next} aria-keyshortcuts="ArrowDown">{tr('Siguiente')}{' '}<kbd>↓</kbd><ChevronRight /></button>
+        <button type="button" className="btn sm" onClick={walking.prevAct} aria-keyshortcuts="Shift+ArrowUp"><ChevronsLeft />{tr('Acción')}{' '}<kbd>⇧↑</kbd></button>
+        <button type="button" className="btn sm" onClick={walking.nextAct} aria-keyshortcuts="Shift+ArrowDown">{tr('Acción')}{' '}<kbd>⇧↓</kbd><ChevronsRight /></button>
+        <span className="walk-where num">{actName(w)}{w.act && w.act.id !== 'preparacion' ? tr(' de {acts}', { acts: w.acts }) : ''}{w.m ? tr(' · mensaje {m} de {n}', { m: w.m, n: w.n }) : ''}{w.step ? tr(' · paso {n}', { n: w.step.n }) : ''}</span>
       </div>
       <div className="walk-row">
         <span className="time">{atMs(c.now)} / {clock(T)}</span>
         {scrubber}
         {follow}
-        <button type="button" className="btn sm" aria-pressed={walking.showAll} onClick={() => walking.setShowAll(!walking.showAll)}>Mostrar lo plegado</button>
-        <button type="button" className="btn sm" onClick={onPlay}><Play />Reproducir desde aquí</button>
-        <button type="button" className="btn sm" onClick={walking.leave} aria-keyshortcuts="Escape"><X />Salir <kbd>Esc</kbd></button>
+        <button type="button" className="btn sm" aria-pressed={walking.showAll} onClick={() => walking.setShowAll(!walking.showAll)}>{tr('Mostrar lo plegado')}</button>
+        <button type="button" className="btn sm" onClick={onPlay}><Play />{tr('Reproducir desde aquí')}</button>
+        <button type="button" className="btn sm" onClick={walking.leave} aria-keyshortcuts="Escape"><X />{tr('Salir')}{' '}<kbd>Esc</kbd></button>
       </div>
       {away && (
-        <div className="walk-float" role="group" aria-label="Paso a paso, a mano">
-          <button type="button" className="icon-btn" onClick={walking.prevAct} aria-label="Acción anterior" title="Acción anterior (⇧↑)"><ChevronsLeft /></button>
-          <button type="button" className="icon-btn" onClick={walking.prev} aria-label="Anterior" title="Anterior (↑)"><ChevronLeft /></button>
-          <span className="walk-float-where num">{actName(w)}{w.m ? <span className="faint"> · {w.m} de {w.n}</span> : null}</span>
-          <button type="button" className="icon-btn" onClick={walking.next} aria-label="Siguiente" title="Siguiente (↓)"><ChevronRight /></button>
-          <button type="button" className="icon-btn" onClick={walking.nextAct} aria-label="Acción siguiente" title="Acción siguiente (⇧↓)"><ChevronsRight /></button>
+        <div className="walk-float" role="group" aria-label={tr('Paso a paso, a mano')}>
+          <button type="button" className="icon-btn" onClick={walking.prevAct} aria-label={tr('Acción anterior')} title={tr('Acción anterior (⇧↑)')}><ChevronsLeft /></button>
+          <button type="button" className="icon-btn" onClick={walking.prev} aria-label={tr('Anterior')} title={tr('Anterior (↑)')}><ChevronLeft /></button>
+          <span className="walk-float-where num">{actName(w)}{w.m ? <span className="faint"> · {w.m}{' '}{tr('de')}{' '}{w.n}</span> : null}</span>
+          <button type="button" className="icon-btn" onClick={walking.next} aria-label={tr('Siguiente')} title={tr('Siguiente (↓)')}><ChevronRight /></button>
+          <button type="button" className="icon-btn" onClick={walking.nextAct} aria-label={tr('Acción siguiente')} title={tr('Acción siguiente (⇧↓)')}><ChevronsRight /></button>
           <span className="walk-float-sep" aria-hidden="true" />
-          <button type="button" className="icon-btn" onClick={() => bar.current?.scrollIntoView({ block: 'center', behavior: 'smooth' })} aria-label="Ir a los controles" title="Ir a los controles y al vídeo"><ChevronUp /></button>
-          <button type="button" className="icon-btn" onClick={walking.leave} aria-label="Salir del paso a paso" title="Salir (Esc)"><X /></button>
+          <button type="button" className="icon-btn" onClick={() => bar.current?.scrollIntoView({ block: 'center', behavior: 'smooth' })} aria-label={tr('Ir a los controles')} title={tr('Ir a los controles y al vídeo')}><ChevronUp /></button>
+          <button type="button" className="icon-btn" onClick={walking.leave} aria-label={tr('Salir del paso a paso')} title={tr('Salir (Esc)')}><X /></button>
         </div>
       )}
     </div>
   );
   return (
-    // two rows: the time (play, the failure, the line) and how to go through it (follow, step by step; speed, device)
+    // two rows: the time (play, the line) and how to go through it (follow, step by step, to the failure when something failed; speed, device)
     <div className="transport tp">
       <div className="tp-time">
-        <button className="icon-btn tp-play" onClick={onPlay} aria-label={c.playing ? 'Pausar' : 'Reproducir'} title={c.playing ? 'Pausar (espacio)' : 'Reproducir (espacio)'}>{c.playing ? <Pause /> : <Play />}</button>
+        <button className="icon-btn tp-play" onClick={onPlay} aria-label={c.playing ? tr('Pausar') : tr('Reproducir')} title={c.playing ? tr('Pausar (espacio)') : tr('Reproducir (espacio)')}>{c.playing ? <Pause /> : <Play />}</button>
         <span className="time">{clock(c.now)}</span>
         {scrubber}
         <span className="time faint">{clock(T)}</span>
-        <button className="icon-btn" onClick={() => onFail?.()} aria-disabled={!onFail || undefined} aria-label={layout.bad >= 0 || !onFail ? 'Ir al salto que falló' : 'Ir al momento en que falló'} title={!onFail ? 'Nada falló en esta prueba' : layout.bad >= 0 ? 'Ir al salto que falló' : 'Ir al momento en que falló'}><Crosshair /></button>
       </div>
       <div className="tp-ways">
-        <div className="tp-group" role="group" aria-label="Recorrer la secuencia">
-          <button className="btn sm" aria-pressed={following} onClick={onFollow} title="Avanza solo, un mensaje tras otro, quedándose un rato en cada uno para leerlo (la velocidad lo acorta o lo alarga)">{following ? <Pause /> : <Radio />}Seguimiento</button>
-          <button className="btn sm" aria-pressed={false} onClick={onWalk} aria-keyshortcuts="P" title="Un mensaje cada vez, con el reloj parado; avanzas tú con ↑ y ↓ (P)"><Footprints />Paso a paso</button>
+        <div className="tp-group" role="group" aria-label={tr('Recorrer la secuencia')}>
+          <button className="btn sm" aria-pressed={following} onClick={onFollow} title={tr('Avanza solo, un mensaje tras otro, quedándose un rato en cada uno para leerlo (la velocidad lo acorta o lo alarga)')}>{following ? <Pause /> : <Radio />}{tr('Seguimiento')}</button>
+          <button className="btn sm" aria-pressed={false} onClick={onWalk} aria-keyshortcuts="P" title={tr('Un mensaje cada vez, con el reloj parado; avanzas tú con ↑ y ↓ (P)')}><Footprints />{tr('Paso a paso')}</button>
+          {onFail && <button className="btn sm" onClick={onFail} title={layout.bad >= 0 ? tr('Ir al salto que falló') : tr('Ir al momento en que falló')}><Crosshair />{tr('Ir al fallo')}</button>}
         </div>
         <div className="tp-group tp-end">
-          <div className="speed" role="group" aria-label="Velocidad" title="Velocidad">{[0.25, 0.5, 1, 2].map((s) => <button key={s} aria-pressed={c.speed === s} onClick={() => c.setSpeed(s)}>{String(s).replace('.', ',')}×</button>)}</div>
+          <div className="speed" role="group" aria-label={tr('Velocidad')} title={tr('Velocidad')}>{[0.25, 0.5, 1, 2].map((s) => <button key={s} aria-pressed={c.speed === s} onClick={() => c.setSpeed(s)}>{s.toLocaleString(LOCALE)}×</button>)}</div>
           {follow}
         </div>
       </div>
@@ -1194,14 +1188,14 @@ export function Tracks({ layout, trace, noise, now, T, sel, onSeek, onPick, hidd
   // a track per piece that handled something, in the order of the sequence's lanes
   const tracks = useMemo(() => {
     const by = Map.groupBy(trace.exchanges.filter((e) => rowOf.has(e.id)), (e) => ends(e)[1]);
-    return trace.participants.filter((p) => by.has(p.id)).map((p) => ({ id: p.id, name: p.name, bars: by.get(p.id)! }));
+    return trace.participants.filter((p) => by.has(p.id)).map((p) => ({ id: p.id, name: participantName(p), bars: by.get(p.id)! }));
   }, [trace, rowOf]);
   const steps = [...trace.steps].sort((a, b) => a.t0 - b.t0);
   const pct = (t: number) => `${(Math.max(0, Math.min(T, t)) / T) * 100}%`;
   const fromX = (e: PointerEvent) => { const r = box.current!.getBoundingClientRect(); onSeek(((e.clientX - r.left) / r.width) * T); };
   return (
-    <div className="tracks" role="group" aria-label="Línea de tiempo por pieza" hidden={hidden}>
-      <div className="tk-names" aria-hidden="true"><span>Pasos</span>{tracks.map((k) => <span key={k.id} title={k.name}>{k.name}</span>)}</div>
+    <div className="tracks" role="group" aria-label={tr('Línea de tiempo por pieza')} hidden={hidden}>
+      <div className="tk-names" aria-hidden="true"><span>{tr('Pasos')}</span>{tracks.map((k) => <span key={k.id} title={k.name}>{midCut(k.name, 19)}</span>)}</div>
       <div className="tk-lanes" ref={box} onPointerDown={(e) => { if ((e.target as HTMLElement).closest('.tk-bar')) return; e.currentTarget.setPointerCapture(e.pointerId); fromX(e); }}
         onPointerMove={(e) => e.currentTarget.hasPointerCapture(e.pointerId) && fromX(e)}>
         <div className="tk-lane">{steps.map((s) => <span key={s.n} className={`tk-step${s.status === 'failed' ? ' err' : ''}`} style={{ left: pct(s.t0), width: pct(Math.max(0, s.t1 - s.t0)) }} title={`${s.n}. ${s.title}`}>{s.n}. {s.title}</span>)}</div>
@@ -1225,25 +1219,25 @@ const STEP_DOT: Record<Step['status'], DotState> = { passed: 'ok', failed: 'err'
 
 function StepsTab({ run, slug, steps, total, cur, flow, go, to }: { run: RunInfo; slug: string; steps: Step[]; total: number; cur?: number; flow?: FlowInfo; go: (s: Step) => void; to: (s: Step) => number }) {
   const missing = Array.from({ length: Math.max(0, total - steps.length) }, (_, i) => steps.length + i + 1);
-  if (!steps.length && !missing.length) return <p className="empty">Esta prueba no marcó pasos con <code>step()</code>.</p>;
+  if (!steps.length && !missing.length) return <p className="empty">{tr('Esta prueba no marcó pasos con')}{' '}<code>step()</code>.</p>;
   return (
     <ol className="steps">
       {steps.map((s) => (
         <li key={s.n} className={s.n === cur ? 'cur' : undefined}>
           <Dot state={STEP_DOT[s.status]} />
           <button className="step-go" onClick={() => go(s)}>
-            <span>{s.n}. {s.title}<span className="sr-only">, {RUN_STATUS[s.status] ?? s.status}. Ir a {clock(to(s))}</span></span>
-            {(s.expected ?? flow?.steps[s.n - 1]?.expected) ? <span className="exp">Se espera: {String(s.expected ?? flow?.steps[s.n - 1]?.expected)}</span> : null}
+            <span>{s.n}. {s.title}<span className="sr-only">, {RUN_STATUS[s.status] ?? s.status}{tr('. Ir a')}{' '}{clock(to(s))}</span></span>
+            {(s.expected ?? flow?.steps[s.n - 1]?.expected) ? <span className="exp">{tr('Se espera:')}{' '}{String(s.expected ?? flow?.steps[s.n - 1]?.expected)}</span> : null}
           </button>
           <span className="faint num">{secs(Math.max(0, s.t1 - s.t0))}</span>
           {s.error && <span className="why">{s.error}</span>}
-          {s.screenshot && <a className="shot" href={fileUrl(run.id, `flows/${slug}/${s.screenshot}`)} target="_blank" rel="noreferrer"><img src={fileUrl(run.id, `flows/${slug}/${s.screenshot}`)} alt={`Captura del paso ${s.n} al fallar`} loading="lazy" /><span className="sr-only"> (se abre en otra pestaña)</span></a>}
+          {s.screenshot && <a className="shot" href={fileUrl(run.id, `flows/${slug}/${s.screenshot}`)} target="_blank" rel="noreferrer"><img src={fileUrl(run.id, `flows/${slug}/${s.screenshot}`)} alt={tr('Captura del paso {n} al fallar', { n: s.n })} loading="lazy" /><span className="sr-only">{' '}{tr('(se abre en otra pestaña)')}</span></a>}
         </li>
       ))}
       {missing.map((n) => (
         <li key={n} className="unreached">
           <Dot state="idle" />
-          <span>{n}. {flow?.steps[n - 1]?.step ?? 'Paso sin título'}<span className="exp">No llegó a correr: la prueba se detuvo antes.</span></span>
+          <span>{n}. {flow?.steps[n - 1]?.step ?? tr('Paso sin título')}<span className="exp">{tr('No llegó a correr: la prueba se detuvo antes.')}</span></span>
           <span className="faint">—</span>
         </li>
       ))}
@@ -1258,11 +1252,11 @@ export const NetTab = memo(function NetTab({ exchanges, sel, pick }: { exchanges
   return (
     <>
       <div className="toolbar">
-        <label className="search-in"><Search /><span className="sr-only">Buscar en la red</span><input type="search" placeholder="Buscar ruta, servicio o estado" value={q} onChange={(e) => setQ(e.target.value)} /></label>
-        <button className="btn sm" aria-pressed={bad} onClick={() => setBad((b) => !b)}>Solo fallos</button>
-        <span className="faint num" aria-live="polite">{plural(list.length, 'intercambio', 'intercambios')}</span>
+        <label className="search-in"><Search /><span className="sr-only">{tr('Buscar en la red')}</span><input type="search" placeholder={tr('Buscar ruta, servicio o estado')} value={q} onChange={(e) => setQ(e.target.value)} /></label>
+        <button className="btn sm" aria-pressed={bad} onClick={() => setBad((b) => !b)}>{tr('Solo fallos')}</button>
+        <span className="faint num" aria-live="polite">{plural(list.length, tr('intercambio'), tr('intercambios'))}</span>
       </div>
-      <ExchangeTable list={list} sel={sel} pick={pick} empty={bad ? 'Ningún intercambio falló.' : 'Nada coincide.'} />
+      <ExchangeTable list={list} sel={sel} pick={pick} empty={bad ? tr('Ningún intercambio falló.') : tr('Nada coincide.')} />
     </>
   );
 });
@@ -1272,7 +1266,7 @@ export function ExchangeTable({ list, sel, pick, empty, extra }: { list: Exchang
   return (
     <div className="scroll-x run-list">
       <table className="t">
-        <thead><tr><th>Tiempo</th><th>Intercambio</th><th>Estado</th><th className="r">Duración</th></tr></thead>
+        <thead><tr><th>{tr('Tiempo')}</th><th>{tr('Intercambio')}</th><th>{tr('Estado')}</th><th className="r">{tr('Duración')}</th></tr></thead>
         <tbody>
           {list.map((e) => (
             <tr key={e.id} className={`${e.id === sel ? 'sel' : ''}${e.ok ? '' : ' bad'}`}>
@@ -1281,7 +1275,7 @@ export function ExchangeTable({ list, sel, pick, empty, extra }: { list: Exchang
                 <div className="ex-cell"><Kind k={e.kind} /><button className="ex-go mono" onClick={() => pick(e.id)} aria-current={e.id === sel || undefined}><ExLabel e={e} /></button>{e.origin === 'derived' && <Origin of="derived" label={false} />}{e.fault && <span className="chip run"><Zap />{e.fault}</span>}{extra?.(e)}</div>
                 <div className="ex-route mono">{route(e, (id) => id)}</div>
               </td>
-              <td>{e.ok ? (e.status !== undefined ? <HttpStatus n={e.status} /> : <span className="faint">correcto</span>) : <Status state="err">{e.status !== undefined ? <HttpStatus n={e.status} /> : e.error ?? 'falló'}</Status>}</td>
+              <td>{e.ok ? (e.status !== undefined ? <HttpStatus n={e.status} /> : <span className="faint">{tr('correcto')}</span>) : <Status state="err">{e.status !== undefined ? <HttpStatus n={e.status} /> : e.error ?? tr('falló')}</Status>}</td>
               <td className="r num faint">{e.t1 !== undefined ? secs(e.t1 - e.t0) : '—'}</td>
             </tr>
           ))}
@@ -1294,28 +1288,28 @@ export function ExchangeTable({ list, sel, pick, empty, extra }: { list: Exchang
 /** POST /api/files with its method in colour, a statement with its verb as a keyword; masks boxed in all of them. */
 const ExLabel = ({ e }: { e: Exchange }) => <Code text={e.label} lang={e.kind === 'sql' ? 'sql' : e.method ? 'http' : 'text'} />;
 
-const LEVELS: Array<[string, string]> = [['', 'Todos'], ['error', 'Errores'], ['warn', 'Avisos'], ['info', 'Info']];
+const LEVELS: Array<[string, string]> = [['', tr('Todos')], ['error', tr('Errores')], ['warn', tr('Avisos')], ['info', 'Info']];
 export const LogsTab = memo(function LogsTab({ logs, seek, approximate }: { logs: LogLine[]; seek: (t: number) => void; approximate?: boolean }) {
   const [svc, setSvc] = useState('');
   const [lv, setLv] = useState('');
   const services = [...new Set(logs.map((l) => l.service))].sort();
   const shown = logs.filter((l) => (!svc || l.service === svc) && (!lv || l.level === lv));
-  if (!logs.length) return <p className="empty">Ningún servicio escribió en su log durante esta prueba.</p>;
+  if (!logs.length) return <p className="empty">{tr('Ningún servicio escribió en su log durante esta prueba.')}</p>;
   return (
     <>
       <div className="toolbar">
-        <Segmented className="seg log-filter" label="Servicio" value={svc} onChange={setSvc} options={['', ...services].map((s) => ({ key: s, label: s || 'Todos' }))} />
-        <Segmented label="Nivel" value={lv} onChange={setLv} options={LEVELS.map(([k, l]) => ({ key: k, label: l }))} />
+        <Segmented className="seg log-filter" label={tr('Servicio')} value={svc} onChange={setSvc} options={['', ...services].map((s) => ({ key: s, label: s || tr('Todos') }))} />
+        <Segmented label={tr('Nivel')} value={lv} onChange={setLv} options={LEVELS.map(([k, l]) => ({ key: k, label: l }))} />
       </div>
-      {approximate && <p className="faint logs-empty">Se jugó junto a otros flujos: un servicio escribe un solo log, así que estas líneas pueden incluir las de otra prueba que corría a la vez.</p>}
-      <div className="logs run-logs" tabIndex={0} role="log" aria-label="Logs de la prueba">
+      {approximate && <p className="faint logs-empty">{tr('Se jugó junto a otros flujos: un servicio escribe un solo log, así que estas líneas pueden incluir las de otra prueba que corría a la vez.')}</p>}
+      <div className="logs run-logs" tabIndex={0} role="log" aria-label={tr('Logs de la prueba')}>
         {shown.map((l) => (
           <div key={l.id}>
-            <button className="ts num" onClick={() => seek(l.t)} aria-label={`Ir a ${clock(l.t)}`}>{clock(l.t)}</button><span className="sv">{l.service}</span>
+            <button className="ts num" onClick={() => seek(l.t)} aria-label={tr('Ir a {clock}', { clock: clock(l.t) })}>{clock(l.t)}</button><span className="sv">{l.service}</span>
             <Level lv={l.level} /><span className="msg"><Code text={l.line} lang="log" /></span>
           </div>
         ))}
-        {!shown.length && <p className="faint logs-empty">Ninguna línea con ese filtro.</p>}
+        {!shown.length && <p className="faint logs-empty">{tr('Ninguna línea con ese filtro.')}</p>}
       </div>
     </>
   );
@@ -1324,22 +1318,22 @@ export const LogsTab = memo(function LogsTab({ logs, seek, approximate }: { logs
 function DataTab({ run, exchanges, sel, pick }: { run: RunInfo; exchanges: Exchange[]; sel?: string; pick: (id: string) => void }) {
   const sql = exchanges.filter((e) => e.kind === 'sql');
   const tables = Map.groupBy(sql.filter((e) => e.table), (e) => `${e.to}|${e.table}`);
-  if (!sql.length) return <p className="empty">Esta prueba no lanzó ninguna sentencia SQL que el registro de la base viera.</p>;
+  if (!sql.length) return <p className="empty">{tr('Esta prueba no lanzó ninguna sentencia SQL que el registro de la base viera.')}</p>;
   return (
     <>
-      <div className="toolbar tables-touched" aria-label="Tablas tocadas">
+      <div className="toolbar tables-touched" aria-label={tr('Tablas tocadas')}>
         {[...tables].map(([k, es]) => {
           const [store, table] = k.split('|');
           const [schema, name] = table!.includes('.') ? table!.split('.') : ['public', table!];
           const writes = es.filter((e) => /^(INSERT|UPDATE|DELETE|MERGE|TRUNCATE)/.test(e.label)).length;
-          return <a key={k} className="chip" href={href('data', run.env, store, schema, name)} title={`Abrir ${table} en Bases`}><span className="mono">{table}</span> {writes ? `${writes} escrituras, ` : ''}{plural(es.length, 'sentencia', 'sentencias')}</a>;
+          return <a key={k} className="chip" href={href('data', run.env, store, schema, name)} title={tr('Abrir {table} en Bases', { table })}><span className="mono">{table}</span> {writes ? tr('{writes} escrituras, ', { writes }) : ''}{plural(es.length, tr('sentencia'), tr('sentencias'))}</a>;
         })}
       </div>
       <ul className="sql-list">
         {sql.map((e) => (
           <li key={e.id} className={`${e.id === sel ? 'sel' : ''}${e.ok ? '' : ' bad'}`}>
-            <div className="sql-h"><span className="faint num">{clock(e.t0)}</span><span className="mono">{e.from} → {e.to}</span><button className="ex-go mono" onClick={() => pick(e.id)}><Code text={e.label} lang="sql" /></button>{!e.ok && <Status state="err">Error</Status>}</div>
-            {e.req?.text && <CodeBlock className="sql-text" text={e.req.text} lang="sql" format label={`Sentencia de ${clock(e.t0)}`} />}
+            <div className="sql-h"><span className="faint num">{clock(e.t0)}</span><span className="mono">{e.from} → {e.to}</span><button className="ex-go mono" onClick={() => pick(e.id)}><Code text={e.label} lang="sql" /></button>{!e.ok && <Status state="err">{tr('Error')}</Status>}</div>
+            {e.req?.text && <CodeBlock className="sql-text" text={e.req.text} lang="sql" format label={tr('Sentencia de {clock}', { clock: clock(e.t0) })} />}
             {e.error && <p className="why mono"><Code text={e.error} lang="log" /></p>}
           </li>
         ))}
@@ -1351,7 +1345,7 @@ function DataTab({ run, exchanges, sel, pick }: { run: RunInfo; exchanges: Excha
 const FILE_ICON: Array<[RegExp, typeof Film]> = [[/\.webm$/, Film], [/\.png$/, Image], [/\.json$/, FileCode], [/\.(log|jsonl)$/, ScrollText]];
 interface BehaviorData { approved: (BehaviorDoc & { approved: { run: string; at: string; soft: number } }) | null; now: BehaviorDoc; drifts: Array<{ step: string; kind: 'missing' | 'new' | 'cause'; hop: string; was?: string; now?: string }> }
 interface BehaviorDoc { steps: Array<{ step: string; hops: string[]; causes: Record<string, string> }> }
-const DRIFT = { new: ['+', 'ahora lo hace'], missing: ['−', 'ya no lo hace'], cause: ['~', 'otra causa'] } as const;
+const DRIFT = { new: ['+', tr('ahora lo hace')], missing: ['−', tr('ya no lo hace')], cause: ['~', tr('otra causa')] } as const;
 
 /**
  * «Comportamiento»: what the system did under each step of this story, against what was approved. Reads
@@ -1367,10 +1361,10 @@ function BehaviorTab({ run, flow, complete }: { run: string; flow: string; compl
   return (
     <div className="behavior">
       <div className="behavior-head">
-        {approved ? <span><Dot state={drifts.length ? 'err' : 'ok'} />{drifts.length ? `${plural(drifts.length, 'salto distinto', 'saltos distintos')} del comportamiento aprobado en el run ${approved.approved.run}` : `Hace lo aprobado en el run ${approved.approved.run}`}</span>
-          : <span className="faint">Este flujo no tiene comportamiento aprobado: lo que hizo este run puede serlo.</span>}
+        {approved ? <span><Dot state={drifts.length ? 'err' : 'ok'} />{drifts.length ? tr('{plural} del comportamiento aprobado en el run {run}', { plural: plural(drifts.length, tr('salto distinto'), tr('saltos distintos')), run: approved.approved.run }) : tr('Hace lo aprobado en el run {run}', { run: approved.approved.run })}</span>
+          : <span className="faint">{tr('Este flujo no tiene comportamiento aprobado: lo que hizo este run puede serlo.')}</span>}
         <span className="grow" />
-        {(!approved || approved.approved.run !== run) && <ActionButton icon={Check} disabled={!complete} title={complete ? 'Escribe behavior.yaml junto a flow.md, para commitearlo con el cambio' : 'La historia no recorrió todos sus pasos'} run={approve} done={() => 'Comportamiento aprobado: behavior.yaml escrito'}>Aprobar este comportamiento</ActionButton>}
+        {(!approved || approved.approved.run !== run) && <ActionButton icon={Check} disabled={!complete} title={complete ? tr('Escribe behavior.yaml junto a flow.md, para commitearlo con el cambio') : tr('La historia no recorrió todos sus pasos')} run={approve} done={() => tr('Comportamiento aprobado: behavior.yaml escrito')}>{tr('Aprobar este comportamiento')}</ActionButton>}
       </div>
       {now.steps.map((s, i) => {
         const mine = drifts.filter((x) => x.step === s.step);
@@ -1379,7 +1373,7 @@ function BehaviorTab({ run, flow, complete }: { run: string; flow: string; compl
           <section key={i} className="behavior-step">
             <h4>{i + 1}. {s.step}</h4>
             <ul>
-              {s.hops.map((h) => { const x = mine.find((y) => y.hop === h && y.kind !== 'missing'); return <li key={h} className={x ? `drift ${x.kind}` : ''}><span className="mark">{x ? DRIFT[x.kind][0] : ''}</span><code>{h}</code>{s.causes[h] && <span className="faint"> ⟵ {s.causes[h]}</span>}{x && <span className="why">{DRIFT[x.kind][1]}{x.kind === 'cause' ? `: antes ⟵ ${x.was}` : ''}</span>}</li>; })}
+              {s.hops.map((h) => { const x = mine.find((y) => y.hop === h && y.kind !== 'missing'); return <li key={h} className={x ? `drift ${x.kind}` : ''}><span className="mark">{x ? DRIFT[x.kind][0] : ''}</span><code>{h}</code>{s.causes[h] && <span className="faint"> ⟵ {s.causes[h]}</span>}{x && <span className="why">{DRIFT[x.kind][1]}{x.kind === 'cause' ? tr(': antes ⟵ {was}', { was: x.was }) : ''}</span>}</li>; })}
               {gone.map((x) => <li key={`-${x.hop}`} className="drift missing"><span className="mark">−</span><code>{x.hop}</code><span className="why">{DRIFT.missing[1]}</span></li>)}
             </ul>
           </section>
@@ -1399,24 +1393,26 @@ function FilesTab({ id, detail }: { id: string; detail?: RunDetail }) {
         {files.data.map((f) => {
           const Icon = FILE_ICON.find(([re]) => re.test(f.path))?.[1] ?? FileText;
           const isTrace = /(^|\/)trace(-\d+)?\.zip$/.test(f.path);
-          return <li key={f.path}><Icon /><a className="rowlink mono" href={fileUrl(id, f.path)} target="_blank" rel="noreferrer">{f.path}<span className="sr-only"> (se abre en otra pestaña)</span></a>{isTrace && <><a className="btn sm" href={`/trace-viewer/index.html?trace=${encodeURIComponent(new URL(fileUrl(id, f.path), location.origin).href)}`} target="_blank" rel="noreferrer"><Play />Abrir traza</a></>}<span className="faint num">{size(f.bytes)}</span><a className="copy" href={fileUrl(id, f.path)} download aria-label={`Descargar ${f.path}`}><Download /></a>{detail && <PathChip path={`${detail.dir}/${f.path}`} reveal={{ what: 'run-file', id: `${id}/${f.path}` }} hide />}</li>;
+          return <li key={f.path}><Icon /><a className="rowlink mono" href={fileUrl(id, f.path)} target="_blank" rel="noreferrer">{f.path}<span className="sr-only">{' '}{tr('(se abre en otra pestaña)')}</span></a>{isTrace && <><a className="btn sm" href={`/trace-viewer/index.html?trace=${encodeURIComponent(new URL(fileUrl(id, f.path), location.origin).href)}`} target="_blank" rel="noreferrer"><Play />{tr('Abrir traza')}</a></>}<span className="faint num">{size(f.bytes)}</span><a className="copy" href={fileUrl(id, f.path)} download aria-label={tr('Descargar {path}', { path: f.path })}><Download /></a>{detail && <PathChip path={`${detail.dir}/${f.path}`} reveal={{ what: 'run-file', id: `${id}/${f.path}` }} hide />}</li>;
         })}
-        {!files.data.length && <li className="faint">Este run no guardó evidencia.</li>}
+        {!files.data.length && <li className="faint">{tr('Este run no guardó evidencia.')}</li>}
       </ul>
-      <p className="faint files-note">Lo que se grabó del run. La salida en bruto del runner (<span className="mono">out/</span>) se queda en <span className="mono">.laru/runs/{id}</span> y no se sirve.</p>
+      <p className="faint files-note">{tr('Lo que se grabó del run. La salida en bruto del runner (')}<span className="mono">out/</span>{tr(') se queda en')}{' '}<span className="mono">.laru/runs/{id}</span>{' '}{tr('y no se sirve.')}</p>
       {detail?.retention && <p className="faint files-note">{retentionText(detail)}</p>}
     </>
   );
 }
 
-const short = (d: number) => new Date(d).toLocaleDateString('es', { day: 'numeric', month: 'short' });
+const short = (d: number) => new Date(d).toLocaleDateString(LOCALE, { day: 'numeric', month: 'short' });
 /** When retention takes this run's video and the run itself, or why it keeps them. */
 function retentionText(r: RunDetail): string {
   const p = r.retention!.policy, t = Date.parse(r.startedAt);
-  if (r.pruned) return `El vídeo y las capturas se borraron por retención ${ago(r.pruned.at)}; la traza y los registros siguen aquí.`;
-  const kept = r.retention!.keptFor;
-  if (kept) return `Se conserva: es el último ${kept.status === 'failed' ? 'fallido' : 'verde'} de ${kept.flow}. Se conservan siempre el último verde y el último fallido de cada flujo.`;
-  return `Retención: el vídeo se borra el ${short(t + p.videoDays * 86_400_000)} (${p.videoDays} días) y el run el ${short(t + p.runDays * 86_400_000)} (${p.runDays}). Se conservan siempre el último verde y el último fallido de cada flujo.`;
+  if (r.pruned) return tr('El vídeo y las capturas se borraron por retención {ago}; la traza y los registros siguen aquí.', { ago: ago(r.pruned.at) });
+  const kept = r.retention!.keptFor, of = kept?.flows.length ? kept.flows.join(', ') : tr('los runs sin flujo');
+  const rule = tr('De cada flujo se guardan sus últimos {keepRuns} runs y, siempre, su último verde; los anteriores se borran.', { keepRuns: p.keepRuns });
+  if (kept?.why === 'pivot') return tr('Se conserva siempre, con su vídeo: es el último run verde de {of}, y el último verde de un flujo nunca se borra. {rule}', { of, rule });
+  if (kept?.why === 'recent') return tr('Es uno de los últimos {keepRuns} runs de {of}: se borra cuando haya {keepRuns} más recientes. Su vídeo se borra el {short} ({videoDays} días). {rule}', { keepRuns: p.keepRuns, of, short: short(t + p.videoDays * 86_400_000), videoDays: p.videoDays, rule });
+  return tr('Ya no está entre los últimos {keepRuns} runs de sus flujos: se borra en la próxima limpieza. {rule}', { keepRuns: p.keepRuns, rule });
 }
 
 // ---------- inspector ----------
@@ -1429,10 +1425,10 @@ function retentionText(r: RunDetail): string {
 function MessageCard({ m, link }: { m: NonNullable<Exchange['msg']>; link?: string }) {
   return (
     <div className="insp-msg" role="note">
-      <span className="chip">{m.cb ? 'Aviso de estado' : m.kind === 'mail' ? 'Correo' : 'SMS'}</span>
-      <span>{m.cb ? `El SMS pasó a «${m.cb}»` : m.kind === 'mail' ? <><b>{m.subject || '(sin asunto)'}</b> para {m.to}</> : <>Para {m.to}</>}</span>
-      <span className="faint">Quedó en el buzón del entorno; no salió de tu máquina.</span>
-      {link && <a className="rowlink" href={link}>Ver en el buzón</a>}
+      <span className="chip">{m.cb ? tr('Aviso de estado') : m.kind === 'mail' ? tr('Correo') : 'SMS'}</span>
+      <span>{m.cb ? tr('El SMS pasó a «{cb}»', { cb: m.cb }) : m.kind === 'mail' ? <><b>{m.subject || tr('(sin asunto)')}</b>{' '}{tr('para')}{' '}{m.to}</> : <>{tr('Para')}{' '}{m.to}</>}</span>
+      <span className="faint">{tr('Quedó en el buzón del entorno; no salió de tu máquina.')}</span>
+      {link && <a className="rowlink" href={link}>{tr('Ver en el buzón')}</a>}
     </div>
   );
 }
@@ -1443,12 +1439,12 @@ function Inspector({ ex, names, said, contract, card, cause, msgLink, way, reply
   return (
     <section className="panel insp" aria-labelledby="insp-h">
       <header>
-        <h3 id="insp-h">Este mensaje</h3>
+        <h3 id="insp-h">{tr('Este mensaje')}</h3>
         <span className="sr-only" aria-live="polite">{said}</span>
         <div className="meta">
-          {cause?.certainty === 'possible' && <span className="ct-maybe" title="La causa de este mensaje es posible, no segura">?</span>}
+          {cause?.certainty === 'possible' && <span className="ct-maybe" title={tr('La causa de este mensaje es posible, no segura')}>?</span>}
           {ex && <Origin of={ex.origin} />}
-          {cmd && <button className="btn sm" onClick={() => copy(cmd, 'Copiado como cURL')}><Terminal />cURL</button>}
+          {cmd && <button className="btn sm" onClick={() => copy(cmd, tr('Copiado como cURL'))}><Terminal />{tr('cURL')}</button>}
         </div>
       </header>
       {ex && (
@@ -1456,9 +1452,9 @@ function Inspector({ ex, names, said, contract, card, cause, msgLink, way, reply
           <RouteStrip way={way} at={Math.max(0, way.findIndex((w) => w.id === ex.id))} reply={reply} names={names} />
           <div className="insp-title">
             <span className="insp-what mono">{sql ? ex.label : ex.method ? <><b>{ex.method}</b> {ex.path ?? '/'}{ex.query ? `?${ex.query}` : ''}</> : ex.label}</span>
-            {ex.status !== undefined ? <HttpStatus n={ex.status} /> : ex.ok === false ? <span className="chip err">falló</span> : null}
+            {ex.status !== undefined ? <HttpStatus n={ex.status} /> : ex.ok === false ? <span className="chip err">{tr('falló')}</span> : null}
             {ex.t1 !== undefined && <span className="num faint">{secs(ex.t1 - ex.t0)}</span>}
-            {ex.fault && <span className="chip run"><Zap />{ex.fault}</span>}{ex.mock && <span className="chip">mock: {ex.mock}</span>}
+            {ex.fault && <span className="chip run"><Zap />{faultLabel(ex.fault)}</span>}{ex.mock && <span className="chip">{tr('mock:')}{' '}{ex.mock}</span>}
           </div>
         </div>
       )}
@@ -1479,9 +1475,9 @@ function ComparePick({ run, onClose, onPick }: { run: RunInfo; onClose: () => vo
   const first = useRef<HTMLButtonElement>(null);
   useEffect(() => { first.current?.focus(); }, [runs.data]);
   return (
-    <Dialog title={`Comparar el run ${run.id} con…`} onClose={onClose}>
+    <Dialog title={tr('Comparar el run {id} con…', { id: run.id })} onClose={onClose}>
       <div className="dlg-body">
-        {runs.error ? <p className="form-err">{runs.error}</p> : !runs.data ? <div className="sk" style={{ height: 14, width: '70%' }} /> : !others.length ? <p>No hay otro run terminado de estos flujos con el que comparar.</p> : (
+        {runs.error ? <p className="form-err">{runs.error}</p> : !runs.data ? <div className="sk" style={{ height: 14, width: '70%' }} /> : !others.length ? <p>{tr('No hay otro run terminado de estos flujos con el que comparar.')}</p> : (
           <ul className="pick-list" aria-label="Runs">
             {others.map((r, i) => (
               <li key={r.id}>
@@ -1493,7 +1489,7 @@ function ComparePick({ run, onClose, onPick }: { run: RunInfo; onClose: () => vo
           </ul>
         )}
       </div>
-      <footer><button type="button" className="btn" onClick={onClose}>Cancelar</button></footer>
+      <footer><button type="button" className="btn" onClick={onClose}>{tr('Cancelar')}</button></footer>
     </Dialog>
   );
 }
@@ -1503,13 +1499,13 @@ function CompareView({ a, b, flows, onClose }: { a: string; b: string; flows: st
   const h = useRef<HTMLHeadingElement>(null);
   useEffect(() => h.current?.focus(), [a]);
   const cmp = useApi<Comparison>(`/api/runs/compare?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`);
-  const side = (x?: { count: number; statuses: number[]; p50?: number }) => (x ? `${x.count}× ${x.statuses.join('/') || '—'}${x.p50 !== undefined ? `, ${secs(x.p50)}` : ''}` : 'no aparece');
+  const side = (x?: { count: number; statuses: number[]; p50?: number }) => (x ? `${x.count}× ${x.statuses.join('/') || '—'}${x.p50 !== undefined ? `, ${secs(x.p50)}` : ''}` : tr('no aparece'));
   const shared = (cmp.data?.exchanges ?? []).filter((e) => flows.includes(e.flow));
   const diff = shared.filter((e) => !e.a || !e.b || e.a.count !== e.b.count || e.a.statuses.join() !== e.b.statuses.join());
   const same = shared.length - diff.length;
   return (
     <section className="panel block" aria-labelledby="cmp-h">
-      <header><h3 id="cmp-h" ref={h} tabIndex={-1}>Comparado con el run {a}</h3><div className="meta">{cmp.data && <span>{plural(diff.length, 'diferencia', 'diferencias')}, {same} iguales</span>}<button className="icon-btn" onClick={onClose} aria-label="Cerrar la comparación"><X /></button></div></header>
+      <header><h3 id="cmp-h" ref={h} tabIndex={-1}>{tr('Comparado con el run')}{' '}{a}</h3><div className="meta">{cmp.data && <span>{plural(diff.length, tr('diferencia'), tr('diferencias'))}, {same}{' '}{tr('iguales')}</span>}<button className="icon-btn" onClick={onClose} aria-label={tr('Cerrar la comparación')}><X /></button></div></header>
       {cmp.error ? <p className="form-err" style={{ padding: 16 }}>{cmp.error}</p> : !cmp.data ? <div style={{ padding: 16 }}><div className="sk" style={{ height: 14, width: '60%' }} /></div> : (
         <>
           <div className="cmp-steps">
@@ -1519,7 +1515,7 @@ function CompareView({ a, b, flows, onClose }: { a: string; b: string; flows: st
               if (!sa.length || !sb.length) return (
                 <div key={f}>
                   <h4 className="mono">{f}</h4>
-                  <p className="faint cmp-absent">{sa.length ? 'No corrió en este run.' : `No corrió en el run ${a}.`}</p>
+                  <p className="faint cmp-absent">{sa.length ? tr('No corrió en este run.') : tr('No corrió en el run {a}.', { a })}</p>
                 </div>
               );
               return (
@@ -1527,7 +1523,7 @@ function CompareView({ a, b, flows, onClose }: { a: string; b: string; flows: st
                   <h4 className="mono">{f}</h4>
                   <ol>{Array.from({ length: n }, (_, i) => {
                     const x = sa[i]?.split(':')[1], y = sb[i]?.split(':')[1];
-                    return <li key={i} className={x !== y ? 'chg' : undefined}><span className="num">{i + 1}</span><Status state={x ? STEP_DOT[x as Step['status']] : 'idle'}>run {a}: {x ? RUN_STATUS[x] : 'sin paso'}</Status><Status state={y ? STEP_DOT[y as Step['status']] : 'idle'}>este: {y ? RUN_STATUS[y] : 'sin paso'}</Status></li>;
+                    return <li key={i} className={x !== y ? 'chg' : undefined}><span className="num">{i + 1}</span><Status state={x ? STEP_DOT[x as Step['status']] : 'idle'}>run {a}: {x ? RUN_STATUS[x] : tr('sin paso')}</Status><Status state={y ? STEP_DOT[y as Step['status']] : 'idle'}>{tr('este:')}{' '}{y ? RUN_STATUS[y] : tr('sin paso')}</Status></li>;
                   })}</ol>
                 </div>
               );
@@ -1536,7 +1532,7 @@ function CompareView({ a, b, flows, onClose }: { a: string; b: string; flows: st
           {diff.length ? (
             <div className="scroll-x">
               <table className="t">
-                <thead><tr><th>Flujo</th><th>De → a</th><th>Intercambio</th><th>Run {a}</th><th>Este run</th><th className="r">Δ p50</th></tr></thead>
+                <thead><tr><th>{tr('Flujo')}</th><th>{tr('De → a')}</th><th>{tr('Intercambio')}</th><th>Run {a}</th><th>{tr('Este run')}</th><th className="r">{tr('Δ p50')}</th></tr></thead>
                 <tbody>{diff.map((e, i) => (
                   <tr key={i}>
                     <td className="mono faint">{e.flow}</td><td className="mono">{e.from} → {e.to}</td><td className="mono wrap">{e.label}</td>
@@ -1546,7 +1542,7 @@ function CompareView({ a, b, flows, onClose }: { a: string; b: string; flows: st
                 ))}</tbody>
               </table>
             </div>
-          ) : <p className="empty">Las mismas llamadas, las mismas veces y con los mismos estados.</p>}
+          ) : <p className="empty">{tr('Las mismas llamadas, las mismas veces y con los mismos estados.')}</p>}
         </>
       )}
     </section>
@@ -1565,20 +1561,20 @@ function ChangesBar() {
   return (
     <div className="notice info changes-bar">
       <div className="grow">
-        <b>Tu copia tiene {plural(i.changes.length, 'archivo cambiado', 'archivos cambiados')}.</b>{' '}
-        {names.length ? <>Afectan a {plural(names.length, 'flujo', 'flujos')}: <span className="mono">{names.join(', ')}</span>.</> : 'No afectan a ningún flujo.'}
+        <b>{tr('Tu copia tiene')}{' '}{plural(i.changes.length, tr('archivo cambiado'), tr('archivos cambiados'))}.</b>{' '}
+        {names.length ? <>{tr('Afectan a')}{' '}{plural(names.length, tr('flujo'), tr('flujos'))}: <span className="mono">{names.join(', ')}</span>.</> : tr('No afectan a ningún flujo.')}
         {(i.reach.length > 0 || i.whole.length > 0) && (
           <details className="faint">
-            <summary>Por qué</summary>
+            <summary>{tr('Por qué')}</summary>
             <ul>
-              {i.reach.map((r) => <li key={r.file}><span className="mono">{r.file.replace(/^[^:]+:/, '')}</span> llega a {r.calls.join(', ')}</li>)}
-              {i.whole.map((w) => <li key={w.id}><span className="mono">{w.id}</span> entero: {w.why}</li>)}
+              {i.reach.map((r) => <li key={r.file}><span className="mono">{r.file.replace(/^[^:]+:/, '')}</span>{' '}{tr('llega a')}{' '}{r.calls.join(', ')}</li>)}
+              {i.whole.map((w) => <li key={w.id}><span className="mono">{w.id}</span>{' '}{tr('entero:')}{' '}{w.why}</li>)}
             </ul>
           </details>
         )}
       </div>
-      <ActionButton icon={RotateCw} primary title="Reconstruye lo que cambió desde tu copia y ejecuta los flujos afectados y los que fallaron sin esperarlo"
-        run={() => askFirst((confirm) => api<{ id: string }>('/api/runs/start', { method: 'POST', body: { affected: true, failed: true, confirm } }).then((r) => { location.hash = href('runs', r.id); }), 'Ejecutar')}>Recargar y repetir</ActionButton>
+      <ActionButton icon={RotateCw} primary title={tr('Reconstruye lo que cambió desde tu copia y ejecuta los flujos afectados y los que fallaron sin esperarlo')}
+        run={() => askFirst((confirm) => api<{ id: string }>('/api/runs/start', { method: 'POST', body: { affected: true, failed: true, confirm } }).then((r) => { location.hash = href('runs', r.id); }), tr('Ejecutar'))}>{tr('Recargar y repetir')}</ActionButton>
     </div>
   );
 }
@@ -1608,24 +1604,24 @@ function RunCard({ r }: { r: RunInfo }) {
   const shown = r.flows.find((f) => bad(f) && r.results[f]?.video) ?? r.flows.find((f) => r.results[f]?.video);
   return (
     <article className="run-card" onClick={(e) => { if (!(e.target as HTMLElement).closest('a,button,input,select')) location.hash = open; }}>
-      {shown && <a className="run-thumb" href={href('runs', r.id, shown)} aria-label={`Abrir ${shown}`} title={shown}><Thumb run={r.id} slug={shown} bad={bad(shown)} ms={r.results[shown]?.ms} /></a>}
+      {shown && <a className="run-thumb" href={href('runs', r.id, shown)} aria-label={tr('Abrir {shown}', { shown })} title={shown}><Thumb run={r.id} slug={shown} bad={bad(shown)} ms={r.results[shown]?.ms} /></a>}
       <div className="run-main">
         <header className="run-head">
           <a className="rowlink mono" href={open}>#{r.id}</a>
           <Status state={RUN_DOT[r.status] ?? 'idle'}>{done ? RUN_STATUS[r.status] : `${RUN_PHASE[r.phase]}…`}</Status>
-          {known && <span className="faint" title="Pasó: solo fallan las desviaciones que la aplicación tiene a propósito documentadas (// app:)">con desviaciones conocidas</span>}
+          {known && <span className="faint" title={tr('Pasó: solo fallan las desviaciones que la aplicación tiene a propósito documentadas (// app:)')}>{tr('con desviaciones conocidas')}</span>}
           <span className="grow" />
-          <span className="mono faint">{r.env}{r.ephemeral ? ' · efímero' : ''}</span>
-          <span className="faint" title={new Date(r.startedAt).toLocaleString('es')}>{ago(r.startedAt)}</span>
+          <span className="mono faint">{r.env}{r.ephemeral ? tr(' · efímero') : ''}</span>
+          <span className="faint" title={new Date(r.startedAt).toLocaleString(LOCALE)}>{ago(r.startedAt)}</span>
           <span className="num">{took(r) ?? <span className="faint">—</span>}</span>
         </header>
-        {session ? <div className="run-session">Sesión: {r.title}</div> : r.flows.length > 0 && (
+        {session ? <div className="run-session">{tr('Sesión:')}{' '}{r.title}</div> : r.flows.length > 0 && (
           <ul className="run-flows">
             {r.flows.map((f) => {
               const x = r.results[f];
               return (
                 <li key={f}>
-                  <a className={`run-flow${bad(f) ? ' bad' : ''}`} href={href('runs', r.id, f)} title={`${f}${x ? `: ${RUN_STATUS[x.status] ?? x.status}${x.ms ? `, ${secs(x.ms)}` : ''}${x.steps ? `, ${plural(x.steps, 'paso', 'pasos')}` : ''}${x.known ? `, ${x.known} desviaciones conocidas` : ''}` : ''}`}>
+                  <a className={`run-flow${bad(f) ? ' bad' : ''}`} href={href('runs', r.id, f)} title={`${f}${x ? `: ${RUN_STATUS[x.status] ?? x.status}${x.ms ? `, ${secs(x.ms)}` : ''}${x.steps ? `, ${plural(x.steps, tr('paso'), tr('pasos'))}` : ''}${x.known ? tr(', {known} desviaciones conocidas', { known: x.known }) : ''}` : ''}`}>
                     <Dot state={x ? RUN_DOT[x.status] ?? 'idle' : 'run'} />{f}{x?.ms ? <span className="faint"> {secs(x.ms)}</span> : null}
                   </a>
                 </li>
@@ -1638,7 +1634,12 @@ function RunCard({ r }: { r: RunInfo }) {
   );
 }
 
-/** Playwright's video shows a magenta placeholder until the page paints its first frame: true while the frame on screen is that one. */
+/**
+ * A screen's video opens magenta: Playwright's placeholder until the page paints, and the clock marker Laru draws at the
+ * start of a recorded story. True while the frame on screen is magenta, so it is covered. Read at the centre, where
+ * Laru looks for the marker too: the marker's ticking square sits in the top-left corner, and read there it hid the
+ * magenta. Every frame the browser paints (requestVideoFrameCallback), else at each seek and time update.
+ */
 function useBlank(v: HTMLVideoElement | null) {
   const [blank, setBlank] = useState(false);
   useEffect(() => {
@@ -1646,12 +1647,15 @@ function useBlank(v: HTMLVideoElement | null) {
     const cx = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
     if (!cx) return;
     const look = () => {
-      if (v.readyState < 2) return;
-      try { cx.drawImage(v, 0, 0, 1, 1); const [r, g, b] = cx.getImageData(0, 0, 1, 1).data; setBlank(r! > 200 && g! < 100 && b! > 200); } catch { setBlank(false); }
+      if (v.readyState < 2 || !v.videoWidth) return;
+      try { cx.drawImage(v, v.videoWidth / 2, v.videoHeight / 2, 1, 1, 0, 0, 1, 1); const [r, g, b] = cx.getImageData(0, 0, 1, 1).data; setBlank(isMagenta(r!, g!, b!)); } catch { setBlank(false); }
     };
     const on = ['loadeddata', 'seeked', 'timeupdate'];
     on.forEach((e) => v.addEventListener(e, look));
-    return () => on.forEach((e) => v.removeEventListener(e, look));
+    let frame = 0;
+    const each = () => { look(); frame = v.requestVideoFrameCallback(each); };
+    if ('requestVideoFrameCallback' in v) frame = v.requestVideoFrameCallback(each);
+    return () => { on.forEach((e) => v.removeEventListener(e, look)); if (frame) v.cancelVideoFrameCallback(frame); };
   }, [v]);
   return blank;
 }
@@ -1663,10 +1667,9 @@ function PeerScreen({ who, closed, src, label, register, onOpen }: { who: string
     <figure>
       <div className="peer">
         <video ref={(v) => { setEl(v); register(v); }} src={src} muted playsInline preload="auto" aria-label={label} />
-        {(closed || blank) && <div className="novideo">{who} aún no ha abierto su pantalla</div>}
-        {onOpen && <button type="button" className="icon-btn open-float" onClick={onOpen} aria-label={`Abrir la pantalla de ${who} en una ventana`} title="Abrir en una ventana flotante que se mueve y cambia de tamaño"><ArrowUpRight /></button>}
+        {(closed || blank) && <div className="novideo">{who}{' '}{tr('aún no ha abierto su pantalla')}</div>}
       </div>
-      <figcaption>Pantalla de {who}</figcaption>
+      <figcaption>{tr('Pantalla de')}{' '}{who}{onOpen && <button type="button" className="icon-btn labeled" onClick={onOpen} aria-label={tr('Ventana con la pantalla de {who}', { who })} title={tr('Abrir en una ventana flotante que se mueve y cambia de tamaño')}><ArrowUpRight /><span>{tr('Ventana')}</span></button>}</figcaption>
     </figure>
   );
 }
@@ -1674,6 +1677,8 @@ function PeerScreen({ who, closed, src, label, register, onOpen }: { who: string
 /** One screen in its own window over the page, to see it large: moved by its bar, resized by its corner, on the clock of the main video. */
 function FloatingScreen({ title, src, startMs, now, playing, speed, index, phone, onClose }: { title: string; src: string; startMs: number; now: number; playing: boolean; speed: number; index: number; phone: boolean; onClose: () => void }) {
   const ref = useRef<HTMLVideoElement>(null);
+  const [el, setEl] = useState<HTMLVideoElement | null>(null);
+  const blank = useBlank(el);
   const [pos, setPos] = useState({ x: 120 + index * 36, y: 90 + index * 36 });
   // the window opens at the video's own shape, up to 720 wide and most of the window's height (34: its bar)
   const [box, setBox] = useState<{ width: number; height: number }>();
@@ -1703,93 +1708,25 @@ function FloatingScreen({ title, src, startMs, now, playing, speed, index, phone
     <div className={`float-screen${phone ? ' phone' : ''}`} role="dialog" aria-label={title} style={{ left: pos.x, top: pos.y, ...box }}>
       <div className="float-bar" onPointerDown={drag}>
         <span title={title}>{title}</span>
-        <button type="button" className="icon-btn" onPointerDown={(e) => e.stopPropagation()} onClick={onClose} aria-label={`Cerrar «${title}»`}><X /></button>
+        <button type="button" className="icon-btn" onPointerDown={(e) => e.stopPropagation()} onClick={onClose} aria-label={tr('Cerrar «{title}»', { title })}><X /></button>
       </div>
-      <video ref={ref} src={src} muted playsInline preload="auto" aria-label={title} onLoadedMetadata={(e) => fit(e.currentTarget)} />
+      <video ref={(v) => { ref.current = v; setEl(v); }} src={src} muted playsInline preload="auto" aria-label={title} onLoadedMetadata={(e) => fit(e.currentTarget)} />
+      {blank && <div className="novideo float-cover">{tr('Abriendo el navegador…')}</div>}
     </div>
   );
 }
 
 /** The video of the flow, from the header of the player: with several screens, all of them in one (made the first time, then kept); with one, its own. */
-/**
- * The story's page as rrweb recorded it (its DOM and every change), replayed on the video's clock: the instant the clock
- * shows is t0 + now on the recording's own timeline. It plays while the clock plays and is put back when it drifts.
- */
-function Replica({ run, slug, file, t0, now, playing, speed }: { run: string; slug: string; file: string; t0: number; now: number; playing: boolean; speed: number }) {
-  const outer = useRef<HTMLDivElement>(null), stage = useRef<HTMLDivElement>(null), rep = useRef<Replayer>(undefined), running = useRef(false);
-  const [first, setFirst] = useState<number>();
-  const [size, setSize] = useState<{ width: number; height: number }>();
-  const [fit, setFit] = useState({ k: 1, left: 0, top: 0 });
-  const [error, setError] = useState<string>();
-  useEffect(() => {
-    let gone = false;
-    fetch(fileUrl(run, `flows/${slug}/${file}`)).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`la grabación no se pudo leer (${r.status})`)))).then((events: Array<{ type: number; timestamp: number; data: { width?: number; height?: number } }>) => {
-      if (gone || !stage.current || events.length < 2) return;
-      // type 4 is rrweb's Meta: the window's size when it began
-      const meta = events.find((e) => e.type === 4)?.data;
-      setSize({ width: meta?.width ?? 1280, height: meta?.height ?? 720 });
-      // no animations: a paused replay freezes them on their first frame (a fade-in stays transparent), and a page is read here, not watched
-      rep.current = new Replayer(events as never, { root: stage.current, mouseTail: false, skipInactive: false, triggerFocus: false, insertStyleRules: ['*, *::before, *::after { animation: none !important; transition: none !important; }'] });
-      setFirst(events[0].timestamp);
-    }, (e: Error) => !gone && setError(e.message));
-    return () => { gone = true; rep.current?.destroy(); rep.current = undefined; running.current = false; };
-  }, [run, slug, file]);
-  // the page keeps its own size, scaled to the frame
-  useEffect(() => {
-    const el = outer.current;
-    if (!el || !size) return;
-    const place = () => { const k = Math.min(el.clientWidth / size.width, el.clientHeight / size.height); setFit({ k, left: (el.clientWidth - size.width * k) / 2, top: (el.clientHeight - size.height * k) / 2 }); };
-    place();
-    const ro = new ResizeObserver(place);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [size]);
-  useEffect(() => { rep.current?.setConfig({ speed }); }, [speed, first]);
-  const at = first === undefined ? 0 : Math.max(0, t0 + now - first);
-  useEffect(() => {
-    const r = rep.current;
-    if (!r) return;
-    if (!playing) { running.current = false; r.pause(at); return; }
-    if (!running.current || Math.abs(r.getCurrentTime() - at) > 400) { r.play(at); running.current = true; }
-  }, [at, playing, first]);
-  return (
-    <div ref={outer} className="replica" aria-label="Réplica de la página grabada">
-      {error ? <div className="novideo">{error}</div> : <div ref={stage} className="replica-stage" style={size ? { width: size.width, height: size.height, left: fit.left, top: fit.top, transform: `scale(${fit.k})` } : undefined} />}
-    </div>
-  );
-}
-
-/** A video made from the replica, on demand: asked once, made by Chrome on this machine, downloaded when ready. */
-function ReplicaVideo({ run, slug }: { run: string; slug: string }) {
-  const [busy, setBusy] = useState(false);
-  const what = 'Descargar un vídeo hecho desde la réplica (se genera la primera vez)';
-  return (
-    <button className="icon-btn" aria-busy={busy || undefined} aria-label={what} title={what} onClick={async () => {
-      if (busy) return;
-      setBusy(true);
-      try {
-        type S = { state: 'none' | 'running' | 'done' | 'failed'; error?: string };
-        let s = await api<S>(`/api/run/replay-video?id=${encodeURIComponent(run)}&flow=${encodeURIComponent(slug)}`);
-        if (s.state !== 'done') s = await api<S>('/api/run/replay-video', { method: 'POST', body: { id: run, flow: slug } });
-        while (s.state === 'running') { await new Promise((ok) => setTimeout(ok, 2000)); s = await api<S>(`/api/run/replay-video?id=${encodeURIComponent(run)}&flow=${encodeURIComponent(slug)}`); }
-        if (s.state === 'failed') throw new Error(`El vídeo de la réplica no se pudo hacer: ${s.error ?? 'sin detalle'}`);
-        const a = document.createElement('a'); a.href = fileUrl(run, `flows/${slug}/replay.mp4`); a.download = `${slug}-replica.mp4`; a.click();
-      } catch (e) { toast((e as Error).message); } finally { setBusy(false); }
-    }}><Film className={busy ? 'spin' : undefined} /></button>
-  );
-}
-
 function OneVideo({ run, slug, video, several }: { run: string; slug: string; video: string; several: boolean }) {
   const [busy, setBusy] = useState(false);
-  const what = several ? 'Descargar todas las pantallas en un solo vídeo' : 'Descargar el vídeo';
   const save = (file: string, name: string) => { const a = document.createElement('a'); a.href = fileUrl(run, file); a.download = name; a.click(); };
   return (
-    <button className="icon-btn" aria-busy={busy || undefined} aria-label={what} title={what} onClick={async () => {
+    <button className="icon-btn labeled" aria-busy={busy || undefined} title={several ? tr('Descargar todas las pantallas en un solo vídeo: la primera vez se unen') : tr('Descargar el vídeo que grabó el run')} onClick={async () => {
       if (busy) return;
       if (!several) { save(`flows/${slug}/${video}`, `${slug}${video.slice(video.lastIndexOf('.'))}`); return; }
       setBusy(true);
       try { save((await api<{ file: string }>('/api/run/video', { method: 'POST', body: { id: run, flow: slug } })).file, `${slug}.mp4`); } catch (e) { toast((e as Error).message); } finally { setBusy(false); }
-    }}><Download className={busy ? 'spin' : undefined} /></button>
+    }}><Download className={busy ? 'spin' : undefined} /><span>{busy ? tr('Uniendo las pantallas…') : tr('Vídeo')}</span></button>
   );
 }
 
@@ -1814,13 +1751,13 @@ function OtherScreens({ run, slug, trace, now, playing, speed, onOpen }: { run: 
   }, [now, playing, speed, screens]);
   if (!screens.length) return null;
   return (
-    <div className="other-screens" role="group" aria-label="Otras pantallas de la prueba">
+    <div className="other-screens" role="group" aria-label={tr('Otras pantallas de la prueba')}>
       {screens.map((s) => {
         // before its first exchange the screen is closed, whatever its video shows
         const first = Math.min(...trace.exchanges.filter((e) => e.from === `browser:${s.name}` || e.to === `browser:${s.name}`).map((e) => e.t0));
         const who = s.name.charAt(0).toUpperCase() + s.name.slice(1);
         return (
-          <PeerScreen key={s.name} who={who} closed={Number.isFinite(first) && now < first} src={fileUrl(run, `flows/${slug}/${s.video}`)} label={`Pantalla de ${s.name}`} onOpen={onOpen && (() => onOpen(s.name))} register={(el) => { if (el) els.current.set(s.name, el); else els.current.delete(s.name); }} />
+          <PeerScreen key={s.name} who={who} closed={Number.isFinite(first) && now < first} src={fileUrl(run, `flows/${slug}/${s.video}`)} label={tr('Pantalla de {name}', { name: s.name })} onOpen={onOpen && (() => onOpen(s.name))} register={(el) => { if (el) els.current.set(s.name, el); else els.current.delete(s.name); }} />
         );
       })}
     </div>

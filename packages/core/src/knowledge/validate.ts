@@ -2,7 +2,7 @@
  * Validation answers by position — `fields.steps[2].service` — with a stable key, so the interface can say it
  * in Spanish and the AI can fix exactly that field. Errors never reach disk; warnings do, and `check` lists them.
  */
-import { kindOfCode, lintDiagramOfKind, mermaidBlocks } from '@laru/diagrams';
+import { DERIVED_KINDS, DIAGRAM_KINDS, kindOfCode, lintDiagramOfKind, mermaidBlocks, type DiagramKind } from '@laru/diagrams';
 import { parseLimit, parseScreen } from '../limit.ts';
 import { unknownEndpoints, vagueIn } from './lint.ts';
 import { hasValue, RELATIONS, type Piece } from './piece.ts';
@@ -27,6 +27,9 @@ const BROKEN = new Set(['semicolon', 'dialect']);
 
 const ID = /^([a-z][a-z-]*):([a-z0-9][a-z0-9._-]*)$/;
 const ANCHOR = /^([a-z0-9][a-z0-9-]*):([^#\s]+)(#[\w.$]+\*?)?$/;
+
+/** The classes a person draws, the general flowchart first: what a diagram is read as where no class is suggested. */
+const BY_HAND: DiagramKind[] = ['process', ...DIAGRAM_KINDS.filter((k) => k !== 'process' && !DERIVED_KINDS.includes(k))];
 
 export function validatePiece(p: Piece, ctx: ValidateContext): Issue[] {
   const out: Issue[] = [];
@@ -86,7 +89,9 @@ export function validatePiece(p: Piece, ctx: ValidateContext): Issue[] {
   /** A section's text, whatever section: its diagrams (any class), what it names, and whether it says something concrete. */
   const prose = (at: string, v: string, kinds?: string[]) => {
     mermaidBlocks(v).forEach((b, n) => {
-      const kind = kindOfCode(b.code, kinds as never);
+      // read as the section's class, else the piece's suggested ones, else one drawn by hand: never a class Laru derives
+      // from the map, which a flowchart with lanes would otherwise tie with (and be told it drifts)
+      const kind = kindOfCode(b.code, [...(kinds ?? []), ...(std.diagrams ?? []), ...BY_HAND] as never);
       // any class of the catalogue is taken in any section; only a diagram that does not draw is refused by knowledge_write (`severity`)
       if (!kind) { warn(`${at}.diagram[${n}]`, 'diagram-unknown', 'this diagram has no class Laru knows: flowchart, sequence, C4, ER, state, class…', { severity: 'error' }); return; }
       for (const d of lintDiagramOfKind(b.code, kind)) warn(`${at}.diagram[${n}]`, `diagram-${d.rule}`, d.fix ? `${d.text} ${d.fix}` : d.text, { kind, severity: BROKEN.has(d.rule) ? 'error' : 'warning' });

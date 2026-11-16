@@ -15,9 +15,11 @@ import { agreementRules, loadAgreement } from './agreement.ts';
 import { conventionsFor } from './knowledge/coverage.ts';
 import { anchorCovers, anchorResolver, DOCS_DIR, freshness, globRe, loadKnowledge, type Loaded } from './knowledge/store.ts';
 import { estimateTokens } from './query.ts';
+import { momentsOf, rulesFor, rulesForText, ruleText } from './work.ts';
+import { runsDocker } from './shell.ts';
 import { stateDir, type Workspace } from './workspace.ts';
 
-export interface HookInput { session_id?: string; cwd?: string; tool_name?: string; tool_input?: { file_path?: string; path?: string; command?: string }; stop_hook_active?: boolean }
+export interface HookInput { session_id?: string; cwd?: string; prompt?: string; tool_name?: string; tool_input?: { file_path?: string; path?: string; command?: string }; stop_hook_active?: boolean }
 
 const deny = (reason: string) => ({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } });
 const ask = (reason: string) => ({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'ask', permissionDecisionReason: reason } });
@@ -102,15 +104,67 @@ export function postEdit(ws: Workspace, input: HookInput): Record<string, unknow
   return broken.length ? { decision: 'block', reason: `${broken.join('\n')}\nFix it, or change the convention with knowledge_write if the rule is wrong.` } : null;
 }
 
-/** A shell command the working agreement refuses (`never`) or wants asked about first (`confirm`). */
+const DOCKER_INSTEAD = [
+  'Not from your shell: this workspace\'s Docker is Laru\'s, and your shell may not reach the engine it does (on Windows with Docker inside WSL it never will). Ask Laru, which reaches it, with the tool or the command for what you wanted:',
+  '- what runs and its state: env_status (`laru env status`); bring it up or apply a change: env_up (`laru up`); remove it: `laru down`',
+  '- logs: `laru logs <service>`; a command inside a container: `laru exec <service> -- <command>`',
+  '- databases: db_query (`laru db query "<sql>"`); queues: `laru queue`; objects: `laru storage`; mail: mail_list (`laru mail`)',
+  '- what this machine has (Docker, WSL): `laru doctor`',
+  'If Laru has no way to do what you need, say so to the person instead of reaching Docker yourself.',
+].join('\n');
+
+/**
+ * A shell command the working agreement refuses (`never`) or wants asked about first (`confirm`); and a commit, a push, a
+ * PR or a ticket, stopped once per session with the person's instructions about it, whole: what it delivers follows them,
+ * then it runs again.
+ */
 export function preBash(ws: Workspace, input: HookInput): Record<string, unknown> | null {
   const cmd = input.tool_input?.command;
   if (!cmd) return null;
   const rules = agreementRules(loadAgreement(ws));
   const no = rules.deny.find((r) => r.re.test(cmd));
   if (no) return deny(`The working agreement of this workspace says this is never done (cmd: ${no.text}).`);
+  if (runsDocker(cmd)) return deny(DOCKER_INSTEAD);
+  // a moment Laru knows, or any command a rule names with `cmd:` (a publish, a deploy): both are looked up, every time
+  const moments = momentsOf(cmd);
+  const servedFile = sessionFile(ws, input, '.rules');
+  const served = existsSync(servedFile) ? (JSON.parse(readFileSync(servedFile, 'utf8')) as string[]) : [];
+  const due = rulesFor(ws, moments, cmd).filter((p) => !served.includes(p.id));
+  if (due.length) {
+    mkdirSync(join(stateDir(ws), 'hooks'), { recursive: true });
+    writeFileSync(servedFile, JSON.stringify([...served, ...due.map((p) => p.id)]));
+    return deny([
+      `Not yet: ${moments.length ? `this is a ${moments.join(' and a ')}` : 'this command'}, and the person's instructions for how you work here say how it is done. Make what you deliver follow them, then run it again; it will not be stopped twice for these.`,
+      ...due.map((p) => ruleText(ws, p)),
+    ].join('\n\n'));
+  }
   const first = rules.ask.find((r) => r.re.test(cmd));
   return first ? ask(`The working agreement asks the person before this (cmd: ${first.text}).`) : null;
+}
+
+/**
+ * Each thing the person asks: their instructions about it reach the agent before it starts, whole, once per session
+ * (what was shown stays in its context); the ones past the budget by name. And always one line: the work here is done
+ * Laru's way, so a request with no rule of its own is still done through Laru's tools.
+ */
+export function onPrompt(ws: Workspace, input: HookInput): Record<string, unknown> {
+  const out = ['Laru: work here through its tools and the person\'s instructions in their working agreement («Cómo se trabaja»), over your habits and the repositories\' defaults; `laru rules --for "<task>"` finds the ones for anything else you do.'];
+  const servedFile = sessionFile(ws, input, '.rules');
+  const served = existsSync(servedFile) ? (JSON.parse(readFileSync(servedFile, 'utf8')) as string[]) : [];
+  const due = rulesForText(ws, input.prompt ?? '').filter((p) => !served.includes(p.id));
+  if (due.length) {
+    out.push('The person\'s instructions for what was just asked; follow them in how you do it:');
+    let used = 0;
+    const shown: string[] = [];
+    for (const p of due) {
+      const text = ruleText(ws, p);
+      if (shown.length && used + estimateTokens(text) > 4000) { out.push(`Also about it (\`laru rules --for\` gives them whole): ${due.filter((x) => !shown.includes(x.id)).map((x) => `«${x.title}»`).join(', ')}`); break; }
+      out.push(text); shown.push(p.id); used += estimateTokens(text);
+    }
+    mkdirSync(join(stateDir(ws), 'hooks'), { recursive: true });
+    writeFileSync(servedFile, JSON.stringify([...served, ...shown]));
+  }
+  return { hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: out.join('\n\n') } };
 }
 
 /**

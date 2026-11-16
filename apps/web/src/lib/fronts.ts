@@ -1,4 +1,5 @@
 import type { Indexed } from '../api.ts';
+import { tr } from './i18n.ts';
 
 /** The fronts of an env that a browser can open: the HTTP addresses the map calls a web service, or whose name reads as a front (`frontend`, `audit-web`). */
 export const FRONT_NAME = /^(frontend|front|web|ui|portal|app|site|www)$|-(web|front|frontend|ui)$/;
@@ -36,4 +37,4 @@ export function frontNodes(g: Indexed): Front[] {
 }
 
 /** A front's name in a list: a mobile one says so. */
-export const frontLabel = (name: string, kind?: string) => (kind === 'mobile' ? `${name} (móvil)` : name);
+export const frontLabel = (name: string, kind?: string) => (kind === 'mobile' ? tr('{name} (móvil)', { name }) : name);

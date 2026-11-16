@@ -71,7 +71,24 @@ export interface Impact {
 const ENV_WIDE = /(^|\/)(docker-compose[^/]*|compose)\.ya?ml$|^infrastructure\//;
 
 /** The participants of the last trace of each flow, read from the runs (runtime writes them, core only reads). */
-function lastParticipants(ws: Workspace): Map<string, { nodes: string[]; topics: string[] }> {
+/**
+ * What the last traces say, kept by workspace until the runs index changes: a run appends to it once its traces are
+ * written, so the same index means the same traces (read whole, each one, they cost a second in a big workspace).
+ */
+const lastRead = new Map<string, { at: string; value: unknown }>();
+function byIndex<T>(ws: Workspace, name: string, read: () => T): T {
+  const idx = join(stateDir(ws), 'runs', 'index.jsonl');
+  let at = '-';
+  try { const s = statSync(idx); at = `${s.mtimeMs}:${s.size}`; } catch { /* no runs yet */ }
+  const key = `${ws.root}\0${name}`, hit = lastRead.get(key);
+  if (hit && hit.at === at) return hit.value as T;
+  const value = read();
+  lastRead.set(key, { at, value });
+  return value;
+}
+
+const lastParticipants = (ws: Workspace) => byIndex(ws, 'participants', () => readParticipants(ws));
+function readParticipants(ws: Workspace): Map<string, { nodes: string[]; topics: string[] }> {
   const out = new Map<string, { nodes: string[]; topics: string[] }>();
   const idx = join(stateDir(ws), 'runs', 'index.jsonl');
   if (!existsSync(idx)) return out;
@@ -87,7 +104,8 @@ function lastParticipants(ws: Workspace): Map<string, { nodes: string[]; topics:
 }
 
 /** What each flow's last played run called: the endpoints its traffic reached, and the requests its browser made (`POST /api/x`). */
-function lastExchanges(ws: Workspace): Map<string, { endpoints: Set<string>; browser: Set<string> }> {
+const lastExchanges = (ws: Workspace) => byIndex(ws, 'exchanges', () => readExchanges(ws));
+function readExchanges(ws: Workspace): Map<string, { endpoints: Set<string>; browser: Set<string> }> {
   const out = new Map<string, { endpoints: Set<string>; browser: Set<string> }>();
   const idx = join(stateDir(ws), 'runs', 'index.jsonl');
   if (!existsSync(idx)) return out;
@@ -114,6 +132,8 @@ function lastExchanges(ws: Workspace): Map<string, { endpoints: Set<string>; bro
 const NOISE = /\.(md|txt|png|jpe?g|svg|ico|lock)$|(^|\/)(docs?|\.github)\//i;
 
 export function impact(ws: Workspace, g: Graph, k: Knowledge, changes: Change[], wsChanges: string[] = []): Impact {
+  // nothing changed in the working copies nor in the workspace: nothing is reached (what follows would find the same)
+  if (!changes.length && !wsChanges.length) return { changes: [], services: [], endpoints: [], tables: [], topics: [], vars: [], contracts: [], conventions: [], stale: [], envWide: [], reach: [], whole: [], flows: [] };
   const files = new Set(changes.map((c) => `${c.repo}:${c.path}`));
   const services = g.ofType('service');
   const ownerOf = (repo: string, path: string) => services.filter((s) => s.repo === repo).map((s) => ({ s, dir: String(s.attrs?.dir ?? '.') })).filter(({ dir }) => dir === '.' || path === dir || path.startsWith(`${dir}/`)).sort((a, b) => b.dir.length - a.dir.length)[0]?.s;

@@ -808,6 +808,17 @@ export async function logs(ws: Workspace, env: string, opts: { service?: string;
   await Promise.all(cs.map((c) => dockerStream(['logs', '--timestamps', '--tail', String(opts.tail ?? 100), ...(opts.follow ? ['-f'] : []), c.id], (l) => onLine(c.service, l), { signal: opts.signal })));
 }
 
+/**
+ * A command inside a service's container of the env, as Laru reaches Docker (an agent's own shell may not: Windows with
+ * the engine in WSL). Its output line by line, the env's values masked; the command's exit code.
+ */
+export async function execIn(ws: Workspace, env: string, service: string, command: string[], onLine: (line: string) => void, opts: { signal?: AbortSignal } = {}): Promise<number> {
+  const c = (await inspectEnv(ws, env)).find((x) => !x.labels[LABEL.run] && x.service === service);
+  if (!c) throw new EnvError(`no container of ${service} in ${env}`);
+  const masker = envMasker(ws, env);
+  return dockerStream(['exec', c.id, ...command], (l) => onLine(masker.text(l)), { signal: opts.signal });
+}
+
 /** Removes everything with this env's labels (caches only when asked), and the values the tap was given. */
 export async function down(ws: Workspace, env: string, opts: { caches?: boolean; dryRun?: boolean } = {}): Promise<DestroyReport> {
   return withLock(`down ${ws.app}/${env}`, async () => {

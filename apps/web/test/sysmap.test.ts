@@ -506,3 +506,19 @@ test('the map reads by tiers: messaging, data and the systems of others each in 
   assert.deepEqual(lay.columns.map((c) => c.title), ['Entrada', 'Servicios, nivel 1', '', 'Mensajería', 'Datos', 'Sistemas externos']);
   for (const e of lay.edges) assert.ok(!e.d.includes('NaN'), e.id);
 });
+
+test('a cycle is cut where the walk from the people closes it: the backend a frontend calls never stands at the entrance, whatever the order of the map', () => {
+  for (const order of [['svc:frontend', 'svc:backend'], ['svc:backend', 'svc:frontend']]) {
+    const ns: MapNode[] = [
+      { id: 'actor:browser', type: 'service', name: 'Navegador', kind: 'actor' },
+      ...order.map((id): MapNode => ({ id, type: 'service', name: id.slice(4), kind: 'node' })),
+      { id: 'ds:pg', type: 'datastore', name: 'postgres-master', kind: 'relational' },
+    ];
+    const gg = { map: { version: 1, app: 'shop', builtAt: '', repos: [], nodes: ns, facts: [] } as SystemMap, nodes: new Map(ns.map((n) => [n.id, n])), out: () => [], in: () => [] };
+    const e = (from: string, to: string, kind: MapEdge['kind'] = 'call'): MapEdge => ({ id: `${kind}|${from}|${to}`, from, to, kind, label: '', origin: 'observed', facts: [] });
+    const l = layout(gg as never, [e('actor:browser', 'svc:frontend'), e('svc:frontend', 'svc:backend'), e('svc:backend', 'svc:frontend'), e('svc:frontend', 'ds:pg', 'store'), e('svc:backend', 'ds:pg', 'store')]);
+    const col = (id: string) => l.nodes.find((n) => n.node.id === id)!.col;
+    assert.deepEqual([col('actor:browser'), col('svc:frontend'), col('svc:backend')], [0, 1, 2], `order ${order.join(', ')}`);
+    assert.equal(l.columns[0].title, 'Entrada');
+  }
+});

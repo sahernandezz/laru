@@ -479,7 +479,7 @@ test('flow-e2e-hidden: an expect whose failure is swallowed checks nothing, here
     "    await expect.poll(async () => page.getByText('Archivos').count()).toBe(1).catch(() => undefined);",
   ]) assert.deepEqual(keysOne(inStep(line, { see: false })), ['flow-e2e-invisible', 'flow-e2e-hidden'], line);
   for (const line of [
-    "    await expect(page.getByText('Archivos')).toBeVisible().then(() => page.reload());",
+    "    await expect(page.getByText('Archivos')).toBeVisible().then(() => page.mouse.wheel(0, 0));",
     "    try {\n      await expect(page.getByText('Archivos')).toBeVisible();\n    } catch (e) {\n      await page.screenshot();\n      throw e;\n    }",
     "    try {\n      await expect(page.getByText('Archivos')).toBeVisible();\n    } finally {\n      await page.screenshot();\n    }",
     "    await expect(page.getByText('Archivos').or(page.getByText('x').catch)).toBeVisible();",
@@ -531,7 +531,7 @@ test('flow-e2e-hidden: an expect.soft says, with // app: on its line or the line
   assert.deepEqual(keysOne(inStep(soft)), ['flow-e2e-hidden']);
   assert.deepEqual(keysOne(inStep(`    // app: the list shows no badge\n${soft}`)), []);
   assert.deepEqual(keysOne(inStep(`${soft} // app: no badge`)), []);
-  assert.deepEqual(keysOne(inStep(`    // app: the list shows no badge\n    await page.reload();\n${soft}`)), ['flow-e2e-hidden'], 'two lines up');
+  assert.deepEqual(keysOne(inStep(`    // app: the list shows no badge\n    await page.mouse.wheel(0, 0);\n${soft}`)), ['flow-e2e-hidden'], 'two lines up');
   assert.deepEqual(keysOne(inStep("    await expect.soft(page.getByText('// app: x')).toBeVisible();")), ['flow-e2e-hidden'], 'inside a string');
   assert.deepEqual(keysOne(inStep("    const lax = expect.configure({ soft: true });\n    await lax(page.getByText('Pendiente')).toBeVisible();")), ['flow-e2e-hidden']);
   assert.deepEqual(keysOne(inStep("    const slow = expect.configure({ timeout: 10_000 });\n    await slow(page.getByText('Pendiente')).toBeVisible();")), []);
@@ -655,4 +655,33 @@ test('a flow whose last run saw the app send mail or SMS has to check them in th
   assert.deepEqual(keys(f), [], 'the last run sent nothing');
   at([{ run: '2', flow: 'pedido', status: 'passed', msg: 1 }, { run: '3', flow: 'pedido', status: 'error' }]);
   assert.deepEqual(keys(f), ['flow-message-unchecked'], 'a run that errored says nothing');
+});
+
+test('screens follow their kind: a pc like the story\'s, a phone or a tablet by name; a window resized mid-flow or a browser of the spec\'s own is said', () => {
+  const at = (extra: string) => GOOD.replace("  await step('Iniciar sesión', async () => {", `${extra}\n  await step('Iniciar sesión', async () => {`);
+  const screen = (src: string, p: Loaded = upload) => lint(src, p).filter((f) => f.key === 'flow-e2e-screen').map((f) => f.message);
+  assert.deepEqual(screen(GOOD), [], 'the good spec has none');
+  assert.deepEqual(screen(at("  const luis = await otherScreen('luis');\n  const pepe = await otherScreen('pepe', 'phone');")), [], 'a pc by default, a phone by its kind');
+  assert.match(screen(at("  const luis = await otherScreen('luis', { width: 1280, height: 720 });"), { ...upload, meta: { ...upload.meta, screen: '1920x1080' } } as Loaded).join(), /otherScreen\('luis', 1280x720\) is a pc of another size than the story's 1920x1080/);
+  assert.deepEqual(screen(at("  const luis = await otherScreen('luis', { width: 1280, height: 720 });")), [], 'the same size as the story (1280x720 without screen)');
+  assert.match(screen(at("  const pepe = await otherScreen('pepe', { width: 390, height: 844 });")).join(), /say which, otherScreen\('pepe', 'phone'\)/);
+  assert.match(screen(at("  const m = await otherScreen('m', 'mobile');")).join(), /a screen is 'pc'/);
+  assert.match(screen(at("  await page.setViewportSize({ width: 1920, height: 1080 });")).join(), /setViewportSize\(\) changes the window mid-flow[\s\S]*gray bands/);
+  assert.match(screen(at("  const ctx = await browser.newContext();")).join(), /a browser of the spec's own is not a screen of the flow/);
+  assert.deepEqual(screen(at("  // await page.setViewportSize({ width: 1, height: 1 });\n  const t = 'otherScreen(\"x\", { width: 800, height: 600 })';")), [], 'in a comment or a string it is not code');
+});
+
+test('a person enters once by the address and gets around through the front: a route opened again, a reload or location set by hand is said; a link the app gave is followed', () => {
+  const nav = (body: string) => lint(`import { expect, step, story } from '@laru/flow';
+story('Subir', async ({ page, mail }) => {
+${body}
+});
+`).filter((f) => f.key === 'flow-e2e-navigation').map((f) => f.message);
+  assert.deepEqual(nav(`  await step('Iniciar sesión', async () => { await page.goto('/login'); await expect(page.getByText('x')).toBeVisible(); });`), [], 'the first entry by its address');
+  assert.match(nav(`  await page.goto('/login');\n  await step('Iniciar sesión', async () => { await page.goto('/admin'); await expect(page.getByText('x')).toBeVisible(); });`).join(), /page\.goto\(\) of a route again/);
+  assert.match(nav("  await page.goto('/');\n  await step('Ver', async () => { await page.goto(`/files/${1}`); await expect(page.getByText('x')).toBeVisible(); });").join(), /of a route again/, 'a template route too');
+  assert.deepEqual(nav(`  await page.goto('/');\n  await step('Abrir el enlace del correo', async () => { const link = 'x'; await page.goto(link); await expect(page.getByText('x')).toBeVisible(); });`), [], 'a link the app gave is followed');
+  assert.match(nav(`  await page.goto('/');\n  await step('Guardar', async () => { await page.reload(); await expect(page.getByText('x')).toBeVisible(); });`).join(), /reload\(\) outside a step about reloading/);
+  assert.deepEqual(nav(`  await page.goto('/');\n  await step('Recargar y ver que se mantiene', async () => { await page.reload(); await expect(page.getByText('x')).toBeVisible(); });`), [], 'a step about reloading reloads');
+  assert.match(nav(`  await page.goto('/');\n  await step('Ir', async () => { await page.evaluate(() => { location.href = '/admin'; }); await expect(page.getByText('x')).toBeVisible(); });`).join(), /setting location/);
 });

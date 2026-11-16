@@ -7,31 +7,32 @@ import { ArrowLeftRight, CircleX, Pause, Play, Plug, Plus, Save, Trash2, Zap } f
 import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { api, useApi, type EnvSummary, type FaultRule, type MocksData, type TapRoute, type TrafficRecord, apiUrl } from '../api.ts';
 import { ActionButton, CopyButton, HttpStatus, Kind, Skeleton, Status, toast } from '../components/ui.tsx';
-import { faultText, MOCK_MODE, plural, secs } from '../lib/es.ts';
+import { faultText, MOCK_MODE, plural, secs, faultLabel } from '../lib/es.ts';
 import { href } from '../lib/route.ts';
+import { tr } from '../lib/i18n.ts';
 
 const MODES = ['contract', 'record', 'simulate', 'spy', 'script'] as const;
 const PRESETS: Array<[string, FaultRule]> = [
-  ['Latencia 800 ms', { latency: 800 }],
+  [tr('Latencia 800 ms'), { latency: 800 }],
   ['Error 503', { status: 503 }],
-  ['Corte', { abort: true }],
-  ['Sin respuesta', { timeout: true }],
-  ['Ancho de banda', { bandwidth: 16 * 1024 }],
+  [tr('Corte'), { abort: true }],
+  [tr('Sin respuesta'), { timeout: true }],
+  [tr('Ancho de banda'), { bandwidth: 16 * 1024 }],
 ];
 /** What a mail or SMS sink can be made to do: the stage is the method, the recipient the path, and `code` the provider's own. */
 const SINK_PRESETS: Array<[string, FaultRule[], 'smtp' | 'twilio']> = [
-  ['Servidor de correo caído', [{ method: 'CONNECT', status: 421 }], 'smtp'],
-  ['Credenciales rechazadas', [{ method: 'AUTH', status: 535 }], 'smtp'],
-  ['Destinatario rechazado', [{ method: 'RCPT', status: 550 }], 'smtp'],
-  ['Buzón lleno, temporal', [{ method: 'RCPT', status: 452 }], 'smtp'],
-  ['Fallo tras el DATA', [{ method: 'DATA', status: 451 }], 'smtp'],
-  ['Conexión cortada', [{ method: 'DATA', abort: true }], 'smtp'],
-  ['Latencia de 3 s', [{ latency: 3000 }], 'smtp'],
-  ['Rebote tras aceptar', [{ method: 'DELIVERY', status: 550 }, { method: 'DELIVERY', latency: 2000 }], 'smtp'],
-  ['SMS: límite de tasa', [{ method: 'POST', status: 429 }], 'twilio'],
-  ['SMS: número inválido', [{ method: 'POST', status: 400 }], 'twilio'],
-  ['SMS no entregado', [{ method: 'DELIVERY', code: 30003 }], 'twilio'],
-  ['Llamada de estado lenta', [{ method: 'DELIVERY', latency: 5000 }], 'twilio'],
+  [tr('Servidor de correo caído'), [{ method: 'CONNECT', status: 421 }], 'smtp'],
+  [tr('Credenciales rechazadas'), [{ method: 'AUTH', status: 535 }], 'smtp'],
+  [tr('Destinatario rechazado'), [{ method: 'RCPT', status: 550 }], 'smtp'],
+  [tr('Buzón lleno, temporal'), [{ method: 'RCPT', status: 452 }], 'smtp'],
+  [tr('Fallo tras el DATA'), [{ method: 'DATA', status: 451 }], 'smtp'],
+  [tr('Conexión cortada'), [{ method: 'DATA', abort: true }], 'smtp'],
+  [tr('Latencia de 3 s'), [{ latency: 3000 }], 'smtp'],
+  [tr('Rebote tras aceptar'), [{ method: 'DELIVERY', status: 550 }, { method: 'DELIVERY', latency: 2000 }], 'smtp'],
+  [tr('SMS: límite de tasa'), [{ method: 'POST', status: 429 }], 'twilio'],
+  [tr('SMS: número inválido'), [{ method: 'POST', status: 400 }], 'twilio'],
+  [tr('SMS no entregado'), [{ method: 'DELIVERY', code: 30003 }], 'twilio'],
+  [tr('Llamada de estado lenta'), [{ method: 'DELIVERY', latency: 5000 }], 'twilio'],
 ];
 const KEEP = 200;
 
@@ -50,17 +51,17 @@ export function Mocks({ parts }: { parts: string[] }) {
 
   const head = (
     <div className="head">
-      <div><h1>Mocks y fallos</h1><p>Cada dependencia que el interceptor tiene delante: su modo, sus fallos y las peticiones que recibe en vivo. Los fallos se aplican al momento y solo pasan a <span className="mono">envs/{env ?? '<entorno>'}.yaml</span> al guardarlos.</p></div>
-      {list.length > 1 && <div className="actions"><nav className="seg" aria-label="Entorno">{list.map((e) => <a key={e.env} href={href('mocks', e.env)} aria-current={e.env === env ? 'page' : undefined}>{e.env}</a>)}</nav></div>}
+      <div><h1>{tr('Mocks y fallos')}</h1><p>{tr('Cada dependencia que el interceptor tiene delante: su modo, sus fallos y las peticiones que recibe en vivo. Los fallos se aplican al momento y solo pasan a')}{' '}<span className="mono">envs/{env ?? tr('<entorno>')}.yaml</span>{' '}{tr('al guardarlos.')}</p></div>
+      {list.length > 1 && <div className="actions"><nav className="seg" aria-label={tr('Entorno')}>{list.map((e) => <a key={e.env} href={href('mocks', e.env)} aria-current={e.env === env ? 'page' : undefined}>{e.env}</a>)}</nav></div>}
     </div>
   );
   if (envs.error) return <div className="page wide">{head}<div className="notice" role="alert"><CircleX />{envs.error}</div></div>;
-  if (envs.data && !env) return <div className="page wide">{head}<section className="panel"><div className="empty">Este workspace no tiene entornos. Crea uno en <a className="rowlink" href={href('envs')}>Entornos</a>: el interceptor nace con su primer arranque.</div></section></div>;
+  if (envs.data && !env) return <div className="page wide">{head}<section className="panel"><div className="empty">{tr('Este workspace no tiene entornos. Crea uno en')}{' '}<a className="rowlink" href={href('envs')}>{tr('Entornos')}</a>{tr(': el interceptor nace con su primer arranque.')}</div></section></div>;
   if (m.error) {
     const fresh = /has not been started/.test(m.error);
     return (
       <div className="page wide">{head}
-        {fresh ? <section className="panel"><div className="empty"><span>{env} no se ha levantado todavía: el interceptor y sus reglas nacen con el primer arranque.</span><span>Levántalo en <a className="rowlink" href={href('envs', env!)}>Entornos</a> o con <code>laru up {env}</code>.</span></div></section>
+        {fresh ? <section className="panel"><div className="empty"><span>{env}{' '}{tr('no se ha levantado todavía: el interceptor y sus reglas nacen con el primer arranque.')}</span><span>{tr('Levántalo en')}{' '}<a className="rowlink" href={href('envs', env!)}>{tr('Entornos')}</a>{' '}{tr('o con')}{' '}<code>laru up {env}</code>.</span></div></section>
           : <div className="notice" role="alert"><CircleX />{m.error}</div>}
       </div>
     );
@@ -76,15 +77,15 @@ export function Mocks({ parts }: { parts: string[] }) {
       {unsaved && (
         <div className="notice warn">
           <Zap />
-          <div className="grow"><b>Hay fallos en vivo que no están en envs/{env}.yaml.</b> El próximo arranque de {env} los pierde si no los guardas.</div>
-          <ActionButton icon={Save} sm run={() => api('/api/mocks/save', { method: 'POST', body: { env } }).then(m.reload)} done={() => `Fallos guardados en envs/${env}.yaml`}>Guardar en el entorno</ActionButton>
+          <div className="grow"><b>{tr('Hay fallos en vivo que no están en envs/')}{env}.yaml.</b>{' '}{tr('El próximo arranque de')}{' '}{env}{' '}{tr('los pierde si no los guardas.')}</div>
+          <ActionButton icon={Save} sm run={() => api('/api/mocks/save', { method: 'POST', body: { env } }).then(m.reload)} done={() => tr('Fallos guardados en envs/{env}.yaml', { env })}>{tr('Guardar en el entorno')}</ActionButton>
         </div>
       )}
       {!d.routes.length ? (
-        <section className="panel"><div className="empty">El interceptor de {env} no tiene ninguna dependencia delante. Se pone delante de cada servicio que otro llama por su nombre.</div></section>
+        <section className="panel"><div className="empty">{tr('El interceptor de')}{' '}{env}{' '}{tr('no tiene ninguna dependencia delante. Se pone delante de cada servicio que otro llama por su nombre.')}</div></section>
       ) : (
         <div className="mocks">
-          <nav className="env-list dep-list" aria-label="Dependencias">
+          <nav className="env-list dep-list" aria-label={tr('Dependencias')}>
             {d.routes.map((r) => {
               const mock = d.rules.mocks[r.svc];
               const n = d.rules.faults[r.svc]?.length ?? 0;
@@ -93,7 +94,7 @@ export function Mocks({ parts }: { parts: string[] }) {
                 <a key={r.svc} href={href('mocks', env!, r.svc)} aria-current={r === route ? 'page' : undefined}>
                   <Icon className={n ? 'ic-fault' : undefined} aria-hidden="true" />
                   <b className="mono">{r.svc}</b>
-                  <span>{r.proto.toUpperCase()} · {mock ? `mock: ${MOCK_MODE[mock.mode]?.label.toLowerCase() ?? mock.mode}` : 'real'}{n ? ` · ${plural(n, 'fallo', 'fallos')}` : ''}</span>
+                  <span>{r.proto.toUpperCase()} · {mock ? tr('mock: {p0}', { p0: MOCK_MODE[mock.mode]?.label.toLowerCase() ?? mock.mode }) : tr('real')}{n ? ` · ${plural(n, tr('fallo'), tr('fallos'))}` : ''}</span>
                 </a>
               );
             })}
@@ -114,18 +115,18 @@ function Dependency({ env, route, data, peers, reload }: { env: string; route: T
       <div className="dep-head">
         <h2 className="mono">{svc}</h2>
         <span className="chip">{route.proto.toUpperCase()} {route.ports.map((p) => `:${p}`).join(' ')}</span>
-        <span className="faint dep-up">Reenvía a <span className="mono">{route.upstream}</span></span>
+        <span className="faint dep-up">{tr('Reenvía a')}{' '}<span className="mono">{route.upstream}</span></span>
       </div>
 
       <section className="panel block" aria-labelledby="mode-h">
-        <header><h3 id="mode-h">Modo</h3><div className="meta">{mock ? (mock.dir ? <span>Contrato y grabaciones en <span className="mono">mocks/{mock.dir}</span></span> : null) : 'Sin mock'}</div></header>
+        <header><h3 id="mode-h">{tr('Modo')}</h3><div className="meta">{mock ? (mock.dir ? <span>{tr('Contrato y grabaciones en')}{' '}<span className="mono">mocks/{mock.dir}</span></span> : null) : tr('Sin mock')}</div></header>
         {mock?.mode === 'sink' ? (
-          <div className="empty"><span>{MOCK_MODE.sink.hint}</span><span>Lo que recibe se ve en <a className="rowlink" href={href('mail', env)}>Correo y mensajes</a>.</span></div>
+          <div className="empty"><span>{MOCK_MODE.sink.hint}</span><span>{tr('Lo que recibe se ve en')}{' '}<a className="rowlink" href={href('mail', env)}>{tr('Correo y mensajes')}</a>.</span></div>
         ) : mock ? <ModeControl env={env} svc={svc} mode={mock.mode} startMode={startMode} reload={reload} /> : (
           <div className="mk-none">
-            <p>Sin mock: el interceptor pasa cada petición a <span className="mono">{route.upstream}</span> y la registra (abajo, lo que recibió y respondió).</p>
-            <p className="faint">Para simularlo, añade esto a <span className="mono">envs/{env}.yaml</span> y vuelve a levantar {env}: <b>record</b> graba lo que responde el real y <b>simulate</b> lo repite sin él. Si es correo o mensajería, usa el buzón en <a className="rowlink" href={href('mail', env)}>Correo y mensajes</a>.</p>
-            <pre className="mono mk-snippet">{`mocks:\n  ${svc}:\n    mode: record`}<CopyButton value={`mocks:\n  ${svc}:\n    mode: record\n`} label="Copiar" /></pre>
+            <p>{tr('Sin mock: el interceptor pasa cada petición a')}{' '}<span className="mono">{route.upstream}</span>{' '}{tr('y la registra (abajo, lo que recibió y respondió).')}</p>
+            <p className="faint">{tr('Para simularlo, añade esto a')}{' '}<span className="mono">envs/{env}.yaml</span>{' '}{tr('y vuelve a levantar')}{' '}{env}: <b>{tr('record')}</b>{' '}{tr('graba lo que responde el real y')}{' '}<b>{tr('simulate')}</b>{' '}{tr('lo repite sin él. Si es correo o mensajería, usa el buzón en')}{' '}<a className="rowlink" href={href('mail', env)}>{tr('Correo y mensajes')}</a>.</p>
+            <pre className="mono mk-snippet">{tr('mocks:\n  {svc}:\n    mode: record', { svc })}<CopyButton value={`mocks:\n  ${svc}:\n    mode: record\n`} label={tr('Copiar')} /></pre>
           </div>
         )}
       </section>
@@ -145,15 +146,15 @@ function ModeControl({ env, svc, mode, startMode, reload }: { env: string; svc: 
     if (busy || to === mode) return;
     setBusy(to);
     setError('');
-    try { await api('/api/mocks/mode', { method: 'POST', body: { env, service: svc, mode: to } }); toast(`${svc} en modo ${MOCK_MODE[to].label.toLowerCase()}`); reload(); } catch (e) { setError((e as Error).message); } finally { setBusy(null); }
+    try { await api('/api/mocks/mode', { method: 'POST', body: { env, service: svc, mode: to } }); toast(tr('{svc} en modo {toLowerCase}', { svc, toLowerCase: MOCK_MODE[to].label.toLowerCase() })); reload(); } catch (e) { setError((e as Error).message); } finally { setBusy(null); }
   };
   return (
     <div className="body mode">
-      <div className="seg" role="group" aria-label={`Modo del mock de ${svc}`}>
+      <div className="seg" role="group" aria-label={tr('Modo del mock de {svc}', { svc })}>
         {MODES.map((k) => <button key={k} type="button" aria-pressed={k === mode} aria-busy={busy === k || undefined} onClick={() => set(k)}>{MOCK_MODE[k].label}</button>)}
       </div>
       <p className="mode-hint" aria-live="polite">{MOCK_MODE[mode]?.hint}</p>
-      {startMode && startMode !== mode && <p className="faint mode-hint">En vivo hasta el próximo arranque: <span className="mono">envs/{env}.yaml</span> arranca en {MOCK_MODE[startMode]?.label.toLowerCase() ?? startMode}.</p>}
+      {startMode && startMode !== mode && <p className="faint mode-hint">{tr('En vivo hasta el próximo arranque:')}{' '}<span className="mono">envs/{env}.yaml</span>{' '}{tr('arranca en')}{' '}{MOCK_MODE[startMode]?.label.toLowerCase() ?? startMode}.</p>}
       {error && <p className="form-err" role="alert">{error}</p>}
     </div>
   );
@@ -166,12 +167,12 @@ const kindOf = (r: FaultRule): Kind => (r.latency !== undefined ? 'latency' : r.
 function problems(r: FaultRule): Partial<Record<keyof FaultRule, string>> {
   const out: Partial<Record<keyof FaultRule, string>> = {};
   const k = kindOf(r);
-  if (k === 'latency' && !(r.latency! > 0)) out.latency = 'Milisegundos, más que cero.';
-  if (k === 'status' && !(r.status! >= 100 && r.status! <= 599)) out.status = 'Un estado HTTP, de 100 a 599.';
-  if (k === 'bandwidth' && !(r.bandwidth! > 0)) out.bandwidth = 'Bytes por segundo, más que cero.';
-  if (k === 'code' && !(Number.isInteger(r.code) && r.code! >= 1 && r.code! <= 99999)) out.code = 'El código del proveedor, por ejemplo 30003.';
-  if (r.p !== undefined && !(r.p >= 0 && r.p <= 1)) out.p = 'De 0 a 100 %.';
-  if (r.path) { try { new RegExp(r.path); } catch { out.path = 'No es una expresión regular válida.'; } }
+  if (k === 'latency' && !(r.latency! > 0)) out.latency = tr('Milisegundos, más que cero.');
+  if (k === 'status' && !(r.status! >= 100 && r.status! <= 599)) out.status = tr('Un estado HTTP, de 100 a 599.');
+  if (k === 'bandwidth' && !(r.bandwidth! > 0)) out.bandwidth = tr('Bytes por segundo, más que cero.');
+  if (k === 'code' && !(Number.isInteger(r.code) && r.code! >= 1 && r.code! <= 99999)) out.code = tr('El código del proveedor, por ejemplo 30003.');
+  if (r.p !== undefined && !(r.p >= 0 && r.p <= 1)) out.p = tr('De 0 a 100 %.');
+  if (r.path) { try { new RegExp(r.path); } catch { out.path = tr('No es una expresión regular válida.'); } }
   return out;
 }
 
@@ -201,12 +202,12 @@ function FaultEditor({ env, svc, live, peers, onApplied, sink }: { env: string; 
   const put = (i: number, patch: Partial<FaultRule>) => setDraft((l) => l.map((r, j) => (j === i ? clean({ ...r, ...patch }) : r)));
   const apply = async () => {
     if (busy || !dirty) return;
-    if (bad) { setError('Corrige los campos marcados antes de aplicar.'); return; }
+    if (bad) { setError(tr('Corrige los campos marcados antes de aplicar.')); return; }
     setBusy(true);
     setError('');
     try {
       await api('/api/mocks/faults', { method: 'POST', body: { env, service: svc, rules: draft } });
-      toast(draft.length ? `${plural(draft.length, 'fallo aplicado', 'fallos aplicados')} a ${svc}, en vivo` : `${svc} sin fallos`);
+      toast(draft.length ? tr('{plural} a {svc}, en vivo', { plural: plural(draft.length, tr('fallo aplicado'), tr('fallos aplicados')), svc }) : tr('{svc} sin fallos', { svc }));
       onApplied();
     } catch (e) { setError((e as Error).message); setBusy(false); }
   };
@@ -214,11 +215,11 @@ function FaultEditor({ env, svc, live, peers, onApplied, sink }: { env: string; 
   return (
     <section className="panel block" aria-labelledby={`${ids}-h`} ref={box}>
       <header>
-        <h3 id={`${ids}-h`}>Fallos</h3>
-        <div className="meta">{live.length ? `${plural(live.length, 'activo', 'activos')} ahora` : 'Ninguno activo'}</div>
+        <h3 id={`${ids}-h`}>{tr('Fallos')}</h3>
+        <div className="meta">{live.length ? tr('{plural} ahora', { plural: plural(live.length, tr('activo'), tr('activos')) }) : tr('Ninguno activo')}</div>
       </header>
-      <div className="presets toolbar" role="group" aria-label="Añadir un fallo">
-        <span className="faint">Añadir</span>
+      <div className="presets toolbar" role="group" aria-label={tr('Añadir un fallo')}>
+        <span className="faint">{tr('Añadir')}</span>
         {sink ? SINK_PRESETS.filter(([, , k]) => k === sink).map(([label, rules]) => <button key={label} type="button" className="flt" onClick={() => { focusRow.current = draft.length; setDraft((l) => [...l, ...rules.map((r) => ({ ...r }))]); }}><Plus />{label}</button>)
           : PRESETS.map(([label, rule]) => <button key={label} type="button" className="flt" onClick={() => { focusRow.current = draft.length; setDraft((l) => [...l, { ...rule }]); }}><Plus />{label}</button>)}
       </div>
@@ -226,13 +227,13 @@ function FaultEditor({ env, svc, live, peers, onApplied, sink }: { env: string; 
         <ol className="faults">
           {draft.map((r, i) => <FaultRow key={i} sink={sink} n={i + 1} r={r} peers={peers} peersId={`${ids}-peers`} ids={`${ids}-${i}`} put={(p) => put(i, p)} remove={() => { focusRow.current = i; setDraft((l) => l.filter((_, j) => j !== i)); }} />)}
         </ol>
-      ) : <div className="empty">Sin fallos: {svc} responde como siempre. Añade uno arriba; nada cambia hasta «Aplicar en vivo».</div>}
+      ) : <div className="empty">{tr('Sin fallos:')}{' '}{svc}{' '}{tr('responde como siempre. Añade uno arriba; nada cambia hasta «Aplicar en vivo».')}</div>}
       <datalist id={`${ids}-peers`}>{peers.map((p) => <option key={p} value={p} />)}</datalist>
       <footer className="fault-foot">
-        <span className="faint grow" aria-live="polite">{error ? '' : dirty ? 'Cambios sin aplicar' : live.length ? 'Aplicado en vivo' : ''}</span>
+        <span className="faint grow" aria-live="polite">{error ? '' : dirty ? tr('Cambios sin aplicar') : live.length ? tr('Aplicado en vivo') : ''}</span>
         {error && <p className="form-err grow" role="alert">{error}</p>}
-        <button type="button" className="btn sm" aria-disabled={!dirty || busy || undefined} onClick={() => { if (dirty && !busy) { setDraft(live); setError(''); } }}>Descartar</button>
-        <button type="button" className="btn sm primary" aria-disabled={!dirty || busy || undefined} onClick={apply}><Zap className={busy ? 'spin' : undefined} />Aplicar en vivo</button>
+        <button type="button" className="btn sm" aria-disabled={!dirty || busy || undefined} onClick={() => { if (dirty && !busy) { setDraft(live); setError(''); } }}>{tr('Descartar')}</button>
+        <button type="button" className="btn sm primary" aria-disabled={!dirty || busy || undefined} onClick={apply}><Zap className={busy ? 'spin' : undefined} />{tr('Aplicar en vivo')}</button>
       </footer>
     </section>
   );
@@ -260,18 +261,18 @@ function FaultRow({ n, r, peers, peersId, ids, put, remove, sink }: { sink?: 'sm
       <div className="fault-h">
         <span className="num faint">{n}</span>
         <b>{faultText(r)}</b>
-        <button type="button" className="icon-btn" onClick={remove} aria-label={`Quitar el fallo ${n}: ${faultText(r)}`} title="Quitar"><Trash2 /></button>
+        <button type="button" className="icon-btn" onClick={remove} aria-label={tr('Quitar el fallo {n}: {faultText}', { n, faultText: faultText(r) })} title={tr('Quitar')}><Trash2 /></button>
       </div>
       <div className="fault-f">
-        {k === 'latency' && field('latency', 'Latencia, ms', <input id={`${ids}-latency`} type="number" min={1} step={50} inputMode="numeric" value={r.latency ?? ''} onChange={(e) => put({ latency: num(e.target.value) ?? 0 })} {...described('latency')} />)}
-        {k === 'status' && field('status', 'Responde', <input id={`${ids}-status`} type="number" min={100} max={599} inputMode="numeric" value={r.status ?? ''} onChange={(e) => put({ status: num(e.target.value) ?? 0 })} {...described('status')} />)}
-        {k === 'bandwidth' && field('bandwidth', 'Bytes por segundo', <input id={`${ids}-bandwidth`} type="number" min={1} step={1024} inputMode="numeric" value={r.bandwidth ?? ''} onChange={(e) => put({ bandwidth: num(e.target.value) ?? 0 })} {...described('bandwidth')} />)}
-        {k === 'bandwidth' && field('slowAfter', 'A partir del byte', <input id={`${ids}-slowAfter`} type="number" min={0} inputMode="numeric" value={r.slowAfter ?? ''} onChange={(e) => put({ slowAfter: num(e.target.value) })} />)}
+        {k === 'latency' && field('latency', tr('Latencia, ms'), <input id={`${ids}-latency`} type="number" min={1} step={50} inputMode="numeric" value={r.latency ?? ''} onChange={(e) => put({ latency: num(e.target.value) ?? 0 })} {...described('latency')} />)}
+        {k === 'status' && field('status', tr('Responde'), <input id={`${ids}-status`} type="number" min={100} max={599} inputMode="numeric" value={r.status ?? ''} onChange={(e) => put({ status: num(e.target.value) ?? 0 })} {...described('status')} />)}
+        {k === 'bandwidth' && field('bandwidth', tr('Bytes por segundo'), <input id={`${ids}-bandwidth`} type="number" min={1} step={1024} inputMode="numeric" value={r.bandwidth ?? ''} onChange={(e) => put({ bandwidth: num(e.target.value) ?? 0 })} {...described('bandwidth')} />)}
+        {k === 'bandwidth' && field('slowAfter', tr('A partir del byte'), <input id={`${ids}-slowAfter`} type="number" min={0} inputMode="numeric" value={r.slowAfter ?? ''} onChange={(e) => put({ slowAfter: num(e.target.value) })} />)}
         {field('p', 'Probabilidad, %', <input id={`${ids}-p`} type="number" min={0} max={100} inputMode="numeric" value={r.p === undefined ? '' : Math.round(r.p * 100)} placeholder="100" onChange={(e) => put({ p: e.target.value === '' ? undefined : Number(e.target.value) / 100 })} {...described('p')} />)}
-        {k === 'code' && field('code', 'Código del proveedor', <input id={`${ids}-code`} type="number" min={1} max={99999} inputMode="numeric" value={r.code ?? ''} onChange={(e) => put({ code: num(e.target.value) ?? 0 })} {...described('code')} />)}
-        {field('method', sink ? 'Etapa' : 'Método', <input id={`${ids}-method`} className="mono" value={r.method ?? ''} placeholder="Todos" autoComplete="off" spellCheck={false} onChange={(e) => put({ method: e.target.value.toUpperCase() || undefined })} />)}
-        {field('path', sink ? 'Destinatario, expresión regular' : 'Ruta, expresión regular', <input id={`${ids}-path`} className="mono" value={r.path ?? ''} placeholder="Todas" autoComplete="off" spellCheck={false} onChange={(e) => put({ path: e.target.value || undefined })} {...described('path')} />)}
-        {field('from', 'Desde el servicio', <input id={`${ids}-from`} className="mono" list={peers.length ? peersId : undefined} value={r.from ?? ''} placeholder="Cualquiera" autoComplete="off" spellCheck={false} onChange={(e) => put({ from: e.target.value || undefined })} />)}
+        {k === 'code' && field('code', tr('Código del proveedor'), <input id={`${ids}-code`} type="number" min={1} max={99999} inputMode="numeric" value={r.code ?? ''} onChange={(e) => put({ code: num(e.target.value) ?? 0 })} {...described('code')} />)}
+        {field('method', sink ? tr('Etapa') : tr('Método'), <input id={`${ids}-method`} className="mono" value={r.method ?? ''} placeholder={tr('Todos')} autoComplete="off" spellCheck={false} onChange={(e) => put({ method: e.target.value.toUpperCase() || undefined })} />)}
+        {field('path', sink ? tr('Destinatario, expresión regular') : tr('Ruta, expresión regular'), <input id={`${ids}-path`} className="mono" value={r.path ?? ''} placeholder={tr('Todas')} autoComplete="off" spellCheck={false} onChange={(e) => put({ path: e.target.value || undefined })} {...described('path')} />)}
+        {field('from', tr('Desde el servicio'), <input id={`${ids}-from`} className="mono" list={peers.length ? peersId : undefined} value={r.from ?? ''} placeholder={tr('Cualquiera')} autoComplete="off" spellCheck={false} onChange={(e) => put({ from: e.target.value || undefined })} />)}
       </div>
     </li>
   );
@@ -289,17 +290,17 @@ function Answered({ env, svc }: { env: string; svc: string }) {
   const ops = t.data?.operations ?? [];
   return (
     <section className="panel block" aria-labelledby="ans-h">
-      <header><h3 id="ans-h">Lo que respondió</h3><div className="meta">{t.data ? `${plural(t.data.scanned, 'petición', 'peticiones')} grabadas${t.data.partial ? ', de lo último' : ''}` : ''}</div></header>
+      <header><h3 id="ans-h">{tr('Lo que respondió')}</h3><div className="meta">{t.data ? tr('{plural} grabadas{p1}', { plural: plural(t.data.scanned, tr('petición'), tr('peticiones')), p1: t.data.partial ? tr(', de lo último') : '' }) : ''}</div></header>
       {!t.data ? <div className="body"><Skeleton lines={3} /></div> : !ops.length ? (
-        <div className="empty"><span>Todavía nadie la ha llamado en {env}: cuando un flujo, el navegador u otro servicio lo haga, aquí sale cada endpoint con lo que respondió.</span></div>
+        <div className="empty"><span>{tr('Todavía nadie la ha llamado en')}{' '}{env}{tr(': cuando un flujo, el navegador u otro servicio lo haga, aquí sale cada endpoint con lo que respondió.')}</span></div>
       ) : (
         <div className="scroll-x"><table className="t mk-ops">
-          <thead><tr><th>Endpoint</th><th className="r">Veces</th><th>Respuestas</th><th className="r">Típica</th><th>Última</th></tr></thead>
+          <thead><tr><th>{tr('Endpoint')}</th><th className="r">{tr('Veces')}</th><th>{tr('Respuestas')}</th><th className="r">{tr('Típica')}</th><th>{tr('Última')}</th></tr></thead>
           <tbody>{ops.map((o) => (
             <tr key={`${o.method} ${o.path}`}>
               <td className="wrap mono">{o.method ? <><span className={`m-${o.method.toLowerCase()}`}>{o.method}</span> {o.path}</> : <><Kind k={o.kind as TrafficRecord['kind']} /> {o.path}</>}</td>
               <td className="r num">{o.count}</td>
-              <td><span className="mk-sts">{Object.entries(o.statuses).sort(([a], [b]) => a.localeCompare(b)).map(([st, n]) => <span key={st} className={`chip${/^[45]|error/.test(st) ? ' err' : /^2/.test(st) ? ' ok' : ''}`}>{st === '—' ? 'sin estado' : st} × {n}</span>)}</span></td>
+              <td><span className="mk-sts">{Object.entries(o.statuses).sort(([a], [b]) => a.localeCompare(b)).map(([st, n]) => <span key={st} className={`chip${/^[45]|error/.test(st) ? ' err' : /^2/.test(st) ? ' ok' : ''}`}>{st === '—' ? tr('sin estado') : st} × {n}</span>)}</span></td>
               <td className="r num faint">{o.p50 !== undefined ? secs(o.p50) : '—'}</td>
               <td className="num faint">{time(o.lastAt).slice(0, 8)}</td>
             </tr>
@@ -315,8 +316,8 @@ function Exchange({ r }: { r: TrafficRecord }) {
   const head = (h?: Record<string, string>) => (h ? Object.entries(h).map(([k, v]) => `${k}: ${v}`).join('\n') : '');
   return (
     <div className="mk-ex">
-      <div><h4>Petición</h4>{r.reqHeaders && <pre className="mono">{head(r.reqHeaders)}</pre>}{r.req?.text ? <pre className="mono">{r.req.text}</pre> : r.req?.note ? <p className="faint">{r.req.note}</p> : r.req?.bytes ? <p className="faint">{r.req.bytes} bytes sin texto</p> : <p className="faint">Sin cuerpo.</p>}</div>
-      <div><h4>Respuesta {r.status !== undefined && <HttpStatus n={r.status} />}</h4>{r.resHeaders && <pre className="mono">{head(r.resHeaders)}</pre>}{r.res?.text ? <pre className="mono">{r.res.text}</pre> : r.res?.note ? <p className="faint">{r.res.note}</p> : r.res?.bytes ? <p className="faint">{r.res.bytes} bytes sin texto</p> : r.peek ? <pre className="mono">{[r.peek.up, r.peek.down].filter(Boolean).join('\n…\n')}</pre> : <p className="faint">Sin cuerpo.</p>}</div>
+      <div><h4>{tr('Petición')}</h4>{r.reqHeaders && <pre className="mono">{head(r.reqHeaders)}</pre>}{r.req?.text ? <pre className="mono">{r.req.text}</pre> : r.req?.note ? <p className="faint">{r.req.note}</p> : r.req?.bytes ? <p className="faint">{r.req.bytes}{' '}{tr('bytes sin texto')}</p> : <p className="faint">{tr('Sin cuerpo.')}</p>}</div>
+      <div><h4>{tr('Respuesta')}{' '}{r.status !== undefined && <HttpStatus n={r.status} />}</h4>{r.resHeaders && <pre className="mono">{head(r.resHeaders)}</pre>}{r.res?.text ? <pre className="mono">{r.res.text}</pre> : r.res?.note ? <p className="faint">{r.res.note}</p> : r.res?.bytes ? <p className="faint">{r.res.bytes}{' '}{tr('bytes sin texto')}</p> : r.peek ? <pre className="mono">{[r.peek.up, r.peek.down].filter(Boolean).join('\n…\n')}</pre> : <p className="faint">{tr('Sin cuerpo.')}</p>}</div>
     </div>
   );
 }
@@ -338,7 +339,7 @@ function Live({ env, svc, peers }: { env: string; svc: string; peers: Record<str
       if (hold.current) return;
       let r: TrafficRecord;
       try { r = JSON.parse(m.data) as TrafficRecord; } catch { return; }
-      if (first) { first = false; setSaid(`Llegan peticiones a ${svc}`); }
+      if (first) { first = false; setSaid(tr('Llegan peticiones a {svc}', { svc })); }
       setItems((l) => [r, ...l].slice(0, KEEP));
     };
     return () => es.close();
@@ -348,19 +349,19 @@ function Live({ env, svc, peers }: { env: string; svc: string; peers: Record<str
   return (
     <section className="panel" aria-labelledby="live-h">
       <header>
-        <h3 id="live-h">Peticiones</h3>
+        <h3 id="live-h">{tr('Peticiones')}</h3>
         <div className="meta">
           <span className="sr-only" aria-live="polite">{said}</span>
-          <span className="num">{all.length ? `${plural(all.length, 'petición', 'peticiones')}, las últimas` : ''}{items.length ? ` · ${items.length} en vivo` : ''}</span>
-          <button className="btn sm" aria-pressed={paused} onClick={() => { setPaused((p) => !p); setSaid(paused ? 'Recibiendo de nuevo' : 'En pausa: lo que llegue ahora no se muestra'); }}>{paused ? <Play /> : <Pause />}{paused ? 'Seguir' : 'Pausar'}</button>
+          <span className="num">{all.length ? tr('{plural}, las últimas', { plural: plural(all.length, tr('petición'), tr('peticiones')) }) : ''}{items.length ? tr(' · {length} en vivo', { length: items.length }) : ''}</span>
+          <button className="btn sm" aria-pressed={paused} onClick={() => { setPaused((p) => !p); setSaid(paused ? tr('Recibiendo de nuevo') : tr('En pausa: lo que llegue ahora no se muestra')); }}>{paused ? <Play /> : <Pause />}{paused ? tr('Seguir') : tr('Pausar')}</button>
         </div>
       </header>
       {!all.length ? (
-        <div className="empty"><span><Plug className="inline-ic" aria-hidden="true" /> {paused ? 'En pausa.' : `Nadie ha llamado a ${svc} todavía.`} Aparecen en cuanto alguien la llama: un flujo, el navegador u otro servicio.</span></div>
+        <div className="empty"><span><Plug className="inline-ic" aria-hidden="true" /> {paused ? tr('En pausa.') : tr('Nadie ha llamado a {svc} todavía.', { svc })}{' '}{tr('Aparecen en cuanto alguien la llama: un flujo, el navegador u otro servicio.')}</span></div>
       ) : (
         <div className="scroll-x run-list">
           <table className="t mk-req">
-            <thead><tr><th>Hora</th><th>Desde</th><th>Petición</th><th>Respuesta</th><th className="r">Duración</th></tr></thead>
+            <thead><tr><th>{tr('Hora')}</th><th>{tr('Desde')}</th><th>{tr('Petición')}</th><th>{tr('Respuesta')}</th><th className="r">{tr('Duración')}</th></tr></thead>
             <tbody>
               {all.map((r) => {
                 const ok = !r.error && (r.status === undefined || r.status < 500);
@@ -372,10 +373,10 @@ function Live({ env, svc, peers }: { env: string; svc: string; peers: Record<str
                       <td className="wrap mono req">{r.method ? <><span className={`m-${r.method.toLowerCase()}`}>{r.method}</span> {r.path ?? '/'}{r.query ? `?${r.query}` : ''}</> : <><Kind k={r.kind} />{r.kind === 'tcp' ? ` :${r.port}` : ''}</>}</td>
                       <td>
                         {r.error ? <Status state="err">{r.error}</Status> : r.status !== undefined ? (ok ? <HttpStatus n={r.status} /> : <Status state="err"><HttpStatus n={r.status} /></Status>) : <span className="faint">—</span>}
-                        {r.fault && <span className="chip run"><Zap />{r.fault}</span>}
-                        {r.mock && <span className="chip">mock: {r.mock}</span>}
-                        {r.msg && <a className="chip accent" href={href('mail', env)} onClick={(e) => e.stopPropagation()}>{r.msg.kind === 'mail' ? 'correo' : 'mensaje'} a {r.msg.to}</a>}
-                        {r.drift?.length ? <span className="chip err" title={r.drift.join('\n')}>fuera de contrato</span> : null}
+                        {r.fault && <span className="chip run"><Zap />{faultLabel(r.fault)}</span>}
+                        {r.mock && <span className="chip">{tr('mock:')}{' '}{r.mock}</span>}
+                        {r.msg && <a className="chip accent" href={href('mail', env)} onClick={(e) => e.stopPropagation()}>{r.msg.kind === 'mail' ? tr('correo') : tr('mensaje')}{' '}{tr('a')}{' '}{r.msg.to}</a>}
+                        {r.drift?.length ? <span className="chip err" title={r.drift.join('\n')}>{tr('fuera de contrato')}</span> : null}
                       </td>
                       <td className="r num faint">{r.t1 !== undefined ? secs(r.t1 - r.t0) : '—'}</td>
                     </tr>

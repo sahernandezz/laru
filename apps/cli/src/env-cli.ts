@@ -3,12 +3,12 @@ import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { userInfo } from 'node:os';
 import { join } from 'node:path';
-import { acceptFinding, agentGuide, agentRoot, agreementText, envOf, loadAgreement, outsideNote, checkWorkspace, preBash, stopCheck, shareEvidence, changesFromWorktrees, computeFindings, findWorkspace, impact, loadGraph, loadKnowledge, loadWorkspace, postEdit, preEdit, renderImpact, scaffoldSpec, specPath, workspaceChanges, WorkspaceError, type Impact, type Workspace } from '@laru/core';
+import { acceptFinding, agentGuide, agentRoot, agreementText, onPrompt, envOf, loadAgreement, outsideNote, checkWorkspace, preBash, stopCheck, shareEvidence, changesFromWorktrees, computeFindings, findWorkspace, impact, loadGraph, loadKnowledge, loadWorkspace, postEdit, preEdit, renderImpact, scaffoldSpec, specPath, workspaceChanges, WorkspaceError, type Impact, type Workspace } from '@laru/core';
 import { endpointMatcher, sessionSummary, summarize } from '@laru/trace';
-import { flowEnvDown, flowEnvStatus, flowEnvUp, instanceOf,
+import { execIn, flowEnvDown, flowEnvStatus, flowEnvUp, instanceOf,
   connection, docker, dockerAvailable, dockerHint, inWsl, down, envMasker, mongo, rabbit, redis, query as dbQuery, reset as dbReset, schema as dbSchema, snapshot as dbSnapshot, storeOf, stores as dbStores, storePassword, envDir, envFile, EnvError, exportKey, hybridEnv, importEnvFile, importKey, interpolations, listEnvs, listInstances, logs, missingVars, readState, revealVar,
   sqs, mail, sweepOrphans, calibrate, writeConfig, clearFaults, readRules, saveFaults, setFaults, setMockMode, kafka, storage, cancelRun, compareRuns, failedFlows, markSession, openSessionBrowser, runSessionBrowser, sessionToFlow, sessionToScenario, sessionTrace, startSession, stopSession, applyScenario, listScenarios, provisionScenario, ScenarioConfirm, scenarioState, approveBehavior, behaviorIn, readApproved, fidelity, fidelityText, listFlows, listRuns, readRun, readTrace, runFlows, runsDir, runTraces,
-  rebuildText, setVar, status, unsetVar, up, varTable, vaultKey, envFor, envProjects, flowProjects, loadEnvSpec, specFrom, ENV_NAME, diskReport, prune, heldByEnvs, envLock, runnerFiles, withLock, workspaceKey, type ComposeDoc, type EnvEvent, type EnvStatus, type Level, type PruneWhat, type VaultService,
+  rebuildText, setVar, status, unsetVar, up, varTable, vaultKey, vaultServices, brokersOf, envFor, envProjects, flowProjects, loadEnvSpec, specFrom, ENV_NAME, diskReport, prune, heldByEnvs, envLock, runnerFiles, withLock, workspaceKey, type ComposeDoc, type EnvEvent, type EnvStatus, type Level, type PruneWhat, type VaultService,
 } from '@laru/runtime';
 
 type Out = { log: (s: string) => void; err: (s: string) => void };
@@ -53,18 +53,6 @@ async function readValue(): Promise<string> {
   } finally { process.stdin.setRawMode(false); process.stdin.pause(); process.stderr.write('\n'); }
 }
 
-/** The env's services as the vault sees them, from the last import of its compose (a joint env's: with each one's member env). */
-export function vaultServices(w: Workspace, env: string): VaultService[] {
-  const f = join(envDir(w, env), 'normalized.json');
-  if (!existsSync(f)) return [];
-  const doc = JSON.parse(readFileSync(f, 'utf8')) as ComposeDoc & { 'x-laru'?: { envOf: Record<string, string>; composeOf: Record<string, string> }; 'x-keelson'?: { envOf: Record<string, string>; composeOf: Record<string, string> } }; // legacy-name
-  const x = doc['x-laru'] ?? doc['x-keelson']; // legacy-name: an env brought up before the rename
-  return Object.entries(doc.services).map(([name, s]) => ({
-    name, built: Boolean(s.build), interpolations: interpolations(s),
-    environment: Array.isArray(s.environment) ? Object.fromEntries(s.environment.map((e: string) => { const i = e.indexOf('='); return i < 0 ? [e, null] : [e.slice(0, i), e.slice(i + 1)]; })) : { ...(s.environment ?? {}) },
-    ...(x?.envOf[name] ? { env: x.envOf[name] } : {}), ...(x?.composeOf[name] && x.composeOf[name] !== name ? { compose: x.composeOf[name] } : {}),
-  }));
-}
 
 /** Flows whose projects no env runs together (with several projects). */
 export function envGaps(w: Workspace, g: ReturnType<typeof graphOrNull>): Array<{ flow: string; projects: string[] }> {
@@ -109,12 +97,6 @@ export function lastResults(w: Workspace): Record<string, string> {
 }
 
 export type BrokerKind = 'kafka' | 'rabbitmq' | 'sqs';
-const none = (e: Error) => { if (/has no running/.test(e.message)) return null; throw e; };
-/** The brokers of an env that is up, Kafka first: «Colas» shows whichever it has. */
-export async function brokersOf(w: Workspace, env: string): Promise<Array<{ kind: BrokerKind; service: string }>> {
-  const [k, r, q] = await Promise.all([kafka.brokerOf(w, env).catch(none), rabbit.rabbitOf(w, env).catch(none), sqs.sqsOf(w, env).catch(none)]);
-  return [...(k ? [{ kind: 'kafka' as const, service: k.service }] : []), ...(r ? [{ kind: 'rabbitmq' as const, service: r.service }] : []), ...(q ? [{ kind: 'sqs' as const, service: q.service }] : [])];
-}
 /** The broker a queue command means: the one named, else the env's first (Kafka when it has both). */
 export async function pickBroker(w: Workspace, env: string, named?: string): Promise<BrokerKind> {
   if (named && named !== 'kafka' && named !== 'rabbitmq' && named !== 'sqs') throw new WorkspaceError('the broker is kafka, rabbitmq or sqs');
@@ -190,6 +172,43 @@ export async function doctorChecks(w?: Workspace): Promise<Check[]> {
 }
 
 /**
+ * The application as this workspace documents and maps it, now: what it is, its modules and processes as a tree (each
+ * with its summary), and the services and stores of the map. Read from the workspace each time, so it never goes stale.
+ */
+export function applicationText(w: Workspace): string {
+  let k; try { k = loadKnowledge(w); } catch { return ''; }
+  const app = k.pieces.find((p) => p.type === 'application');
+  const kids = (id: string | null) => k.pieces.filter((p) => p.parent === id && (p.type === 'module' || p.type === 'process'));
+  const lines: string[] = [];
+  const walk = (id: string, depth: number) => {
+    for (const p of kids(id)) {
+      if (lines.length >= 40) return;
+      lines.push(`${'  '.repeat(depth)}- ${p.id} «${p.title}»: ${p.summary}`);
+      walk(p.id, depth + 1);
+    }
+  };
+  if (app) walk(app.id, 0);
+  const total = k.pieces.filter((p) => p.type === 'module' || p.type === 'process').length;
+  let g = null; try { g = loadGraph(w); } catch { /* no map yet */ }
+  const of = (t: string) => (g?.map.nodes ?? []).filter((n) => n.type === t).map((n) => n.name);
+  const services = of('service'), stores = [...of('datastore'), ...of('external')];
+  return [
+    `The application${app ? `, «${app.title}»: ${app.summary}` : ': not documented yet (knowledge_shape application, then knowledge_write).'}`,
+    ...(lines.length ? ['Its modules and processes (read one whole with `context <id>` before working on it):', ...lines, ...(total > lines.length ? [`- … ${total - lines.length} more: \`laru docs tree\``] : [])] : []),
+    g ? `The map (read from the code): services ${services.join(', ') || '—'}; stores and externals ${stores.join(', ') || '—'}.` : 'No map yet: `laru map` reads the code.',
+  ].join('\n');
+}
+
+/** How each everyday thing is done here, with Laru: what an agent needs at hand from its first request. */
+const HOW = [
+  'How things are done here, with Laru (its MCP tools, or `laru <command>` from the shell):',
+  '- Docker and the envs are Laru\'s, never your shell\'s (it refuses docker from your shell): env_status (`laru env status`), env_up (`laru up`: builds what changed), `laru logs <service>`, `laru exec <service> -- <command>`, db_query (`laru db query "<sql>"`), `laru queue`, `laru storage`, mail_list (`laru mail`).',
+  '- The code: `context <file|service|endpoint>` before changing it, `impact` after, then the flows it touches (`laru test --affected`).',
+  '- The documentation: knowledge_shape <type> to see what goes in a piece, knowledge_write to write it (never docs/ by hand), `ask "<question>"` and `tree` to find your way.',
+  '- A flow: flow_env up for its own env (f-<flow>), flow_run to play it there, run_evidence (`laru runs show <id>`) to read what happened.',
+].join('\n');
+
+/**
  * What an agent is told as its session starts: the workspace as it is now (where Docker is, as Laru reaches it; the envs
  * and their state; the flows), the working agreement in force, and how to begin. Said once, so it does not guess.
  */
@@ -213,7 +232,9 @@ export async function sessionStart(w: Workspace): Promise<string> {
     `Mail and messages the app sends: ${boxes.join('; ') || 'no env yet'}. The person reads them in Laru's mailbox («Correo y mensajes»), you with mail_list: a messaging mock you build publishes each message it receives to http://laru-mailbox/messages (see the guide), or a Laru sink receives them.`,
     `Flows (${flows.length}): ${flows.slice(0, 30).map((f) => `${f.slug} ${last[f.slug] ?? (f.exists ? 'never run' : 'no spec')}`).join('; ') || 'none yet'}${flows.length > 30 ? '; …' : ''}.`,
     agr ? agreementText(agr) : 'No working agreement yet: when the person tells you how they work here, write it (knowledge_write, type agreement).',
-  ].join('\n');
+    applicationText(w),
+    HOW,
+  ].filter(Boolean).join('\n');
 }
 
 /** What a config file holds: '' when there is none, null when it is there but cannot be read (never mistaken for empty). */
@@ -367,6 +388,19 @@ export async function runtimeCommand(cmd: string, args: string[], o: Opts, ws: (
       process.once('SIGINT', () => ac.abort());
       await logs(w, env, { service: args[0], tail: Number(o.tail ?? 100), follow: Boolean(o.follow), signal: ac.signal }, (svc, line) => io.log(args[0] ? line : `${svc.padEnd(20)} ${line}`));
       return 0;
+    }
+    case 'start': {
+      // what a session that started with no hook (Codex, Kiro…) asks for: the same view a hooked one starts with
+      io.log(await sessionStart(ws()));
+      return 0;
+    }
+    case 'exec': {
+      const w = ws();
+      const env = pickEnv(w, o.env as string);
+      if (!args[0] || args.length < 2) { io.err('usage: laru exec <service> [--env e] -- <command…>'); return 2; }
+      const ac = new AbortController();
+      process.once('SIGINT', () => ac.abort());
+      return await execIn(w, env, args[0], args.slice(1), (l) => io.log(l), { signal: ac.signal });
     }
     case 'run': {
       const w = ws();
@@ -699,7 +733,7 @@ export async function runtimeCommand(cmd: string, args: string[], o: Opts, ws: (
       const w = loadWorkspace(root);
       const errors = async () => { let g = null; try { g = loadGraph(w); } catch { /* no map yet */ } return (await checkWorkspace(w, g)).issues.filter((i) => i.level === 'error'); };
       if (args[0] === 'start') { io.log(JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: await sessionStart(w) } })); return 0; }
-      const out = args[0] === 'pre-edit' ? preEdit(w, input) : args[0] === 'post-edit' ? postEdit(w, input) : args[0] === 'pre-bash' ? preBash(w, input)
+      const out = args[0] === 'prompt' ? onPrompt(w, input) : args[0] === 'pre-edit' ? preEdit(w, input) : args[0] === 'post-edit' ? postEdit(w, input) : args[0] === 'pre-bash' ? preBash(w, input)
         : args[0] === 'stop' ? (input.stop_hook_active ? null : stopCheck(w, input, await errors())) : null;
       if (out) io.log(JSON.stringify(out));
       return 0;
@@ -939,7 +973,7 @@ export async function whereText(w: Workspace, run?: string): Promise<string> {
     row('workspace', d.workspace.path, d.workspace.bytes, 'versioned: laru.yaml, docs/, envs/, vault/'),
     row('state', d.state.path, d.state.bytes, 'derived and local; deleting it is safe, it is rebuilt'),
   ];
-  if (existsSync(d.runs.path)) out.push(row('runs', d.runs.path, d.runs.bytes, `${d.runs.count} runs, ${human(d.runs.videoBytes)} of video${d.runs.rawBytes ? `, ${human(d.runs.rawBytes)} of it the runner's raw copies (laru prune)` : ''}; keeps videos ${d.runs.policy.videoDays} days, runs ${d.runs.policy.runDays} days, at most ${d.runs.policy.maxGB} GB`));
+  if (existsSync(d.runs.path)) out.push(row('runs', d.runs.path, d.runs.bytes, `${d.runs.count} runs, ${human(d.runs.videoBytes)} of video${d.runs.rawBytes ? `, ${human(d.runs.rawBytes)} of it the runner's raw copies (laru prune)` : ''}; keeps each flow's last ${d.runs.policy.keepRuns} runs and, always, its last passed one; videos ${d.runs.policy.videoDays} days (never the last passed one's), at most ${d.runs.policy.maxGB} GB`));
   for (const e of d.envs) if (existsSync(e.path)) out.push(row(`env ${e.env}`, e.path, e.bytes, e.trafficBytes ? `traffic journal ${human(e.trafficBytes)}` : ''));
   for (const p of d.projects) out.push(p.problem ? `${`project ${p.name}`.padEnd(24)} ${p.problem === 'missing' ? `${p.path} is gone` : 'not on this machine: laru sync / repo link'}` : row(`project ${p.name}`, p.path!, p.bytes, p.source === 'folder' ? 'your folder (Laru only reads it)' : p.managed ? "Laru's clone" : 'your clone'));
   for (const s of d.snapshots) out.push(row(`snapshot ${s.id}`, s.path, s.bytes, s.usedBy.length ? `used by ${s.usedBy.join(', ')}` : 'unused'));

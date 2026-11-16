@@ -5,11 +5,12 @@
  */
 import { CircleX, Copy, ExternalLink, Inbox, Mail as MailIcon, MessageSquare, Paperclip, Send, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { api, apiUrl, useApi, type EnvSummary } from '../api.ts';
+import { api, apiUrl, recordedRun, useApi, useRecorded, type EnvSummary } from '../api.ts';
 import { CopyButton, Dialog, Segmented, Skeleton, toast } from '../components/ui.tsx';
 import { ago, plural } from '../lib/es.ts';
 import { href } from '../lib/route.ts';
 import { useEnvList } from '../lib/useEnvs.ts';
+import { tr, LOCALE } from '../lib/i18n.ts';
 
 interface Row { id: string; kind: 'mail' | 'sms'; t: number; from: string; to: string; subject: string; attachments: number; codes: string[]; lints: string[]; status: string; service?: string; direction?: string }
 interface Detected { name: string; kind: 'smtp' | 'sms' | 'http'; provider: string; via?: string; services: string[]; intercepted: boolean }
@@ -22,33 +23,35 @@ interface Message extends Row {
   states?: Array<{ status: string; t: number; code?: number; callback?: { http?: number; ms?: number; skipped?: string; signed: boolean | string } }>; segments?: { n: number; encoding: string; chars: number };
 }
 
-const CLASS: Record<string, string> = { local: 'del entorno', external: 'externo', production: 'producción', tracking: 'rastreo', unsubscribe: 'baja', 'blocked-scheme': 'esquema no permitido' };
-const LINT: Record<string, string> = { 'no-body': 'sin cuerpo', 'no-text-part': 'sin parte de texto', 'no-message-id': 'sin Message-ID', 'no-date': 'sin Date', 'line-over-998': 'línea de más de 998 bytes', 'bad-list-unsubscribe': 'List-Unsubscribe mal formado', 'production-link': 'enlace a producción', 'link-text-differs': 'el texto dice una cosa y el enlace va a otra' };
-const SMS: Record<string, string> = { queued: 'en cola', sent: 'enviado', delivered: 'entregado', undelivered: 'no entregado', failed: 'fallido', received: 'recibido', accepted: 'aceptado', bounced: 'rebotado' };
+const CLASS: Record<string, string> = { local: tr('del entorno'), external: tr('externo'), production: tr('producción'), tracking: tr('rastreo'), unsubscribe: tr('baja'), 'blocked-scheme': tr('esquema no permitido') };
+const LINT: Record<string, string> = { 'no-body': tr('sin cuerpo'), 'no-text-part': tr('sin parte de texto'), 'no-message-id': tr('sin Message-ID'), 'no-date': tr('sin Date'), 'line-over-998': tr('línea de más de 998 bytes'), 'bad-list-unsubscribe': tr('List-Unsubscribe mal formado'), 'production-link': tr('enlace a producción'), 'link-text-differs': tr('el texto dice una cosa y el enlace va a otra') };
+const SMS: Record<string, string> = { queued: tr('en cola'), sent: tr('enviado'), delivered: tr('entregado'), undelivered: tr('no entregado'), failed: tr('fallido'), received: tr('recibido'), accepted: tr('aceptado'), bounced: tr('rebotado') };
 const size = (n: number) => (n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(0)} KB` : `${(n / 1048576).toFixed(1)} MB`);
 
 /** The ones read in this browser only: a storage that is off just shows everything as read. */
 const seenKey = (env: string) => `laru.mail.seen.${env}`;
 const readSeen = (env: string): Set<string> => { try { return new Set(JSON.parse(localStorage.getItem(seenKey(env)) ?? '[]') as string[]); } catch { return new Set(); } };
-const copy = (t: string) => void navigator.clipboard?.writeText(t).then(() => toast('Copiado'), () => toast('No se pudo copiar'));
+const copy = (t: string) => void navigator.clipboard?.writeText(t).then(() => toast(tr('Copiado')), () => toast(tr('No se pudo copiar')));
 
 export function Mail({ parts }: { parts: string[] }) {
   const [envArg, idArg] = parts;
   const envs = useEnvList();
   const list = envs.data ?? [];
-  const env = list.find((e) => e.env === envArg)?.env ?? list.find((e) => e.state === 'ready')?.env ?? list[0]?.env;
+  // on a run's recording the env is the one recorded, on or off: what it shows is the run's
+  const recorded = useRecorded();
+  const env = recorded ? envArg : list.find((e) => e.env === envArg)?.env ?? list.find((e) => e.state === 'ready')?.env ?? list[0]?.env;
   const head = (right?: React.ReactNode) => (
     <div className="head">
-      <div><h1>Correo y mensajes de texto</h1><p>Lo que la aplicación envía en este entorno llega aquí y no sale de tu máquina, sea cual sea su sistema: lo recibe un buzón de Laru (SMTP, Twilio o la API de cualquier proveedor) o lo publica aquí el mock de mensajería que lo recibe.</p></div>
+      <div><h1>{tr('Correo y mensajes de texto')}</h1><p>{tr('Lo que la aplicación envía en este entorno llega aquí y no sale de tu máquina, sea cual sea su sistema: lo recibe un buzón de Laru (SMTP, Twilio o la API de cualquier proveedor) o lo publica aquí el mock de mensajería que lo recibe.')}</p></div>
       <div className="actions">
-        {list.length > 1 && <nav className="seg" aria-label="Entorno">{list.map((e: EnvSummary) => <a key={e.env} href={href('mail', e.env)} aria-current={e.env === env ? 'page' : undefined}>{e.env}</a>)}</nav>}
+        {!recorded && list.length > 1 && <nav className="seg" aria-label={tr('Entorno')}>{list.map((e: EnvSummary) => <a key={e.env} href={href('mail', e.env)} aria-current={e.env === env ? 'page' : undefined}>{e.env}</a>)}</nav>}
         {right}
       </div>
     </div>
   );
   if (envs.error) return <div className="page wide">{head()}<div className="notice" role="alert"><CircleX />{envs.error}</div></div>;
   if (!envs.data) return <div className="page wide">{head()}<Skeleton lines={6} /></div>;
-  if (!env) return <div className="page wide">{head()}<section className="panel"><div className="empty">Este workspace no tiene entornos. Crea uno en <a className="rowlink" href={href('envs')}>Entornos</a>.</div></section></div>;
+  if (!env) return <div className="page wide">{head()}<section className="panel"><div className="empty">{tr('Este workspace no tiene entornos. Crea uno en')}{' '}<a className="rowlink" href={href('envs')}>{tr('Entornos')}</a>.</div></section></div>;
   return <Box key={env} env={env} idArg={idArg} head={head} />;
 }
 
@@ -65,13 +68,15 @@ function Box({ env, idArg, head }: { env: string; idArg?: string; head: (right?:
 
   // the journal grows → ask again; a message that was not here before is said aloud and marked unread
   useEffect(() => {
+    // a recording does not grow: nothing new to wait for
+    if (recordedRun()) return;
     const es = new EventSource(apiUrl(`/api/mail/live?env=${encodeURIComponent(env)}`));
     es.onmessage = () => data.reload();
     return () => es.close();
   }, [env]); // eslint-disable-line react-hooks/exhaustive-deps
   const total = data.data?.counts.all ?? -1;
   useEffect(() => {
-    if (known.current >= 0 && total > known.current) setAnnounce(`${plural(total - known.current, 'mensaje nuevo', 'mensajes nuevos')}`);
+    if (known.current >= 0 && total > known.current) setAnnounce(`${plural(total - known.current, tr('mensaje nuevo'), tr('mensajes nuevos'))}`);
     if (total >= 0) known.current = total;
   }, [total]);
   const rows = data.data?.messages ?? [];
@@ -91,17 +96,17 @@ function Box({ env, idArg, head }: { env: string; idArg?: string; head: (right?:
 
   const [clearing, setClearing] = useState(false);
   const clear = async () => {
-    try { await api('/api/mail/clear', { method: 'POST', body: { env } }); toast('Buzón vaciado'); setClearing(false); open(); data.reload(); } catch (e) { toast((e as Error).message); }
+    try { await api('/api/mail/clear', { method: 'POST', body: { env } }); toast(tr('Buzón vaciado')); setClearing(false); open(); data.reload(); } catch (e) { toast((e as Error).message); }
   };
 
   const state = data.data?.state;
   const hasSinks = data.data?.sinks?.hasSinks;
-  const right = hasSinks && (data.data?.counts.all ?? 0) > 0 ? <button type="button" className="btn" onClick={() => setClearing(true)}><Trash2 />Vaciar buzón</button> : undefined;
+  const right = hasSinks && !recordedRun() && (data.data?.counts.all ?? 0) > 0 ? <button type="button" className="btn" onClick={() => setClearing(true)}><Trash2 />{tr('Vaciar buzón')}</button> : undefined;
   if (data.error) return <div className="page wide">{head()}<div className="notice" role="alert"><CircleX />{data.error}</div></div>;
   if (!data.data) return <div className="page wide">{head()}<Skeleton lines={6} /></div>;
   const d = data.data;
   if (state !== 'ready' && state !== 'starting') {
-    return <div className="page wide">{head()}<section className="panel"><div className="empty"><span>{env} no está en marcha. Un entorno parado no tiene buzón: se vacía al parar. Levántalo en <a className="rowlink" href={href('envs', env)}>Estado y servicios</a> para recibir correo y SMS.</span></div></section><Connect env={env} url="http://laru-mailbox/messages" /></div>;
+    return <div className="page wide">{head()}<section className="panel"><div className="empty"><span>{env}{' '}{tr('no está en marcha. Un entorno parado no tiene buzón: se vacía al parar. Levántalo en')}{' '}<a className="rowlink" href={href('envs', env)}>{tr('Estado y servicios')}</a>{' '}{tr('para recibir correo y SMS.')}</span></div></section><Connect env={env} url="http://laru-mailbox/messages" /></div>;
   }
   if (!hasSinks) return <div className="page wide">{head()}<Connect env={env} url={d.sinks?.mailbox ?? 'http://laru-mailbox/messages'} /><Detection env={env} info={d} reload={data.reload} /></div>;
   const smtp = d.sinks!.sinks.find((s) => s.kind === 'smtp');
@@ -109,30 +114,30 @@ function Box({ env, idArg, head }: { env: string; idArg?: string; head: (right?:
   return (
     <div className="page flush" onKeyDown={onKey}>
       <div className="mbx-head">{head(right)}
-        <p className="faint mbx-line">{d.sinks!.sinks.map((s) => s.kind === 'smtp' ? `SMTP ${s.name} ${s.containerPorts.join(' ')}` : s.kind === 'api' ? `${s.receives === 'mail' ? 'Correo' : 'SMS'} ${s.name} (API)` : `SMS ${s.name} (Twilio)`).join(' · ')} · Salida a internet: {d.sinks!.egress === 'closed' ? 'cerrada' : 'abierta'}</p>
+        <p className="faint mbx-line">{d.sinks!.sinks.map((s) => s.kind === 'smtp' ? `SMTP ${s.name} ${s.containerPorts.join(' ')}` : s.kind === 'api' ? `${s.receives === 'mail' ? tr('Correo') : 'SMS'} ${s.name} (API)` : `SMS ${s.name} (Twilio)`).join(' · ')}{' '}{tr('· Salida a internet:')}{' '}{d.sinks!.egress === 'closed' ? tr('cerrada') : tr('abierta')}</p>
         
       </div>
       <div className="mbx">
-        <aside className="mbx-list" aria-label="Mensajes">
+        <aside className="mbx-list" aria-label={tr('Mensajes')}>
           <div className="mbx-tools">
-            <Segmented label="Tipo" value={tab} onChange={setTab} options={[{ key: 'all', label: `Todo ${d.counts.all}` }, { key: 'mail', label: `Correo ${d.counts.mail}` }, { key: 'sms', label: `SMS ${d.counts.sms}` }]} />
-            <input ref={search} type="search" className="tree-filter" placeholder="Buscar: de:ana asunto:pedido tiene:adjunto" aria-label="Buscar mensajes" value={q} onChange={(e) => setQ(e.target.value)} />
+            <Segmented label={tr('Tipo')} value={tab} onChange={setTab} options={[{ key: 'all', label: tr('Todo {all}', { all: d.counts.all }) }, { key: 'mail', label: tr('Correo {mail}', { mail: d.counts.mail }) }, { key: 'sms', label: `SMS ${d.counts.sms}` }]} />
+            <input ref={search} type="search" className="tree-filter" placeholder={tr('Buscar: de:ana asunto:pedido tiene:adjunto')} aria-label={tr('Buscar mensajes')} value={q} onChange={(e) => setQ(e.target.value)} />
           </div>
           <div aria-live="polite" className="sr-only">{announce}</div>
           {d.counts.all === 0 ? (
             <div className="empty">
-              <span>Aún no ha llegado nada. Usa la aplicación: cada correo o SMS que envíe aparece aquí.</span>
-              {port && <p className="faint">Para probar sin ella: <code className="mono">swaks --server 127.0.0.1:{port} --to ana@x.test --from yo@x.test --body hola</code> <button type="button" className="icon" aria-label="Copiar" onClick={() => copy(`swaks --server 127.0.0.1:${port} --to ana@x.test --from yo@x.test --body hola`)}><Copy /></button></p>}
+              <span>{tr('Aún no ha llegado nada. Usa la aplicación: cada correo o SMS que envíe aparece aquí.')}</span>
+              {port && <p className="faint">{tr('Para probar sin ella:')}{' '}<code className="mono">swaks --server 127.0.0.1:{port} --to ana@x.test --from yo@x.test --body hola</code> <button type="button" className="icon" aria-label={tr('Copiar')} onClick={() => copy(`swaks --server 127.0.0.1:${port} --to ana@x.test --from yo@x.test --body hola`)}><Copy /></button></p>}
             </div>
-          ) : rows.length === 0 ? <div className="empty"><span>Ningún mensaje coincide con la búsqueda.</span></div> : (
-            <ul role="listbox" aria-label="Mensajes">
+          ) : rows.length === 0 ? <div className="empty"><span>{tr('Ningún mensaje coincide con la búsqueda.')}</span></div> : (
+            <ul role="listbox" aria-label={tr('Mensajes')}>
               {rows.map((r) => (
                 <li key={r.id} role="option" aria-selected={r.id === idArg}>
                   <a href={href('mail', env, r.id)} className={`mbx-row${r.id === idArg ? ' on' : ''}${seen.has(r.id) ? '' : ' unread'}`}>
                     <span className="mbx-ico">{r.kind === 'mail' ? <MailIcon /> : <MessageSquare />}</span>
-                    <span className="mbx-main"><b>{r.kind === 'sms' ? (r.direction === 'inbound' ? r.from : r.to) : r.subject || '(sin asunto)'}</b>
-                      <span className="faint">{r.kind === 'sms' ? r.subject.slice(0, 60) : r.to}{r.attachments ? ` · ${r.attachments} adj.` : ''}</span>
-                      {r.lints.length > 0 && <span className="mbx-warn">{LINT[r.lints[0]] ?? r.lints[0]}{r.lints.length > 1 ? ` y ${r.lints.length - 1} más` : ''}</span>}
+                    <span className="mbx-main"><b>{r.kind === 'sms' ? (r.direction === 'inbound' ? r.from : r.to) : r.subject || tr('(sin asunto)')}</b>
+                      <span className="faint">{r.kind === 'sms' ? r.subject.slice(0, 60) : r.to}{r.attachments ? tr(' · {attachments} adj.', { attachments: r.attachments }) : ''}</span>
+                      {r.lints.length > 0 && <span className="mbx-warn">{LINT[r.lints[0]] ?? r.lints[0]}{r.lints.length > 1 ? tr(' y {p0} más', { p0: r.lints.length - 1 }) : ''}</span>}
                     </span>
                     <time className="faint" dateTime={new Date(r.t).toISOString()}>{ago(new Date(r.t).toISOString())}</time>
                   </a>
@@ -141,12 +146,12 @@ function Box({ env, idArg, head }: { env: string; idArg?: string; head: (right?:
             </ul>
           )}
         </aside>
-        {sel ? <View key={sel.id} env={env} id={sel.id} reload={data.reload} /> : <div className="mbx-empty"><span>{d.counts.all ? 'Elige un mensaje.' : ''}</span></div>}
+        {sel ? <View key={sel.id} env={env} id={sel.id} reload={data.reload} /> : <div className="mbx-empty"><span>{d.counts.all ? tr('Elige un mensaje.') : ''}</span></div>}
       </div>
       {clearing && (
-        <Dialog title="Vaciar el buzón" onClose={() => setClearing(false)}>
-          <p>Se borran los {d.counts.all} mensajes de {env}. Lo que importa de ellos ya está copiado en los runs.</p>
-          <div className="actions"><button type="button" className="btn" onClick={() => setClearing(false)}>Cancelar</button><button type="button" className="btn danger" onClick={() => void clear()}>Vaciar buzón</button></div>
+        <Dialog title={tr('Vaciar el buzón')} onClose={() => setClearing(false)}>
+          <p>{tr('Se borran los')}{' '}{d.counts.all}{' '}{tr('mensajes de')}{' '}{env}{tr('. Lo que importa de ellos ya está copiado en los runs.')}</p>
+          <div className="actions"><button type="button" className="btn" onClick={() => setClearing(false)}>{tr('Cancelar')}</button><button type="button" className="btn danger" onClick={() => void clear()}>{tr('Vaciar buzón')}</button></div>
         </Dialog>
       )}
     </div>
@@ -158,58 +163,58 @@ function View({ env, id, reload }: { env: string; id: string; reload: () => void
   const [tab, setTab] = useState('view');
   const [width, setWidth] = useState<'375' | '768' | '1200'>('768');
   const [source, setSource] = useState<string>();
-  useEffect(() => { if (tab === 'source' && source === undefined && m.data?.kind === 'mail') void fetch(apiUrl(`/api/mail/eml?env=${encodeURIComponent(env)}&id=${id}`)).then((r) => r.text()).then((t) => setSource(t.slice(0, 256 * 1024)), () => setSource('(no se pudo leer el original)')); }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (tab === 'source' && source === undefined && m.data?.kind === 'mail') void fetch(apiUrl(`/api/mail/eml?env=${encodeURIComponent(env)}&id=${id}`)).then((r) => r.text()).then((t) => setSource(t.slice(0, 256 * 1024)), () => setSource(tr('(no se pudo leer el original)'))); }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
   if (m.error) return <div className="mbx-view"><div className="notice" role="alert"><CircleX />{m.error}</div></div>;
   if (!m.data) return <div className="mbx-view"><Skeleton lines={6} /></div>;
   const x = m.data;
-  const mark = async (status: string, code?: number) => { try { await api('/api/mail/sms-status', { method: 'POST', body: { env, id, status, code } }); toast('Estado enviado a la aplicación'); setTimeout(() => { m.reload(); reload(); }, 800); } catch (e) { toast((e as Error).message); } };
+  const mark = async (status: string, code?: number) => { try { await api('/api/mail/sms-status', { method: 'POST', body: { env, id, status, code } }); toast(tr('Estado enviado a la aplicación')); setTimeout(() => { m.reload(); reload(); }, 800); } catch (e) { toast((e as Error).message); } };
   return (
     <>
       <section className="mbx-view" aria-label={x.kind === 'mail' ? x.subject : x.to}>
         {x.kind === 'mail' ? (
           <>
-            <h2>{x.subject || '(sin asunto)'}</h2>
+            <h2>{x.subject || tr('(sin asunto)')}</h2>
             <dl className="mbx-hdr">
-              <dt>De</dt><dd>{x.from}</dd>
-              <dt>Para</dt><dd>{x.to}</dd>
-              {x.envelope && x.envelope.rcpt.filter((r) => !x.to.includes(r)).length > 0 && <><dt>Cco</dt><dd>{x.envelope.rcpt.filter((r) => !x.to.includes(r)).join(', ')} <span className="faint">(solo en el sobre)</span></dd></>}
+              <dt>{tr('De')}</dt><dd>{x.from}</dd>
+              <dt>{tr('Para')}</dt><dd>{x.to}</dd>
+              {x.envelope && x.envelope.rcpt.filter((r) => !x.to.includes(r)).length > 0 && <><dt>{tr('Cco')}</dt><dd>{x.envelope.rcpt.filter((r) => !x.to.includes(r)).join(', ')} <span className="faint">{tr('(solo en el sobre)')}</span></dd></>}
             </dl>
-            <nav className="seg mbx-tabs" aria-label="Partes del mensaje">
-              {[['view', 'Vista'], ['text', 'Texto'], ['source', 'Fuente'], ['headers', 'Cabeceras'], ['att', `Adjuntos ${x.attachments_.length}`]].map(([k, l]) => <button key={k} type="button" aria-current={tab === k ? 'page' : undefined} onClick={() => setTab(k)}>{l}</button>)}
+            <nav className="seg mbx-tabs" aria-label={tr('Partes del mensaje')}>
+              {[['view', tr('Vista')], ['text', tr('Texto')], ['source', tr('Fuente')], ['headers', tr('Cabeceras')], ['att', tr('Adjuntos {length}', { length: x.attachments_.length })]].map(([k, l]) => <button key={k} type="button" aria-current={tab === k ? 'page' : undefined} onClick={() => setTab(k)}>{l}</button>)}
             </nav>
             {tab === 'view' && (
               <div className="mbx-frame">
-                <Segmented label="Ancho" value={width} onChange={setWidth} className="seg mbx-width" options={[{ key: '375', label: '375' }, { key: '768', label: '768' }, { key: '1200', label: '1200' }]} />
-                <iframe title="Mensaje" sandbox="" referrerPolicy="no-referrer" src={apiUrl(`/api/mail/html?env=${encodeURIComponent(env)}&id=${encodeURIComponent(id)}&width=${width}`)} style={{ width: `min(100%, ${width}px)` }} />
-                {x.remote.length > 0 && <p className="faint">Intentó cargar {x.remote.map((r) => `${new URL(r.url, 'http://x').host} (${r.why})`).join(', ')}: no se cargó.</p>}
+                <Segmented label={tr('Ancho')} value={width} onChange={setWidth} className="seg mbx-width" options={[{ key: '375', label: '375' }, { key: '768', label: '768' }, { key: '1200', label: '1200' }]} />
+                <iframe title={tr('Mensaje')} sandbox="" referrerPolicy="no-referrer" src={apiUrl(`/api/mail/html?env=${encodeURIComponent(env)}&id=${encodeURIComponent(id)}&width=${width}`)} style={{ width: `min(100%, ${width}px)` }} />
+                {x.remote.length > 0 && <p className="faint">{tr('Intentó cargar')}{' '}{x.remote.map((r) => `${new URL(r.url, 'http://x').host} (${r.why})`).join(', ')}{tr(': no se cargó.')}</p>}
               </div>
             )}
-            {tab === 'text' && <pre className="mbx-text">{x.text || '(sin parte de texto)'}</pre>}
-            {tab === 'source' && <pre className="mbx-text">{source ?? 'Leyendo…'}</pre>}
+            {tab === 'text' && <pre className="mbx-text">{x.text || tr('(sin parte de texto)')}</pre>}
+            {tab === 'source' && <pre className="mbx-text">{source ?? tr('Leyendo…')}</pre>}
             {tab === 'headers' && (
               <div className="mbx-text">
                 <dl className="mbx-hdr">{x.headers.map(([k, v], i) => <div key={i} className="contents"><dt>{k}</dt><dd>{v}</dd></div>)}</dl>
-                {x.envelope && <p><b>Sobre</b> MAIL FROM {x.envelope.from || '<>'} · RCPT TO {x.envelope.rcpt.join(', ')}</p>}
-                {x.session && x.session.length > 0 && <><b>Sesión SMTP</b><pre>{x.session.map((l) => `${l.d === 'c' ? 'C' : 'S'}: ${l.l}`).join('\n')}</pre></>}
+                {x.envelope && <p><b>{tr('Sobre')}</b>{' '}{tr('MAIL FROM')}{' '}{x.envelope.from || '<>'}{' '}{tr('· RCPT TO')}{' '}{x.envelope.rcpt.join(', ')}</p>}
+                {x.session && x.session.length > 0 && <><b>{tr('Sesión SMTP')}</b><pre>{x.session.map((l) => `${l.d === 'c' ? 'C' : 'S'}: ${l.l}`).join('\n')}</pre></>}
               </div>
             )}
-            {tab === 'att' && (x.attachments_.length === 0 ? <p className="faint">Sin adjuntos.</p> : (
-              <ul className="mbx-att">{x.attachments_.map((a, i) => <li key={i}><Paperclip /><span>{a.name}</span><span className="faint">{a.type} · {size(a.size)}</span>{!a.inline && <a className="btn" href={apiUrl(`/api/mail/part?env=${encodeURIComponent(env)}&id=${encodeURIComponent(id)}&n=${i}`)} download>Descargar</a>}</li>)}</ul>
+            {tab === 'att' && (x.attachments_.length === 0 ? <p className="faint">{tr('Sin adjuntos.')}</p> : (
+              <ul className="mbx-att">{x.attachments_.map((a, i) => <li key={i}><Paperclip /><span>{a.name}</span><span className="faint">{a.type} · {size(a.size)}</span>{!a.inline && <a className="btn" href={apiUrl(`/api/mail/part?env=${encodeURIComponent(env)}&id=${encodeURIComponent(id)}&n=${i}`)} download>{tr('Descargar')}</a>}</li>)}</ul>
             ))}
           </>
         ) : <Thread env={env} x={x} mark={mark} reload={() => { m.reload(); reload(); }} />}
       </section>
-      <aside className="mbx-origin" aria-label="Origen, códigos y enlaces">
-        <h3>Origen</h3>
-        <dl className="mbx-hdr"><dt>Servicio</dt><dd>{x.service ?? '—'}</dd><dt>Hora</dt><dd>{new Date(x.t).toLocaleTimeString('es')}</dd>{x.kind === 'mail' && <><dt>Estado</dt><dd>{SMS[x.status] ?? x.status}</dd></>}</dl>
+      <aside className="mbx-origin" aria-label={tr('Origen, códigos y enlaces')}>
+        <h3>{tr('Origen')}</h3>
+        <dl className="mbx-hdr"><dt>{tr('Servicio')}</dt><dd>{x.service ?? '—'}</dd><dt>{tr('Hora')}</dt><dd>{new Date(x.t).toLocaleTimeString(LOCALE)}</dd>{x.kind === 'mail' && <><dt>{tr('Estado')}</dt><dd>{SMS[x.status] ?? x.status}</dd></>}</dl>
         {x.lints.length > 0 && <ul className="mbx-lints">{x.lints.map((l) => <li key={l}>{LINT[l] ?? l}</li>)}</ul>}
-        {x.codes.length > 0 && <><h3>Códigos</h3><ul className="mbx-codes">{x.codes.map((c) => <li key={c}><code className="mono">{c}</code><button type="button" className="btn" onClick={() => copy(c)}>Copiar</button></li>)}</ul></>}
+        {x.codes.length > 0 && <><h3>{tr('Códigos')}</h3><ul className="mbx-codes">{x.codes.map((c) => <li key={c}><code className="mono">{c}</code><button type="button" className="btn" onClick={() => copy(c)}>{tr('Copiar')}</button></li>)}</ul></>}
         {x.links.length > 0 && (
-          <><h3>Enlaces</h3>
+          <><h3>{tr('Enlaces')}</h3>
             <ul className="mbx-links">{x.links.map((l, i) => (
               <li key={i}><span className={`tag ${l.class}`}>{CLASS[l.class] ?? l.class}</span> <span className="mono mbx-url">{l.url}</span>
-                {l.text && /^https?:\/\//i.test(l.text) && l.text !== l.url && <span className="mbx-warn">el texto dice una cosa y el enlace va a otra</span>}
-                <span className="mbx-act">{l.open && /^https?:\/\//.test(l.open) && <a className="btn" href={l.open} target="_blank" rel="noreferrer noopener"><ExternalLink />{l.rewritten ? 'Abrir reescrito' : 'Abrir'}</a>}<button type="button" className="btn" onClick={() => copy(l.url)}>Copiar</button></span>
+                {l.text && /^https?:\/\//i.test(l.text) && l.text !== l.url && <span className="mbx-warn">{tr('el texto dice una cosa y el enlace va a otra')}</span>}
+                <span className="mbx-act">{l.open && /^https?:\/\//.test(l.open) && <a className="btn" href={l.open} target="_blank" rel="noreferrer noopener"><ExternalLink />{l.rewritten ? tr('Abrir reescrito') : tr('Abrir')}</a>}<button type="button" className="btn" onClick={() => copy(l.url)}>{tr('Copiar')}</button></span>
               </li>))}
             </ul></>
         )}
@@ -224,7 +229,7 @@ function Thread({ env, x, mark, reload }: { env: string; x: Message; mark: (s: s
   const last = x.states?.filter((s) => s.status).at(-1)?.status ?? 'queued';
   const reply = async () => {
     setBusy(true);
-    try { const r = await api<{ http?: number; skipped?: string }>('/api/mail/sms-reply', { method: 'POST', body: { env, from: x.direction === 'inbound' ? x.from : x.to, body: text } }); toast(r.skipped ?? `La aplicación respondió ${r.http}`); setText(''); setTimeout(reload, 500); } catch (e) { toast((e as Error).message); }
+    try { const r = await api<{ http?: number; skipped?: string }>('/api/mail/sms-reply', { method: 'POST', body: { env, from: x.direction === 'inbound' ? x.from : x.to, body: text } }); toast(r.skipped ?? tr('La aplicación respondió {http}', { http: r.http })); setText(''); setTimeout(reload, 500); } catch (e) { toast((e as Error).message); }
     setBusy(false);
   };
   const seg = x.segments;
@@ -233,17 +238,17 @@ function Thread({ env, x, mark, reload }: { env: string; x: Message; mark: (s: s
       <h2>{x.direction === 'inbound' ? x.from : x.to}</h2>
       <div className={`mbx-bubble${x.direction === 'inbound' ? ' in' : ''}`}>
         <p>{x.text}</p>
-        {seg && <small className={seg.n > 1 || seg.encoding === 'UCS-2' ? 'mbx-warn' : 'faint'} title="Un carácter fuera de GSM-7 cambia todo el mensaje a UCS-2: 70 por segmento">{plural(seg.n, 'segmento', 'segmentos')} · {seg.encoding} · {plural(seg.chars, 'carácter', 'caracteres')}</small>}
+        {seg && <small className={seg.n > 1 || seg.encoding === 'UCS-2' ? 'mbx-warn' : 'faint'} title={tr('Un carácter fuera de GSM-7 cambia todo el mensaje a UCS-2: 70 por segmento')}>{plural(seg.n, tr('segmento'), tr('segmentos'))} · {seg.encoding} · {plural(seg.chars, tr('carácter'), tr('caracteres'))}</small>}
       </div>
-      <ol className="mbx-states" aria-label="Estados">
-        {(x.states ?? []).filter((s) => !s.callback).map((s, i) => <li key={i}>{SMS[s.status] ?? s.status} <time className="faint">{new Date(s.t).toLocaleTimeString('es')}</time></li>)}
-        {(x.states ?? []).filter((s) => s.callback).map((s, i) => <li key={`c${i}`} className="faint">aviso a la app ({SMS[s.status] ?? s.status}): {s.callback!.skipped ? `no enviado, ${s.callback!.skipped}` : `HTTP ${s.callback!.http} en ${s.callback!.ms} ms`}{s.callback!.signed === false ? ' · sin firma válida' : s.callback!.signed === 'unverifiable' ? ' · aún sin token para firmar' : ''}</li>)}
+      <ol className="mbx-states" aria-label={tr('Estados')}>
+        {(x.states ?? []).filter((s) => !s.callback).map((s, i) => <li key={i}>{SMS[s.status] ?? s.status} <time className="faint">{new Date(s.t).toLocaleTimeString(LOCALE)}</time></li>)}
+        {(x.states ?? []).filter((s) => s.callback).map((s, i) => <li key={`c${i}`} className="faint">{tr('aviso a la app (')}{SMS[s.status] ?? s.status}): {s.callback!.skipped ? tr('no enviado, {skipped}', { skipped: s.callback!.skipped }) : tr('HTTP {http} en {ms} ms', { http: s.callback!.http, ms: s.callback!.ms })}{s.callback!.signed === false ? tr(' · sin firma válida') : s.callback!.signed === 'unverifiable' ? tr(' · aún sin token para firmar') : ''}</li>)}
       </ol>
-      {x.direction !== 'inbound' && last !== 'delivered' && last !== 'undelivered' && <div className="actions"><button type="button" className="btn" onClick={() => mark('delivered')}>Marcar entregado</button><button type="button" className="btn" onClick={() => mark('undelivered', 30003)}>Marcar fallido (30003)</button></div>}
-      <form className="mbx-reply" onSubmit={(e) => { e.preventDefault(); if (text.trim()) void reply(); }}>
-        <label>Responder como {x.direction === 'inbound' ? x.from : x.to}<input className="tree-filter" value={text} onChange={(e) => setText(e.target.value)} placeholder="STOP" /></label>
-        <button type="submit" className="btn" disabled={busy || !text.trim()}><Send />Enviar a la app</button>
-      </form>
+      {x.direction !== 'inbound' && !recordedRun() && last !== 'delivered' && last !== 'undelivered' && <div className="actions"><button type="button" className="btn" onClick={() => mark('delivered')}>{tr('Marcar entregado')}</button><button type="button" className="btn" onClick={() => mark('undelivered', 30003)}>{tr('Marcar fallido (30003)')}</button></div>}
+      {!recordedRun() && <form className="mbx-reply" onSubmit={(e) => { e.preventDefault(); if (text.trim()) void reply(); }}>
+        <label>{tr('Responder como')}{' '}{x.direction === 'inbound' ? x.from : x.to}<input className="tree-filter" value={text} onChange={(e) => setText(e.target.value)} placeholder={tr('STOP')} /></label>
+        <button type="submit" className="btn" disabled={busy || !text.trim()}><Send />{tr('Enviar a la app')}</button>
+      </form>}
     </>
   );
 }
@@ -253,18 +258,18 @@ function Thread({ env, x, mark, reload }: { env: string; x: Message; mark: (s: s
  * mock is whatever the app needs (each app has its own way of sending); Laru only gives it a place to tell.
  */
 function Connect({ env, url }: { env: string; url: string }) {
-  const sms = `curl -X POST ${url} -H 'content-type: application/json' \\\n  -d '{"kind":"sms","to":"+573001112233","body":"Tu código es 482913","source":"mi-mock"}'`;
+  const sms = tr('curl -X POST {url} -H \'content-type: application/json\' \\\n  -d \'{"kind":"sms","to":"+573001112233","body":"Tu código es 482913","source":"mi-mock"}\'', { url });
   return (
     <section className="panel mbx-connect" aria-labelledby="connect-h">
-      <header><Inbox /><h3 id="connect-h">Conecta el mock de mensajería</h3></header>
+      <header><Inbox /><h3 id="connect-h">{tr('Conecta el mock de mensajería')}</h3></header>
       <div className="mbx-connect-body">
-        <p>Si la aplicación envía correo, SMS, WhatsApp o notificaciones a un mock de {env}, ese mock publica aquí cada mensaje que recibe: un <code className="mono">POST</code> a <code className="mono">{url}</code>, que responde dentro de cualquier entorno. El agente lo conecta así cuando monta el mock.</p>
+        <p>{tr('Si la aplicación envía correo, SMS, WhatsApp o notificaciones a un mock de')}{' '}{env}{tr(', ese mock publica aquí cada mensaje que recibe: un')}{' '}<code className="mono">POST</code>{' '}{tr('a')}{' '}<code className="mono">{url}</code>{tr(', que responde dentro de cualquier entorno. El agente lo conecta así cuando monta el mock.')}</p>
         <ul className="faint">
-          <li><code className="mono">kind</code>: <code>sms</code> o <code>mail</code>; <code className="mono">to</code>, <code className="mono">from</code>, <code className="mono">subject</code>, <code className="mono">body</code> o <code className="mono">html</code></li>
-          <li><code className="mono">channel</code>: whatsapp, push… · <code className="mono">source</code>: el nombre del mock</li>
-          <li><code className="mono">eml</code>: el correo original entero, con sus adjuntos</li>
+          <li><code className="mono">kind</code>: <code>sms</code>{' '}{tr('o')}{' '}<code>mail</code>; <code className="mono">to</code>, <code className="mono">from</code>, <code className="mono">subject</code>, <code className="mono">body</code>{' '}{tr('o')}{' '}<code className="mono">html</code></li>
+          <li><code className="mono">channel</code>{tr(': whatsapp, push… ·')}{' '}<code className="mono">source</code>{tr(': el nombre del mock')}</li>
+          <li><code className="mono">eml</code>{tr(': el correo original entero, con sus adjuntos')}</li>
         </ul>
-        <pre className="mono mk-snippet">{sms}<CopyButton value={sms} label="Copiar" /></pre>
+        <pre className="mono mk-snippet">{sms}<CopyButton value={sms} label={tr('Copiar')} /></pre>
       </div>
     </section>
   );
@@ -273,30 +278,30 @@ function Connect({ env, url }: { env: string; url: string }) {
 /** An env with no sink: what the map says the app sends, and what «Interceptar» would write before it does. */
 function Detection({ env, info, reload }: { env: string; info: MailInfo; reload: () => void }) {
   const [plan, setPlan] = useState(false);
-  const [name, setName] = useState('correo');
+  const [name, setName] = useState(() => tr('correo'));
   const p = info.plan;
   const found = p?.detected ?? [];
   const serve = found.filter((d) => d.kind !== 'http');
   const apply = async () => {
-    try { await api('/api/mail/enable', { method: 'POST', body: { env, as: name, confirm: true } }); toast(`envs/${name}.yaml escrito. Levanta ${name} para recibir.`); setPlan(false); reload(); } catch (e) { toast((e as Error).message); }
+    try { await api('/api/mail/enable', { method: 'POST', body: { env, as: name, confirm: true } }); toast(tr('envs/{name}.yaml escrito. Levanta {name} para recibir.', { name })); setPlan(false); reload(); } catch (e) { toast((e as Error).message); }
   };
   return (
     <section className="panel mbx-detect">
-      {found.length === 0 ? <div className="empty"><span>Esta aplicación no envía correo ni SMS, según el mapa. Si algo los envía, declara un sumidero en <code className="mono">envs/{env}.yaml</code>: <code className="mono">mocks: {'{'} smtp: {'{'} mode: sink, sink: smtp {'}'} {'}'}</code>.</span></div> : (
+      {found.length === 0 ? <div className="empty"><span>{tr('Esta aplicación no envía correo ni SMS, según el mapa. Si algo los envía, declara un sumidero en')}{' '}<code className="mono">envs/{env}.yaml</code>: <code className="mono">mocks: {'{'} smtp: {'{'} mode: sink, sink: smtp {'}'} {'}'}</code>.</span></div> : (
         <>
-          <h2>{env} no tiene buzón</h2>
-          <ul>{found.map((d) => <li key={d.name}><b>{d.services.join(', ')}</b> envía {d.kind === 'sms' ? 'SMS' : 'correo'} ({d.provider}{d.via ? `, ${d.via}` : ''}).{' '}
-            {d.kind === 'http' ? <span className="mbx-warn">Lo envía por la API de {d.provider}, que el buzón no sirve; puede salir correo real. Usa SMTP en local.</span> : d.intercepted ? <span>Recibido aquí.</span> : <span className="mbx-warn">Puede salir correo real mientras no se intercepte.</span>}</li>)}</ul>
-          {serve.length > 0 && <button type="button" className="btn primary" onClick={() => setPlan(true)}>Interceptar</button>}
+          <h2>{env}{' '}{tr('no tiene buzón')}</h2>
+          <ul>{found.map((d) => <li key={d.name}><b>{d.services.join(', ')}</b>{' '}{tr('envía')}{' '}{d.kind === 'sms' ? 'SMS' : tr('correo')} ({d.provider}{d.via ? `, ${d.via}` : ''}).{' '}
+            {d.kind === 'http' ? <span className="mbx-warn">{tr('Lo envía por la API de')}{' '}{d.provider}{tr(', que el buzón no sirve; puede salir correo real. Usa SMTP en local.')}</span> : d.intercepted ? <span>{tr('Recibido aquí.')}</span> : <span className="mbx-warn">{tr('Puede salir correo real mientras no se intercepte.')}</span>}</li>)}</ul>
+          {serve.length > 0 && !recordedRun() && <button type="button" className="btn primary" onClick={() => setPlan(true)}>{tr('Interceptar')}</button>}
         </>
       )}
       {plan && (
-        <Dialog title="Interceptar" onClose={() => setPlan(false)}>
-          <p>Se crea <code className="mono">envs/{name}.yaml</code>, que parte de {env} y recibe en vez de enviar:</p>
-          <ul>{Object.entries(p.mocks).map(([n, m]) => <li key={n}><code className="mono">{n}</code> → {m.sink === 'smtp' ? 'buzón SMTP (25, 465, 587, 1025, 2525)' : 'buzón de SMS de Twilio'}</li>)}</ul>
-          <label>Nombre del entorno <input className="tree-filter" value={name} onChange={(e) => setName(e.target.value.replace(/[^a-z0-9-]/g, ''))} /></label>
-          <p className="faint">Nada se levanta ni se borra: después lo arrancas tú.</p>
-          <div className="actions"><button type="button" className="btn" onClick={() => setPlan(false)}>Cancelar</button><button type="button" className="btn primary" disabled={!name} onClick={() => void apply()}>Escribir envs/{name}.yaml</button></div>
+        <Dialog title={tr('Interceptar')} onClose={() => setPlan(false)}>
+          <p>{tr('Se crea')}{' '}<code className="mono">envs/{name}.yaml</code>{tr(', que parte de')}{' '}{env}{' '}{tr('y recibe en vez de enviar:')}</p>
+          <ul>{Object.entries(p.mocks).map(([n, m]) => <li key={n}><code className="mono">{n}</code> → {m.sink === 'smtp' ? tr('buzón SMTP (25, 465, 587, 1025, 2525)') : tr('buzón de SMS de Twilio')}</li>)}</ul>
+          <label>{tr('Nombre del entorno')}{' '}<input className="tree-filter" value={name} onChange={(e) => setName(e.target.value.replace(/[^a-z0-9-]/g, ''))} /></label>
+          <p className="faint">{tr('Nada se levanta ni se borra: después lo arrancas tú.')}</p>
+          <div className="actions"><button type="button" className="btn" onClick={() => setPlan(false)}>{tr('Cancelar')}</button><button type="button" className="btn primary" disabled={!name} onClick={() => void apply()}>{tr('Escribir envs/')}{name}.yaml</button></div>
         </Dialog>
       )}
     </section>

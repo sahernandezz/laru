@@ -56,3 +56,18 @@ test('the one opened last never replaces the workspace that is named or whose pr
   assert.match(text, /outside the workspace's folder.*«Tienda»/s, 'the hook goes by LARU_WORKSPACE too');
   assert.doesNotMatch(text, /opened last/);
 });
+
+test('a session starts knowing the application (its modules as a tree, with their summaries) and how each thing is done with Laru, read from the workspace now', async () => {
+  const { knowledgeWrite } = await import('@laru/core');
+  const fx = makeFixture();
+  const w = initWorkspace(join(fx.tmp, 'ws-app'), { app: 'tienda', title: 'Tienda' });
+  const write = (x: Parameters<typeof knowledgeWrite>[1]) => assert.ok(knowledgeWrite(w, x).ok);
+  write({ type: 'application', title: 'Tienda', kind: 'product', status: 'active', summary: 'La tienda que vende y devuelve pedidos pagados.', fields: { purpose: 'Vender.', users: [{ actor: 'Cliente', need: 'Comprar' }], scope: ['Pagos'] } });
+  write({ type: 'module', in: 'app:tienda', title: 'Pagos', kind: 'area', status: 'active', summary: 'Cobrar los pedidos y devolver lo cobrado.', fields: { purpose: 'Cobrar.' } });
+  write({ type: 'module', in: 'mod:pagos', title: 'Devoluciones', kind: 'feature', status: 'active', summary: 'Devolver un pedido pagado.', fields: { purpose: 'Devolver.' } });
+  const text = await sessionStart(w);
+  assert.match(text, /The application, «Tienda»: La tienda que vende y devuelve pedidos pagados\./);
+  assert.match(text, /- mod:pagos «Pagos»: Cobrar los pedidos y devolver lo cobrado\.\n {2}- mod:devoluciones «Devoluciones»: Devolver un pedido pagado\./, 'a tree: the submodule under its module');
+  assert.match(text, /Docker and the envs are Laru's, never your shell's[\s\S]*laru exec <service> -- <command>/);
+  assert.match(text, /flow_env up for its own env/);
+});

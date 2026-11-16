@@ -12,7 +12,8 @@ import { dirname, join } from 'node:path';
 import { appHome, envOf, git, gitOf, loadExtraction, stateDir, treeNow, WorkspaceError, type Graph, type Workspace } from '@laru/core';
 import { isMap, parse, parseDocument, stringify } from 'yaml';
 import { inWsl, withLock } from './docker.ts';
-import { ENV_NAME, listEnvs, loadEnvSpec } from './env.ts';
+import { interpolations, type ComposeDoc } from './compose.ts';
+import { ENV_NAME, envDir, listEnvs, loadEnvSpec } from './env.ts';
 import { ksVar, type VaultInjection } from './types.ts';
 
 export type Level = 'app' | 'env' | 'service' | 'flows' | 'personal';
@@ -688,4 +689,17 @@ export async function importEnvFile(ws: Workspace, spec: string, opts: { env?: s
     imported.push({ key, secret });
   }
   return { imported, skipped, warnings, level: section };
+}
+
+/** The env's services as the vault sees them, from the last import of its compose (a joint env's: with each one's member env). */
+export function vaultServices(w: Workspace, env: string): VaultService[] {
+  const f = join(envDir(w, env), 'normalized.json');
+  if (!existsSync(f)) return [];
+  const doc = JSON.parse(readFileSync(f, 'utf8')) as ComposeDoc & { 'x-laru'?: { envOf: Record<string, string>; composeOf: Record<string, string> }; 'x-keelson'?: { envOf: Record<string, string>; composeOf: Record<string, string> } }; // legacy-name
+  const x = doc['x-laru'] ?? doc['x-keelson']; // legacy-name: an env brought up before the rename
+  return Object.entries(doc.services).map(([name, s]) => ({
+    name, built: Boolean(s.build), interpolations: interpolations(s),
+    environment: Array.isArray(s.environment) ? Object.fromEntries(s.environment.map((e: string) => { const i = e.indexOf('='); return i < 0 ? [e, null] : [e.slice(0, i), e.slice(i + 1)]; })) : { ...(s.environment ?? {}) },
+    ...(x?.envOf[name] ? { env: x.envOf[name] } : {}), ...(x?.composeOf[name] && x.composeOf[name] !== name ? { compose: x.composeOf[name] } : {}),
+  }));
 }
