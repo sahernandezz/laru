@@ -113,6 +113,7 @@ function gateway() {
     let bytes = 0;
     req.on('data', (b: Buffer) => { bytes += b.length; });
     req.on('end', () => {
+      if (req.url === '/cors') return void res.writeHead(204, { 'access-control-allow-origin': String(req.headers.origin) }).end();
       if (req.url === '/redir') return void res.writeHead(302, { location: `http://${req.headers.host}/next`, 'access-control-allow-origin': `http://${req.headers.host}` }).end();
       res.writeHead(200, { 'content-type': 'application/json', 'set-cookie': 'SESSION=abc; HttpOnly' })
         .end(JSON.stringify({ name: 'api-gateway', host: req.headers.host, origin: req.headers.origin, referer: req.headers.referer, screen: req.headers['x-laru-screen'], method: req.method, url: req.url, bytes }));
@@ -200,6 +201,9 @@ test('the tap, in process with fake upstreams', async (t) => {
     assert.deepEqual([r.status, r.headers.location, r.headers['access-control-allow-origin']], [302, `http://${outer}/next`, `http://${outer}`]);
     const foreign = json(await call(ENTRANCE, { method: 'POST', headers: { host: outer, origin: 'http://elsewhere.example:1234' }, body: '{}' }));
     assert.equal(foreign.origin, 'http://elsewhere.example:1234', 'an origin that is not one of the env\'s is left alone');
+    const front = `frontend-${P80}.vaultflow.localhost:${ENTRANCE}`;
+    const cross = await call(ENTRANCE, { method: 'OPTIONS', path: '/cors', headers: { host: outer, origin: `http://${front}` } });
+    assert.equal(cross.headers['access-control-allow-origin'], `http://${front}`, 'an origin that is another service of the env goes back as the browser sent it');
   });
 
   await t.test('the token that names a screen is read off the request and never reaches the app; a token that is not a plain name is dropped, not kept', async () => {

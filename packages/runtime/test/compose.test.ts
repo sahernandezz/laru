@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -79,6 +79,17 @@ test('a job on the postgres image keeps its command', () => {
   assert.deepEqual(out.services.seed.command, ['psql', '-h', 'postgres', '-c', 'select 1']);
 });
 
+test('a shell-form command becomes argv the way a shell would read it', () => {
+  const doc = vf();
+  // `command: >` in a repo compose yields one string with a trailing newline,
+  // and its quotes are the shell's, not part of the value.
+  doc.services.postgres.command = "postgres\n-c wal_level=replica\n-c listen_addresses='*'\n";
+  const { doc: out } = renderCompose(doc, spec(), ctx());
+  assert.ok(!out.services.postgres.command.includes(''), 'no empty argument reaches postgres');
+  assert.deepEqual(out.services.postgres.command.slice(0, 5), ['postgres', '-c', 'wal_level=replica', '-c', 'listen_addresses=*']);
+  assert.ok(out.services.postgres.command.includes('log_min_duration_statement=0'));
+});
+
 test('built HTTP services get a readiness check; the repo own checks are kept', () => {
   const { doc } = renderCompose(vf(), spec(), ctx());
   assert.match(doc.services['file-service-real'].healthcheck.test[1], /127\.0\.0\.1:8081\//);
@@ -134,6 +145,24 @@ test('DynamoDB Local is fronted by the tap over HTTP, like MinIO; Mongo and Redi
   assert.deepEqual(r.stores, { mongo: 'other', redis: 'other' });
   assert.deepEqual(Object.keys(r.health), ['dynamodb'], 'its readiness is asked with curl when the repo has no check of its own');
   assert.match(r.health.dynamodb.cmd, /curl -sSI http:\/\/127\.0\.0\.1:8000\//);
+});
+
+test('a store built from a Dockerfile is still a store, not an HTTP service', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'laru-build-'));
+  writeFileSync(join(dir, 'Dockerfile'), 'FROM postgres:16\nEXPOSE 5432\nCOPY entrypoint.sh /\n');
+  const doc: ComposeDoc = { services: {
+    'postgres-replica': { build: { context: dir }, ports: ['5433:5432'] },
+    api: { build: { context: dir, dockerfile: 'App.Dockerfile' }, ports: ['8080:8080'] },
+  } };
+  writeFileSync(join(dir, 'App.Dockerfile'), 'FROM maven:3 AS build\nFROM eclipse-temurin:21-jre\nEXPOSE 8080\n');
+  const r = targetsOf(doc, Object.keys(doc.services));
+  // the replica speaks Postgres: fronting it as HTTP answers psql and JDBC with an HTTP response
+  assert.deepEqual(r.targets.find((t) => t.svc === 'postgres-replica'), { svc: 'postgres-replica', ports: [5432], proto: 'pg' });
+  assert.equal(r.stores['postgres-replica'], 'postgres');
+  // a built application still goes through the tap over HTTP, and the last FROM is the one that counts
+  assert.deepEqual(r.targets.find((t) => t.svc === 'api'), { svc: 'api', ports: [8080], proto: 'http' });
+  assert.equal(r.stores.api, undefined);
+  rmSync(dir, { recursive: true, force: true });
 });
 
 test('vaultflow renders byte for byte what main rendered: one project, identity names, no networks per project', () => {

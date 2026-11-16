@@ -257,10 +257,13 @@ export async function startTap(o: { config: TapConfig; rules: TapRules; masker: 
     // At the entrance a browser is at `<svc>.<app>.localhost:<port>`, a name no service knows: its Host, Origin and Referer say
     // the name the service has inside the env (what a client there sends), so the app's own same-origin and CORS checks see
     // what they would in production. The answer's Location and allowed origin are put back for the browser.
+    // The origin may be another service's entrance (a frontend calling its API): each name put inside is kept to be put back.
     const inside = (h: string) => { const x = enter(h); return x ? `${x.route.svc}${x.port === 80 ? '' : `:${x.port}`}` : h; };
+    const outside: Array<[string, string]> = [];
+    const toInside = (h: string) => { const i = inside(h); if (i !== h) outside.push([i, h]); return i; };
     if (hit.entrance) {
-      headers.host = inside(hit.entrance);
-      for (const k of ['origin', 'referer'] as const) if (typeof headers[k] === 'string') headers[k] = (headers[k] as string).replace(/^(\w+:\/\/)([^/]+)/, (_m, scheme: string, host: string) => scheme + inside(host));
+      headers.host = toInside(hit.entrance);
+      for (const k of ['origin', 'referer'] as const) if (typeof headers[k] === 'string') headers[k] = (headers[k] as string).replace(/^(\w+:\/\/)([^/]+)/, (_m, scheme: string, host: string) => scheme + toInside(host));
     }
 
     const mock = mocks.get(hit.route.svc);
@@ -301,7 +304,7 @@ export async function startTap(o: { config: TapConfig; rules: TapRules; masker: 
       const stream = EVENTS.test(String(up.headers['content-type'] ?? ''));
       resBody = capture(up, up.headers, masker);
       if (stream) up.on('data', sse());
-      const raw = hit.entrance ? up.rawHeaders.map((v, i) => (i % 2 && /^(location|access-control-allow-origin)$/i.test(up.rawHeaders[i - 1]) ? v.split(`://${headers.host}`).join(`://${hit.entrance}`) : v)) : up.rawHeaders;
+      const raw = hit.entrance ? up.rawHeaders.map((v, i) => (i % 2 && /^(location|access-control-allow-origin)$/i.test(up.rawHeaders[i - 1]) ? outside.reduce((s, [i, o]) => s.split(`://${i}`).join(`://${o}`), v) : v)) : up.rawHeaders;
       res.writeHead(up.statusCode ?? 502, up.statusMessage, raw);
       if (stream) res.flushHeaders();
       // what the tap costs a hop: a deliberate fault's delay is not its own, a mock answers instead of forwarding

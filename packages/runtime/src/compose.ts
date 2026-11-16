@@ -106,6 +106,13 @@ export interface RenderContext {
 
 export interface Rendered { doc: ComposeDoc; yaml: string; routes: TapRoute[]; warnings: string[] }
 
+/** A string `command` is shell form: the shell drops the quotes and the trailing
+ *  newline of a folded scalar before the process sees them. Turning it into an argv
+ *  array skips the shell, so tokenizing has to do the same — otherwise `postgres`
+ *  receives an empty argument, or `listen_addresses='*'` with its quotes attached. */
+export const shellWords = (s: string): string[] =>
+  (s.trim().match(/(?:[^\s'"]+|'[^']*'|"[^"]*")+/g) ?? []).map((w) => w.replace(/'([^']*)'|"([^"]*)"/g, '$1$2'));
+
 const NET = 'ks';
 /** the normal network of a closed env: where the tap and the stores meet the outside */
 const OUT = 'ks-out';
@@ -252,7 +259,7 @@ export function renderCompose(normalized: ComposeDoc, spec: EnvSpec, ctx: Render
     // Statements of Postgres are logged so a run can attribute them; Kafka gets a listener the host can reach.
     if (ctx.stores[name] === 'postgres') {
       const flags = ['-c', 'log_min_duration_statement=0', '-c', 'log_line_prefix=%m|%h|%p|%u|%d|', '-c', 'log_parameter_max_length=256'];
-      const cmd = Array.isArray(s.command) ? s.command : typeof s.command === 'string' ? s.command.split(/\s+/) : ['postgres'];
+      const cmd = Array.isArray(s.command) ? s.command : typeof s.command === 'string' ? shellWords(s.command) : ['postgres'];
       // Only the server: a job on the same image (psql, pg_dump) keeps its command.
       if (cmd[0] === 'postgres' && !cmd.includes('log_min_duration_statement=0')) s.command = [...cmd, ...flags];
     }

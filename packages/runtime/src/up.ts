@@ -96,6 +96,17 @@ export function listenPorts(s: Service): number[] {
 /** DynamoDB Local (amazon/dynamodb-local, its ECR copy, dynamo-local-admin) speaks HTTP on 8000. */
 const DYNAMO = /dynamodb|dynamo-local/;
 
+/** The image a built service ends up being: the last FROM of its Dockerfile, without its stage name.
+ *  A store built from `FROM postgres:16` — a replica with its own entrypoint, say — is still a store,
+ *  and fronting it as HTTP answers its clients with an HTTP response they cannot parse. */
+const baseImageOf = (s: Service): string => {
+  if (!s.build?.context) return '';
+  const file = join(s.build.context, s.build.dockerfile ?? 'Dockerfile');
+  if (!existsSync(file)) return '';
+  const froms = [...readFileSync(file, 'utf8').matchAll(/^\s*FROM\s+(\S+)/gim)].map((m) => m[1]);
+  return froms.length ? froms[froms.length - 1] : '';
+};
+
 /**
  * What the tap fronts (built services, file/search/directory stores, DynamoDB Local, other images over TCP), which
  * stores are which, and the readiness checks a fronted image needs because it has no wget (DynamoDB Local has curl).
@@ -107,16 +118,19 @@ export function targetsOf(doc: ComposeDoc, names: string[]): { targets: Target[]
   for (const name of names) {
     const s = doc.services[name];
     const ports = listenPorts(s);
-    if (s.build) { if (ports.length) targets.push({ svc: name, ports, proto: 'http' }); continue; }
-    const kind = IMAGE_KINDS.find(([re]) => re.test(String(s.image ?? '')))?.[2];
-    const dynamo = DYNAMO.test(String(s.image ?? ''));
+    // What the service ends up being, built or not: a store keeps being a store, so this runs before
+    // the branch that fronts a built service as HTTP.
+    const img = String(s.image ?? '') || baseImageOf(s);
+    const kind = IMAGE_KINDS.find(([re]) => re.test(img))?.[2];
+    const dynamo = DYNAMO.test(img);
     if (kind && NOT_INTERCEPTED.has(kind) && !dynamo) {
       if (!ports.length) continue;
-      stores[name] = /postgres/.test(s.image) ? 'postgres' : /kafka/.test(s.image) ? 'kafka' : 'other';
+      stores[name] = /postgres/.test(img) ? 'postgres' : /kafka/.test(img) ? 'kafka' : 'other';
       // Postgres is fronted too, read as it passes: each statement's rows reach the trace (the server's log still says when and who)
       if (stores[name] === 'postgres') targets.push({ svc: name, ports, proto: 'pg' });
       continue;
     }
+    if (s.build) { if (ports.length) targets.push({ svc: name, ports, proto: 'http' }); continue; }
     if (dynamo && !ports.length) ports.push(8000);
     if (dynamo && !s.healthcheck) health[name] = { cmd: `(wget -qSO/dev/null http://127.0.0.1:${ports[0]}/ 2>&1 || curl -sSI http://127.0.0.1:${ports[0]}/ 2>&1) | grep -q HTTP/` };
     if (ports.length) targets.push({ svc: name, ports, proto: kind || dynamo ? 'http' : 'tcp' });
