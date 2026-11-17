@@ -4,13 +4,14 @@
  */
 import type { DotState } from '../components/ui.tsx';
 
-export type NoticeKind = 'docker' | 'change' | 'run' | 'cleanup';
-/** `id`: its own, never its time: two notices of one pulse share the millisecond. */
-export interface Notice { id: number; at: number; kind: NoticeKind; title: string; detail?: string; files?: string[]; state: DotState; to?: string }
+export type NoticeKind = 'docker' | 'change' | 'run' | 'cleanup' | 'update';
+/** `id`: its own, never its time: two notices of one pulse share the millisecond. `act`: what pressing it does, when that is not a page to open. */
+export interface Notice { id: number; at: number; kind: NoticeKind; title: string; detail?: string; files?: string[]; state: DotState; to?: string; act?: () => void }
 export type Level = 'alert' | 'info' | 'quiet';
 /** How long a card stays by itself. */
 export const STAY: Record<Level, number> = { alert: Infinity, info: 6000, quiet: 3500 };
-const levelOf = (n: Pick<Notice, 'kind' | 'state'>): Level => (n.state === 'err' ? 'alert' : n.kind === 'change' ? 'quiet' : 'info');
+// a new version of the service stays too: until the page reloads it keeps running the old one
+const levelOf = (n: Pick<Notice, 'kind' | 'state'>): Level => (n.state === 'err' || n.kind === 'update' ? 'alert' : n.kind === 'change' ? 'quiet' : 'info');
 export type Live = Notice & { level: Level };
 
 let list: Notice[] = [], live: Live[] = [], seenAt = Date.now();

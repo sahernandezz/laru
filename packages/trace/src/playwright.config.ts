@@ -24,6 +24,9 @@ export default defineConfig({
   timeout: Number(process.env.KS_TIMEOUT_MS ?? D.timeoutMs),
   reporter: [['/ks/packages/trace/src/reporter.ts'], ['list']],
   use: {
+    // Chromium whole in its new headless mode, not the headless shell: the shell calls itself HeadlessChrome in its client
+    // hints (sec-ch-ua) too, where no user agent reaches, and a bot rule in front of an app (CloudFront) answers it 403
+    channel: 'chromium',
     baseURL: process.env.KS_BASE_URL ?? 'http://frontend',
     locale: D.locale,
     timezoneId: D.timezoneId,

@@ -81,12 +81,25 @@ function useService() {
   const [running, setRunning] = useState<RunInfo[]>([]);
   const [docker, setDocker] = useState<DockerSeen>();
   useEffect(() => {
-    let misses = 0, off = false, stop = false, last: Pulse | undefined;
+    let misses = 0, off = false, stop = false, last: Pulse | undefined, told = false;
     const beat = async () => {
       if (document.hidden) return;
-      let ok = false, slow = false;
-      try { ok = (await fetch('/api/ping', { signal: AbortSignal.timeout(2500) })).ok; } catch (e) { slow = (e as Error).name === 'TimeoutError'; }
+      let ok = false, slow = false, version: string | undefined;
+      try {
+        const r = await fetch('/api/ping', { signal: AbortSignal.timeout(2500) });
+        ok = r.ok;
+        if (ok) version = ((await r.json()) as { laru?: string }).laru;
+      } catch (e) { slow = (e as Error).name === 'TimeoutError'; }
       if (stop) return;
+      /*
+       * The service is another version than this page: it was updated while the page stayed open, and the page goes on
+       * running the code it loaded, the old one, without a word. Said once, and a press reloads it; never by itself, for
+       * nothing on a page keeps what is being written across a reload.
+       */
+      if (version && version !== __LARU_VERSION__ && !told) {
+        told = true;
+        notify({ kind: 'update', title: tr('Laru se actualizó a la {version}', { version }), detail: tr('Esta página sigue en la {mine}: púlsalo para recargarla con la nueva.', { mine: __LARU_VERSION__ }), state: 'run', act: () => location.reload() });
+      }
       misses = nextMisses(misses, ok, slow);
       const now = isOffline(misses);
       if (now !== off) { off = now; setOffline(now); if (!now) dispatchEvent(new Event('laru:back')); }

@@ -29,3 +29,14 @@ test('a change right after another joins it; Docker coming back takes its alert 
   notify({ kind: 'docker', title: 'Docker volvió', state: 'ok' });
   assert.deepEqual(notices().live.filter((x) => x.kind === 'docker').map((x) => x.title), ['Docker volvió']);
 });
+
+test('a new version of the service stays on screen until it is pressed or closed, and pressing it is its action', () => {
+  let reloaded = 0;
+  notify({ kind: 'update', title: 'Laru se actualizó a la 0.1.0-beta.22', state: 'run', act: () => { reloaded++; } });
+  const [card] = notices().live;
+  assert.equal(card.level, 'alert', 'the page keeps running the old version until it reloads');
+  card.act!();
+  assert.equal(reloaded, 1);
+  dismiss(card.id);
+  clearNotices();
+});

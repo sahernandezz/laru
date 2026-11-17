@@ -5,7 +5,7 @@
  */
 import { appendFileSync, existsSync, mkdirSync, openSync, readFileSync, readSync, closeSync, statSync, writeFileSync } from 'node:fs';
 import { networkInterfaces } from 'node:os';
-import { test as base, expect, type APIRequestContext, type BrowserContext, type Page, type Request, type TestInfo } from '@playwright/test';
+import { test as base, expect, type APIRequestContext, type Browser, type BrowserContext, type Page, type Request, type TestInfo } from '@playwright/test';
 
 export { expect };
 
@@ -273,6 +273,17 @@ const specAnnotation = () => { const spec = callerSpec(); return spec ? [{ type:
 /** The flow a test belongs to: its spec's name. */
 const specOf = (info: TestInfo) => info.annotations.find((a) => a.type === 'spec')?.description ?? (info.file.split('/').pop() ?? '').replace(/\.spec\.ts$/, '');
 
+/**
+ * The browser's own user agent without «Headless»: the Chrome it is, as the session's browser says it (sessions.ts). A bot
+ * rule in front of an app (AWS WAF on CloudFront, Cloudflare) answers 403 to a browser that calls itself HeadlessChrome,
+ * and lets the person's own through. Asked once per browser.
+ */
+const agents = new WeakMap<Browser, Promise<string>>();
+const agentOf = (b: Browser) => {
+  if (!agents.has(b)) agents.set(b, b.newBrowserCDPSession().then((s) => s.send('Browser.getVersion')).then((v) => v.userAgent.replace('HeadlessChrome/', 'Chrome/')));
+  return agents.get(b)!;
+};
+
 export const test = base.extend<Fixtures>({
   _limit: [async ({}, use, info) => {
     const ms = limits[specOf(info)];
@@ -281,6 +292,10 @@ export const test = base.extend<Fixtures>({
   }, { auto: true }],
   baseURL: async ({ baseURL }, use, info) => {
     await use(perFlow[specOf(info)] ?? baseURL);
+  },
+  // every context of the test takes it, the other screens' too; a flow that sets its own keeps it
+  userAgent: async ({ browser, userAgent }, use) => {
+    await use(userAgent ?? (await agentOf(browser)));
   },
   viewport: async ({ viewport }, use, info) => {
     await use(screens[specOf(info)] ?? viewport);

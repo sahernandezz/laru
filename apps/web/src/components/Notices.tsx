@@ -5,7 +5,7 @@
  * on a card keeps it. Docker coming back takes its own alert away. Docker's segment in the header opens the session's
  * history, with Docker's state on top, for whoever wants to look back; it counts only the failures not yet seen.
  */
-import { CheckCheck, Container, Eraser, PlayCircle, RefreshCw, Trash2, X, type LucideIcon } from 'lucide-react';
+import { CheckCheck, CircleArrowUp, Container, Eraser, PlayCircle, RefreshCw, Trash2, X, type LucideIcon } from 'lucide-react';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { ago, plural, size } from '../lib/es.ts';
 import { clearNotices, dismiss, markSeen, notices, notify, STAY, subscribe, type Live, type NoticeKind } from '../lib/notices.ts';
@@ -21,6 +21,7 @@ const KIND: Record<NoticeKind, { icon: LucideIcon; label: string }> = {
   change: { icon: RefreshCw, label: tr('Cambios') },
   run: { icon: PlayCircle, label: 'Runs' },
   cleanup: { icon: Eraser, label: tr('Limpieza') },
+  update: { icon: CircleArrowUp, label: tr('Versión') },
 };
 
 /** What the service's pulse says about its cleanups: Docker's (the machine's) and the runs' retention (a workspace's). */
@@ -82,7 +83,9 @@ function Card({ n }: { n: Live }) {
   );
   return (
     <div className={`nt-card ${n.level} ${n.state}`} role={n.level === 'alert' ? 'alert' : 'status'} onMouseEnter={() => setHeld(true)} onMouseLeave={() => setHeld(false)} onFocus={() => setHeld(true)} onBlur={() => setHeld(false)}>
-      {n.to ? <a className="nt-card-main" href={n.to} onClick={() => dismiss(n.id)}>{body}</a> : <div className="nt-card-main">{body}</div>}
+      {n.to ? <a className="nt-card-main" href={n.to} onClick={() => dismiss(n.id)}>{body}</a>
+        : n.act ? <button type="button" className="nt-card-main" onClick={() => { dismiss(n.id); n.act!(); }}>{body}</button>
+        : <div className="nt-card-main">{body}</div>}
       <button className="icon-btn nt-close" aria-label={tr('Cerrar el aviso')} title={tr('Cerrar')} onClick={() => dismiss(n.id)}><X /></button>
     </div>
   );
@@ -170,7 +173,7 @@ export function Notices({ docker }: { docker?: DockerSeen }) {
                   </>
                 );
                 const cls = `nt-item${x.at > newSince ? ' new' : ''}`;
-                return <li key={x.id}>{x.to ? <a className={cls} href={x.to} onClick={() => close()}>{body}</a> : <div className={cls}>{body}</div>}</li>;
+                return <li key={x.id}>{x.to ? <a className={cls} href={x.to} onClick={() => close()}>{body}</a> : x.act ? <button type="button" className={cls} onClick={() => { close(); x.act!(); }}>{body}</button> : <div className={cls}>{body}</div>}</li>;
               })}
             </ul>
           )}

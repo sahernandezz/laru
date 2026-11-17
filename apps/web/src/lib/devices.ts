@@ -3,7 +3,7 @@
  * (`browser:luis`); a sender no service is (`?172.30.1.12`) is that machine; everything else that came in through the
  * gateway (the person's browser, their phone, an app, curl) shares its address and is told apart by its User-Agent. An exchange belongs to the device that sent it, or to the one whose request caused it.
  */
-import { isBrowser, type Exchange, type Trace } from '@laru/trace';
+import { isBrowser, type Exchange, type Trace } from '@laru/trace/trace';
 import type { Cause } from '@laru/trace/chain';
 import { tr } from './i18n.ts';
 import { participantName } from './es.ts';

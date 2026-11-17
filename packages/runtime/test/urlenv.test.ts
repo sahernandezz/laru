@@ -99,11 +99,26 @@ test('the session browser of an env by URL opens only the app\'s own addresses',
   for (const u of ['http://qa.example.com/', 'https://qa.example.com:8443/', 'https://evil.test/', 'https://ana:pw@qa.example.com/', 'javascript:alert(1)', 'not a url']) assert.equal(isAppUrl(u, 'https://qa.example.com/app'), false, u);
 });
 
+/**
+ * A bot rule in front of the app, as CloudFront's WAF has: 403 to a browser that says it is headless, in its user agent or
+ * in its client hints. The person's own browser passes, and so must the session's and the runner's.
+ */
+const said: string[] = [];
+/** What the browsers said: everything but Laru's own check that the app answers, the one request that says `node`. */
+const browsers = () => said.filter((x) => !/^node \|/.test(x));
+const blocked = (q: import('node:http').IncomingMessage, r: import('node:http').ServerResponse) => {
+  said.push(`${q.headers['user-agent'] ?? ''} | ${q.headers['sec-ch-ua'] ?? ''}`);
+  if (!/headless/i.test(`${q.headers['user-agent'] ?? ''} ${q.headers['sec-ch-ua'] ?? ''}`)) return false;
+  r.writeHead(403, { 'content-type': 'text/html', server: 'CloudFront' }).end('<h1>403 ERROR</h1><p>The request could not be satisfied. Request blocked.</p>');
+  return true;
+};
+
 /** The Chrome installed on this Mac, which the session browser uses (no browser is downloaded). */
 const chrome = (() => { try { return existsSync('/Applications/Google Chrome.app') || Boolean(execFileSync('which', ['google-chrome'], { encoding: 'utf8' }).trim()); } catch { return false; } })();
 
 test('a session on an env by URL keeps what the page asked, from the person\'s browser, and what it said in its console', { skip: !chrome && 'no Chrome installed', timeout: 90_000 }, async (t) => {
   const app = createServer((q, r) => {
+    if (blocked(q, r)) return;
     if (q.url === '/api/orders' && q.method === 'POST') { let b = ''; q.on('data', (c) => (b += c)); q.on('end', () => r.writeHead(201, { 'content-type': 'application/json' }).end(JSON.stringify({ id: 7, got: JSON.parse(b) }))); return; }
     if (q.url === '/api/missing') return void r.writeHead(404, { 'content-type': 'application/json' }).end('{"error":"no such order"}');
     r.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(`<html><body><button id="b">Pedir</button><p id="out"></p><script>
@@ -142,6 +157,7 @@ test('a session on an env by URL keeps what the page asked, from the person\'s b
   assert.ok(logs.includes('browser error el pedido falló a medias'), logs.join('\n'));
   assert.ok(logs.some((l) => /^browser error boom en la página/.test(l)), logs.join('\n'));
   assert.ok(trace.participants.some((p) => p.id === 'browser' && p.type === 'browser'));
+  assert.ok(browsers().length > 0 && browsers().every((x) => /Chrome\//.test(x) && !/headless/i.test(x)), `the browser says it is Chrome, never headless:\n${said.join('\n')}`);
 });
 
 test('a runner on an env by URL leaves Laru\'s network: it goes out as any container, reaches this Mac by host.docker.internal and mounts no tap', () => {
@@ -154,6 +170,7 @@ test('a runner on an env by URL leaves Laru\'s network: it goes out as any conta
 
 /** A shop on this Mac's localhost: a button that orders through its API and says so in its console. */
 const SHOP = (q: import('node:http').IncomingMessage, r: import('node:http').ServerResponse) => {
+  if (blocked(q, r)) return;
   if (q.url === '/api/orders' && q.method === 'POST') { let b = ''; q.on('data', (c) => (b += c)); q.on('end', () => r.writeHead(201, { 'content-type': 'application/json' }).end(JSON.stringify({ id: 7, got: JSON.parse(b) }))); return; }
   r.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(`<html><body><button id="b">Pedir</button><p id="out"></p><script>
     document.getElementById('b').onclick = async () => {
@@ -191,6 +208,7 @@ story('Pedir pan', async ({ page, observed }) => {
 `);
   const g = guard(workspaceKey(ws));
   t.after(() => g.check());
+  said.length = 0;
   const run = await runFlows(ws, { env: 'app' });
   const log = () => { try { return readFileSync(join(ws.root, '.laru', 'runs', run.id, 'out', 'runner.log'), 'utf8').slice(-3000); } catch { return ''; } };
   assert.equal(run.status, 'passed', `${run.error ?? ''}\n${log()}`);
@@ -201,4 +219,6 @@ story('Pedir pan', async ({ page, observed }) => {
   assert.ok(story.logs.some((l) => l.service === 'browser' && l.line === 'pidiendo'), story.logs.map((l) => l.line).join('\n'));
   assert.ok(!existsSync(join(ws.root, '.laru', 'runs', run.id, 'out', 'hits-0.jsonl')), 'the raw hits went into the journal');
   assert.equal(execFileSync('docker', ['ps', '-aq', '--filter', `label=keelson.run=${run.id}`], { encoding: 'utf8' }).trim(), '', 'no runner is left');
+  // the runner's page and its requests, user agent and client hints (localhost is a secure context: they are sent)
+  assert.ok(browsers().length > 0 && browsers().every((x) => /Chrome\//.test(x) && /Chromium/.test(x) && !/headless/i.test(x)), `the runner's browser says it is Chrome, never headless:\n${said.join('\n')}`);
 });

@@ -3550,4 +3550,6 @@ export const EN: Record<string, string> = {
   'ninguna operación {method} allí': 'no {method} operation there',
   'En el mapa, {services} no tiene ninguna operación {method} bajo {prefix}: lo que pase por aquí no lo atiende nada que su código declare.': 'In the map, {services} has no {method} operation under {prefix}: nothing its code declares answers what passes through here.',
   'Eventos sin su para qué o su contenido: {p0}.': 'Events without what they are for or what they carry: {p0}.',
+  'Laru se actualizó a la {version}': 'Laru was updated to {version}',
+  'Esta página sigue en la {mine}: púlsalo para recargarla con la nueva.': 'This page is still on {mine}: press it to reload it with the new one.',
 };

@@ -244,10 +244,13 @@ export async function runSessionBrowser(ws: Workspace, id: string, o: { /** a te
     const byUrl = envUrl(ws, r.env);
     const { chromium } = await import('playwright-core');
     const browser = await chromium.launch({ channel: 'chrome', headless: true, args: ['--no-first-run', '--no-default-browser-check'] });
+    // the Chrome it is: its own user agent without «Headless», which a bot rule in front of an app (CloudFront) answers 403;
+    // the runner's says the same (flow.ts)
+    const userAgent = (await (await browser.newBrowserCDPSession()).send('Browser.getVersion')).userAgent.replace('HeadlessChrome/', 'Chrome/');
     // a scenario whose setup ended signed in opens the app as that person: its setup signed in on the env's network
     // (`http://frontend`), the person's browser comes through the entrance, so the session moves to that origin
     const storage = r.scenario ? scenarioStorage(ws, r.env, r.scenario) : undefined;
-    const context = await browser.newContext({ viewport: r.device === 'phone' ? PHONE : SCREEN, ...(storage ? { storageState: movedTo(JSON.parse(readFileSync(storage, 'utf8')), baseUrl(ws, r.env), url) } : {}) });
+    const context = await browser.newContext({ userAgent, viewport: r.device === 'phone' ? PHONE : SCREEN, ...(storage ? { storageState: movedTo(JSON.parse(readFileSync(storage, 'utf8')), baseUrl(ws, r.env), url) } : {}) });
     await context.exposeBinding('__ksAct', (_src, a: { kind: string; target?: string; key?: string }) => add(ws, id, 'actions.jsonl', { t0: Date.now(), kind: a.kind, ...(a.target ? { target: a.target } : {}), ...(a.key ? { key: a.key } : {}) }));
     await context.addInitScript(RECORDER);
     // An env by URL has no tap: this browser is it, and keeps each request it makes in the env's journal, as from this

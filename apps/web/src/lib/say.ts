@@ -3,7 +3,7 @@
  * happened. Pure. The map and the knowledge (contracts, data models) only add names; without them a sentence falls
  * back to the code's handler, then to the table. A typed value is never said: marks do not carry it.
  */
-import { isBrowser, type Action, type Exchange, type Trace } from '@laru/trace';
+import { isBrowser, type Action, type Exchange, type Trace } from '@laru/trace/trace';
 import { endpointMatcher } from '@laru/trace/assemble';
 import { actorOf, chain as chainOf, isConsume, isHello, isStream, type Act, type Cause, type Chain } from '@laru/trace/chain';
 import { endpointOf } from '@laru/trace/summarize';

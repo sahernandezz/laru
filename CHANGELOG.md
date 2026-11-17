@@ -45,6 +45,10 @@ Todos los cambios de Laru que importan a quien lo usa quedan aquí. El formato s
 
 ### Corregido
 
+- Una app detrás de CloudFront u otro WAF con regla de bots respondía 403 al navegador del runner, y también podía responderlo al del estudio. Los dos se anunciaban como `HeadlessChrome`: en el `User-Agent` y, el del runner, también en las *client hints* (`sec-ch-ua`). Ahora se presentan como el Chrome que son: el runner usa el Chromium completo en su modo headless nuevo, y los dos envían el `User-Agent` de su propio navegador sin «Headless». Un flujo que fije su propio `userAgent` lo conserva.
+
+- Una página que se quedó abierta mientras Laru se actualizaba seguía con la versión anterior sin decirlo: el índice de una pieza, por ejemplo, no marcaba nada. Ahora avisa de que hay una versión nueva y, al pulsar el aviso, se recarga con ella. No se recarga sola, para no perder lo que estés escribiendo.
+
 - En un diagrama de entidades, un campo con comentario (`scan_status "PENDING, CLEAN o INFECTED"`) se escribía encima de su tipo, porque cada entidad medía 220 px, dijeran lo que dijeran sus campos. Ahora la entidad es tan ancha como su campo más largo, hasta un tope. Pasado el tope, el nombre se corta con «…» antes del tipo y se lee entero en su tooltip.
 
 - El nombre de un entorno conjunto nuevo no se comprobaba en el formulario: su patrón tenía un guion sin escapar, que los navegadores actuales rechazan, y aceptaba cualquier cosa hasta que respondía el servicio.
