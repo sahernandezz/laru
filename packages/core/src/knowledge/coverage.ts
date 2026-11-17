@@ -10,6 +10,7 @@ import { gitOf } from '../folder.ts';
 import { readBlobs } from '../git.ts';
 import { loadExtraction } from '../extract.ts';
 import type { Graph } from '../graph.ts';
+import type { MapNode } from '../model.ts';
 import { stateDir, type Workspace } from '../workspace.ts';
 import type { Row } from './piece.ts';
 import { anchorResolver, ancestors, childrenOf, type Knowledge, type Loaded } from './store.ts';
@@ -39,6 +40,24 @@ export function endpointOwner(ws: Workspace, p: Pick<Loaded, 'anchors'>): (repo:
   const resolve = anchorResolver(ws);
   const rules = (p.anchors ?? []).flatMap((a) => { const sym = a.match(/#([\w.$*]+)$/)?.[1]; return (resolve(a.replace(/#.*$/, '')) ?? []).map((file) => ({ key: `${a.split(':')[0]}:${file}`, sym })); });
   return (repo, file, handler) => rules.some((r) => r.key === `${repo}:${file}` && symbolMatches(r.sym, handler));
+}
+
+/**
+ * Each service's endpoints that no contract declares as an operation: what a documentation scan still owes. One its
+ * code's OpenAPI file declares, or one that only forwards to others (a gateway's `/api/x/**`, or its route that passes a
+ * call on to the same route of a service it calls), has its contract elsewhere; a wildcard route is no operation.
+ */
+export function endpointsWithoutContract(g: Graph, pieces: Array<Pick<Loaded, 'type' | 'fields'>>): Map<string, MapNode[]> {
+  const declared = new Set(pieces.filter((p) => p.type === 'contract').flatMap((c) => ((c.fields.operations ?? []) as Row[]).map((o) => `${o.service} ${String(o.method ?? '').toUpperCase()} ${normalizePath(o.path ?? '')}`)));
+  const out = new Map<string, MapNode[]>();
+  for (const ep of g.ofType('endpoint')) {
+    if (!ep.service || ep.attrs?.contract || String(ep.attrs?.path).endsWith('/**') || g.outOf(ep.id).some((f) => f.p === 'forwards-to')) continue;
+    const at = normalizePath(String(ep.attrs?.path));
+    const methods = ep.attrs?.method === 'ANY' ? ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] : [String(ep.attrs?.method)];
+    if (methods.some((m) => declared.has(`${ep.service} ${m} ${at}`))) continue;
+    (out.get(ep.service) ?? out.set(ep.service, []).get(ep.service)!).push(ep);
+  }
+  return out;
 }
 
 /** Conventions that rule over a piece: its own, its ancestors', and its repository's. */

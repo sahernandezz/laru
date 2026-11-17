@@ -22,7 +22,7 @@ import { endpointMatcher, flowLast, seenIn, type EndpointMatch, type FlowLast, t
 import { affected, doctorChecks, runEnv, screenFindings, writeJoint } from './env-cli.ts';
 import { agreementText, appHome, byCwd, envOf, loadAgreement, idOf, initWorkspace, isWorkspace, laruHome, loadRegistry, realRoot, register, resolveId, stateDir, touch, unregister } from '@laru/core';
 import { drawModel } from '@laru/diagrams';
-import { acceptFinding, withEvidence, shareEvidence, addRepo, queueContracts, CONTAINERS, coverage, DEFAULT_IGNORE, docsLang, documentNote, endpointIn, deriveDiagram, derivedList, evaluateConventions, freshness, liveOf, serviceTests, sheetNote, git, gitOf, isContainer, knowledgeShape, knowledgeWrite, linkRepo, loadExtraction, loadGraph, loadKnowledge, loadWorkspace, PIECE_TYPES, refreshMap, repoStatus, syncRepos, verifyPiece, writeAgentFiles, WorkspaceError, type RepoRole, type Workspace, type WriteInput } from '@laru/core';
+import { acceptFinding, withEvidence, shareEvidence, addRepo, queueContracts, CONTAINERS, coverage, DEFAULT_IGNORE, docsLang, documentNote, endpointIn, deriveDiagram, derivedList, evaluateConventions, freshness, liveOf, serviceTests, sheetNote, git, gitOf, isContainer, knowledgeShape, knowledgeWrite, deletePiece, linkRepo, loadExtraction, loadGraph, loadKnowledge, loadWorkspace, PIECE_TYPES, refreshMap, repoStatus, syncRepos, verifyPiece, writeAgentFiles, WorkspaceError, type RepoRole, type Workspace, type WriteInput } from '@laru/core';
 
 const WEB_DIST = fileURLToPath(new URL('../../web/dist/', import.meta.url));
 const TYPES: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.json': 'application/json', '.png': 'image/png', '.ttf': 'font/ttf', '.webmanifest': 'application/manifest+json' };
@@ -41,7 +41,7 @@ export function traceViewerDir(): string | null {
   } catch { viewerDir = null; }
   return viewerDir;
 }
-export const VERSION = '0.1.0-beta.19';
+export const VERSION = '0.1.0-beta.20';
 
 
 export interface Daemon { url: string; port: number; token: string | null; close: () => Promise<void> }
@@ -518,6 +518,7 @@ export function makeApi(root: Workspace['root']): { api: Record<string, Handler>
     'GET /api/standard': async () => { const w = ws(); return { lang: docsLang(w), types: PIECE_TYPES.map((t) => knowledgeShape(w, t, true)) }; },
     'POST /api/knowledge/validate': async (_req, _url, body: WriteInput) => { const w = ws(); return knowledgeWrite(w, body, graph(w), { dryRun: true }); },
     'POST /api/knowledge/write': async (_req, _url, body: WriteInput) => { const w = ws(); return knowledgeWrite(w, body, graph(w)); },
+    'POST /api/knowledge/delete': async (_req, _url, body: { id: string; contents?: boolean; dryRun?: boolean }) => deletePiece(ws(), body.id, { contents: body.contents, dryRun: body.dryRun }),
     'POST /api/knowledge/verify': async (_req, _url, body: { id: string }) => verifyPiece(ws(), body.id),
     'GET /api/envs': async () => { const w = ws(); return Promise.all([...listEnvs(w), ...instancesOf(w)].map(async (e) => ({ ...(await envStatus(w, e)), ...envShape(w, e), op: ops.get(e) ?? null }))); },
     'GET /api/env': async (_req, url) => {

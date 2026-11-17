@@ -40,6 +40,7 @@ test('a workspace around two repos: one added by URL, one by an existing clone',
     assert.ok(has('ds:postgres', 'contains', 'tbl:billing.refunds'));
     assert.ok(has('ds:kafka', 'contains', 'topic:refund.requested'));
     assert.ok(has('svc:portal', 'depends-on', 'dep:npm:shared-model'));
+    assert.equal(map.nodes.find((n) => n.id === 'svc:billing-api')!.attrs!.base, 'eclipse-temurin:21', 'its Dockerfile says what it runs on, even when its pom says what it is');
     const anchor = map.facts.find((f) => f.p === 'exposes' && f.o === 'ep:billing-api:POST /refunds')!.anchor!;
     assert.equal(anchor.path, 'api/src/main/java/acme/RefundResource.java');
     assert.equal(anchor.commit.length, 40, 'anchors carry the full commit');
@@ -58,8 +59,10 @@ test('a workspace around two repos: one added by URL, one by an existing clone',
     const out = context(g, ws, 'svc:billing-api', 2000);
     assert.ok(performance.now() - t0 < 300);
     assert.ok(estimateTokens(out) <= 2000);
-    assert.match(out, /svc:portal → POST \/refunds/);
-    assert.match(out, /RefundResource\.java:\d+ RefundResource\.create/);
+    // one line per endpoint, with its handler and who calls it; then its data, what it calls and who calls it, all in the budget
+    assert.match(out, /- POST \/refunds \(RefundResource\.create:\d+\) ← portal/);
+    assert.match(out, /## Data[\s\S]*## Calls and uses[\s\S]*## Called by[\s\S]*- svc:portal calls 2 of its endpoints/);
+    assert.doesNotMatch(out, /Left out for the budget|… \d+ more/);
     const tiny = context(g, ws, 'svc:billing-api', 300);
     assert.ok(estimateTokens(tiny) <= 300 && /Left out for the budget|more/.test(tiny), tiny);
     assert.match(context(g, ws, 'billing:api/src/main/java/acme/RefundResource.java'), /Part of svc:billing-api/);

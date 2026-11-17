@@ -26,6 +26,8 @@ for (let i = 0; ; i++) { try { fs.mkdirSync(lock); break; } catch { if (i > 4000
 let held = true;
 const unlock = () => { if (held) { held = false; fs.rmdirSync(lock); } };
 process.on('exit', unlock);
+// Laru gives up on a slow read with SIGTERM, which skips 'exit': left held, the lock made every later call wait 20 s
+process.on('SIGTERM', () => process.exit(143));
 const st = JSON.parse(fs.readFileSync(file, 'utf8'));
 const save = () => { fs.writeFileSync(file + '.tmp', JSON.stringify(st)); fs.renameSync(file + '.tmp', file); };
 const out = (s) => process.stdout.write(s);

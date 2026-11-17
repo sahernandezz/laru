@@ -8,7 +8,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { affected, findingsOf, lastResults, pickBroker, pickEnv, runEnv, whereText } from './env-cli.ts';
 import { DIAGRAM_KINDS } from '@laru/diagrams';
-import { agentGuide, outsideNote, agreementText, loadAgreement, withEvidence, renderImpact, scaffoldSpec, specPath, loadKnowledge, ask, checkWorkspace, context, docsTree, knowledgeShape, diagramShape, knowledgeWrite, PIECE_TYPES, verifyPiece, loadGraph, loadWorkspace, path, refreshMap, repoStatus, syncRepos, tree, writeAgentFiles, type Workspace } from '@laru/core';
+import { agentGuide, outsideNote, agreementText, loadAgreement, withEvidence, renderImpact, scaffoldSpec, specPath, loadKnowledge, ask, checkWorkspace, context, docsTree, knowledgeShape, diagramShape, knowledgeWrite, deletePiece, PIECE_TYPES, verifyPiece, loadGraph, loadWorkspace, path, refreshMap, repoStatus, syncRepos, tree, writeAgentFiles, type Workspace } from '@laru/core';
 
 const text = (t: string) => ({ content: [{ type: 'text' as const, text: t }] });
 /** A scenario that would delete data of a persistent env answers with what it would do and how to say yes; nothing ran. */
@@ -28,7 +28,7 @@ export function createServer(root: Workspace['root'], o: { outside?: boolean; la
   const guide = (!o.outside && (existsSync(join(w0.root, 'CLAUDE.md')) || existsSync(join(w0.root, 'AGENTS.md')))
     ? 'Laru: this workspace\'s guide (the loop, how the documentation is written, how flows are tested) is in CLAUDE.md and AGENTS.md at its root; follow it. Start with `context` on what you will change, and `impact` after it.'
     : agentGuide(w0)) + (agr ? `\n\n${agreementText(agr)}` : '') + (o.outside ? `\n\n${outsideNote(w0, o)}` : '');
-  const server = new McpServer({ name: 'laru', version: '0.1.0-beta.19' }, { instructions: guide });
+  const server = new McpServer({ name: 'laru', version: '0.1.0-beta.20' }, { instructions: guide });
   // Every tool is kept by name, so the ones for stores this application does not have can be left out of the list.
   const tools = new Map<string, ReturnType<McpServer['registerTool']>>();
   const register = server.registerTool.bind(server);
@@ -36,7 +36,7 @@ export function createServer(root: Workspace['root'], o: { outside?: boolean; la
   const budget = z.number().int().min(300).max(20000).default(2000).describe('Token budget for the answer');
 
   server.registerTool('context', {
-    description: 'What a file, symbol, service, endpoint, table, topic or env var is: its callers, what it calls and touches, code anchors. Ask before changing code.',
+    description: 'What a file, symbol, service, endpoint, table, topic or env var is: its callers, what it calls and touches, code anchors; of an endpoint, also what its code takes, returns and answers (the start of its contract operation), what runs saw it touch and the flows that reach it. Says when your checkout moved past what the map read. Ask before changing code.',
     inputSchema: { target: z.string().describe('svc:x, ep:x:GET /path, <repo>:<file>, var:KEY or a bare name'), budget },
   }, async ({ target, budget: b }) => { const w = ws(); return text(context(loadGraph(w), w, target, b)); });
 
@@ -44,7 +44,7 @@ export function createServer(root: Workspace['root'], o: { outside?: boolean; la
   server.registerTool('tree', {
     description: 'The application at a glance: documentation tree with coverage, then repos, services and infrastructure.',
     inputSchema: { depth: z.number().int().min(1).max(3).default(2) },
-  }, async ({ depth }) => { const w = ws(); const g = graphOrNull(w); return text(`${docsTree(w, g)}\n\n${g ? tree(g, depth) : 'No map yet: run map_refresh.'}`); });
+  }, async ({ depth }) => { const w = ws(); const g = graphOrNull(w); return text(`${docsTree(w, g)}\n\n${g ? tree(g, depth, w) : 'No map yet: run map_refresh.'}`); });
 
   server.registerTool('knowledge_shape', {
     description: 'Fields, place and an example of a piece type; how to write it (no size limits, every claim checkable); the diagrams suggested for it with how each is drawn, and the whole catalogue: any class fits any section when it explains the case. With `diagram`, how one class of the catalogue is drawn. Read before knowledge_write.',
@@ -59,7 +59,7 @@ export function createServer(root: Workspace['root'], o: { outside?: boolean; la
   });
 
   server.registerTool('knowledge_write', {
-    description: 'Write or update a documentation piece by fields; validated (errors name the field), nothing written on error: also a diagram that does not draw (no class Laru knows, a semicolon outside a label, the wrong dialect) and a note under the workspace\'s policy. Any class of diagram goes in any section; there are no size limits. Warnings say what is not assertive: vague words, an endpoint the code lacks, a section that repeats the summary. Never inventory endpoints, tables or env vars: they are extracted.',
+    description: 'Write or update a documentation piece by fields; validated (errors name the field), nothing written on error: also a diagram that does not draw (no class Laru knows, a semicolon outside a label, the wrong dialect) and a note under the workspace\'s policy. Any class of diagram goes in any section; there are no size limits. Warnings say what is not assertive: vague words, an endpoint the code lacks, a section that repeats the summary. Never inventory endpoints, tables or env vars: they are extracted. A contract is not an inventory: one operation per endpoint of its services, each with summary (what it is for), request (parameters with their types, body) and response (status and body), and its errors with the operation that answers them; the answer names the endpoints of those services still in no contract, to write next.',
     inputSchema: {
       type: z.enum(PIECE_TYPES as [string, ...string[]]), id: z.string().optional().describe('e.g. mod:uploads; default from the title'),
       in: z.string().optional().describe('container, e.g. mod:<area>; omit when updating'),
@@ -70,20 +70,25 @@ export function createServer(root: Workspace['root'], o: { outside?: boolean; la
     },
   }, async (input) => { const w = ws(); const r = knowledgeWrite(w, input as never, graphOrNull(w), { strict: true }); return text(JSON.stringify(r)); });
 
+  server.registerTool('knowledge_delete', {
+    description: 'Delete a documentation piece: its file, or its folder (a flow goes with its spec and its shared evidence). When the person asks to delete a piece, this is it: marking it deprecated is not deleting it. A container that holds other pieces goes only with `contents: true`, and they with it. The answer names the pieces that still mention it: update them with knowledge_write.',
+    inputSchema: { id: z.string(), contents: z.boolean().optional().describe('also delete the pieces it holds') },
+  }, async ({ id, contents }) => text(JSON.stringify(deletePiece(ws(), id, { contents }))));
+
   server.registerTool('knowledge_verify', {
     description: 'Record that a STALE piece, reviewed (and updated) against the code, matches it now.',
     inputSchema: { id: z.string() },
   }, async ({ id }) => text(JSON.stringify(verifyPiece(ws(), id), null, 2)));
 
   server.registerTool('check', {
-    description: 'Validate the documentation: broken references, misplaced files, stale pieces, conventions, coverage.',
+    description: 'Validate the documentation: broken references, misplaced files, stale pieces, conventions, coverage, and each service\'s endpoints that no contract declares yet.',
     inputSchema: {},
   }, async () => { const w = ws(); const r = await checkWorkspace(w, graphOrNull(w)); return text(JSON.stringify(r)); });
 
   server.registerTool('ask', {
-    description: 'Question over the map by names of things; answers matching nodes and facts.',
+    description: 'Question over the map and the documentation by names of things, in English or Spanish ("who writes the files table", "quién publica file.uploaded"): the matching nodes with their facts (the kind and the verb named come first), and the pieces whose words match, with what they name.',
     inputSchema: { question: z.string(), budget },
-  }, async ({ question, budget: b }) => text(ask(loadGraph(ws()), question, b)));
+  }, async ({ question, budget: b }) => { const w = ws(); return text(ask(loadGraph(w), question, b, loadKnowledge(w))); });
 
   server.registerTool('path', {
     description: 'Shortest chain of facts between two things, e.g. a frontend service and a table.',

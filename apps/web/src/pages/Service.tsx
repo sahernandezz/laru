@@ -5,18 +5,19 @@
 import { Braces, Database, GitBranch, Globe, Pencil, Plug, Server, type LucideIcon } from 'lucide-react';
 import { useEffect, useState, type ReactNode, type RefObject } from 'react';
 import { useApi, type Fact, type FlowInfo, type Indexed, type KnowledgeData, type MapNode, type MockContract, type Seen } from '../api.ts';
-import { AllButton, ContractChip, DesignList, Drift, EntityRow, EventRow, Operation, slug, useOpen, type Loaded } from '../components/Contract.tsx';
+import { AllButton, DesignList, DIRECTION, Drift, EndpointBody, EntityRow, EventRow, Missing, Operation, slug, useOpen, type Loaded } from '../components/Contract.tsx';
 import { CopyButton, Dot, Origin, Skeleton, Status, Tabs } from '../components/ui.tsx';
-import { entitiesOf, errorsOf, eventsOf, opsOf, serviceApi, unlisted, type ApiRow } from '../lib/contracts.ts';
-import { KIND, lastText, MOCK_MODE, pieceLabel, plural } from '../lib/es.ts';
+import { contractsText, diffsOf, entitiesOf, errorsOf, eventsOf, groupApi, opsOf, serviceApi, type ApiRow } from '../lib/contracts.ts';
+import { KIND, lastText, MOCK_MODE, pieceLabel, plural, STATUS } from '../lib/es.ts';
 import { Inline } from '../lib/md.tsx';
 import { href } from '../lib/route.ts';
 import { appsOf, groupsOf } from '../lib/sysmap.ts';
 import { nodeParts, nodeTab, through } from '../lib/nodeTabs.ts';
 import { AddMenu, Anchors, FacetList, facetsOf, PieceFields, Stale } from './Docs.tsx';
 import { failedOn, flowDot, walkers } from './Flows.tsx';
-import { TestList, VarLevels } from './Sheets.tsx';
+import { VarLevels } from './Sheets.tsx';
 import { tr } from '../lib/i18n.ts';
+import { TechIcon } from '../components/TechIcon.tsx';
 
 const ICON: Record<string, LucideIcon> = { service: Server, datastore: Database, external: Globe };
 const where = (f: Fact) => (f.anchor ? `${f.anchor.path.split('/').pop()}${f.anchor.line ? `:${f.anchor.line}` : ''}` : '');
@@ -58,7 +59,7 @@ export function Components({ g, flows, k, onOpen }: { g: Indexed; flows?: FlowIn
           return (
             <tr key={n.id}>
               <td className="wrap">
-                <a className="rowlink comp-name" href={href('map', n.id)} onClick={onOpen}><Icon />{n.name}</a><span className="only-sm faint"> {kindOf(n)}</span>
+                <a className="rowlink comp-name" href={href('map', n.id)} onClick={onOpen}><TechIcon g={g} node={n} fallback={Icon} />{n.name}</a><span className="only-sm faint"> {kindOf(n)}</span>
                 <div className="only-sm faint sub">{[eps !== undefined && plural(eps, tr('endpoint'), tr('endpoints')), data, fl?.length && plural(fl.length, tr('flujo'), tr('flujos'))].filter(Boolean).join(' · ')}{bad > 0 && <span className="err-ink"> · {bad} {bad === 1 ? tr('falla') : tr('fallan')}</span>}</div>
               </td>
               {apps && <td>{apps.get(n.id)}</td>}
@@ -97,7 +98,7 @@ export function NodeSheet({ g, node, flows, k, seen, reload, headRef, close, tab
     <div className="node-sheet" onKeyDown={(e) => { if (e.key === 'Escape') close(); }}>
       <div className="head">
         <div style={{ minWidth: 0 }}>
-          <span className="type-badge"><Icon />{pieceLabel(node.type)}{kindOf(node) ? `, ${kindOf(node)}` : ''}</span>{' '}
+          <span className="type-badge"><TechIcon g={g} node={node} fallback={Icon} />{pieceLabel(node.type)}{kindOf(node) ? `, ${kindOf(node)}` : ''}</span>{' '}
           {piece && <Origin of="declared" />} <Origin of="extracted" />
           <h1 ref={headRef} tabIndex={-1} style={{ marginTop: 10 }}>{node.name}</h1>
           <p>{piece?.summary ?? (k && tr('Existe en el código —{plural}— pero nadie ha escrito lo que el código no dice: para qué está, qué no debe hacer, qué hacer cuando falla.', { plural: plural(out.length + inn.length, tr('hecho extraído'), tr('hechos extraídos')) }))}</p>
@@ -125,33 +126,12 @@ export function NodeSheet({ g, node, flows, k, seen, reload, headRef, close, tab
         {tab === 'events' && <ServiceEvents g={g} node={node} k={k} seen={seen.data} />}
         {tab === 'contract' && <MockedFrom g={g} node={node} k={k} seen={seen} />}
         {tab === 'content' && <Content g={g} held={held} />}
-        {tab === 'links' && <FactTable g={g} rows={links.map((f) => ({ f, dir: f.s === node.id ? 'out' : 'in' }))} self={node.id} />}
+        {tab === 'links' && <Links g={g} node={node} links={links} />}
         {tab === 'data' && <ServiceData g={g} node={node} k={k} tables={[...tables]} />}
-        {tab === 'vars' && <><VarLevels names={[...new Set(vars.map((f) => g.nodes.get(f.o)?.name ?? f.o))].map((name) => ({ name, secret: /(SECRET|PASSWORD|PASSWD|TOKEN|API_?KEY|PRIVATE|CREDENTIAL)/i.test(name) }))} service={node.name} /><div style={{ height: 16 }} /><FactTable g={g} rows={vars.map((f) => ({ f, dir: 'out' as const }))} self={node.id} /></>}
-        {tab === 'tests' && <ServiceTests id={node.id} />}
-        {tab === 'libs' && (
-          <section className="panel"><div className="scroll-x"><table className="t">
-            <thead><tr><th>{tr('Librería')}</th><th>{tr('Versión')}</th><th>{tr('Dónde')}</th></tr></thead>
-            <tbody>{libs.map((f) => { const n = g.nodes.get(f.o); return <tr key={f.o + full(f)}><td className="mono">{f.o.startsWith('repo:') ? <a className="rowlink" href={href('repos', f.o.slice(5))}>{f.o}</a> : n?.name}</td><td className="mono faint">{String(n?.attrs?.version ?? '')}</td><td className="mono faint">{where(f)}</td></tr>; })}</tbody>
-          </table></div></section>
-        )}
-        {tab === 'flows' && (
-          <section className="panel">{!flows ? <div className="empty">{tr('No se pudo leer el historial de runs.')}</div> : !mine.length ? <div className="empty">{tr('Ningún flujo lo ha recorrido en su último run.')}</div> : (
-            <div className="scroll-x"><table className="t">
-              <thead><tr><th>{tr('Flujo')}</th><th>{tr('Último')}</th><th>{tr('Falló aquí')}</th></tr></thead>
-              <tbody>{mine.map((f) => {
-                const hop = here(f);
-                return (
-                  <tr key={f.id}>
-                    <td><a className="rowlink" href={href('docs', f.id, 'map')} style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}><Dot state={flowDot(f)} />{f.title}</a></td>
-                    <td>{lastText(f.last)}</td>
-                    <td className="wrap">{hop ? <span className="err-ink">{hop.status ?? hop.error ?? tr('sin respuesta')}{' '}{tr('en')}{' '}{hop.what}</span> : <span className="faint">—</span>}</td>
-                  </tr>
-                );
-              })}</tbody>
-            </table></div>
-          )}</section>
-        )}
+        {tab === 'vars' && <><VarLevels names={[...new Set(vars.map((f) => g.nodes.get(f.o)?.name ?? f.o))].map((name) => ({ name, secret: /(SECRET|PASSWORD|PASSWD|TOKEN|API_?KEY|PRIVATE|CREDENTIAL)/i.test(name) }))} service={node.name} />{vars.length > 0 && <><div style={{ height: 16 }} /><VarReads g={g} vars={vars} /></>}</>}
+        {tab === 'tests' && <ServiceTests g={g} node={node} flows={flows} mine={mine} />}
+        {tab === 'libs' && <Libs g={g} libs={libs} />}
+        {tab === 'flows' && <NodeFlows g={g} node={node} flows={flows} mine={mine} here={here} />}
         {tab === 'docs' && (!k ? <section className="panel"><div className="empty">—</div></section> : piece ? <><DesignList k={k} g={g} p={piece} seen={seen.data} /><PieceFields k={k} p={piece} /><div style={{ height: 16 }} />{piece.anchors?.length ? <><Anchors p={piece} /><div style={{ height: 16 }} /></> : null}<FacetList k={k} {...facetsOf(k, piece)} /></> : (
           <section className="panel"><div className="empty">{tr('Nadie ha escrito para qué está, qué no debe hacer ni qué hacer cuando falla.')}{' '}<a className="rowlink" href={href('docs', 'new', node.type, app?.id ?? '-', node.id)}>{tr('Documentar')}</a></div></section>
         ))}
@@ -177,12 +157,12 @@ const nameOf = (g: Indexed, id: string) => { const n = g.nodes.get(id); return n
 
 /** A store's tables or topics: who maps them in the code, and who was seen reading or writing them. */
 function Content({ g, held }: { g: Indexed; held: MapNode[] }) {
-  if (!held.length) return <section className="panel"><div className="empty">{tr('No se conoce nada dentro de este almacén.')}</div></section>;
+  if (!held.length) return <section className="panel"><div className="empty"><Missing how={tr('Aparece en cuanto el código mapee o cree sus tablas o temas, o un run los toque.')}>{tr('No se conoce nada dentro de este almacén.')}</Missing></div></section>;
   const VERB: Record<string, string> = { 'maps-table': tr('mapea'), 'defines-table': tr('la define'), publishes: tr('publica'), consumes: tr('consume'), reads: tr('lee'), writes: tr('escribe') };
   const said = (fs: Fact[]) => [...Map.groupBy(fs, (f) => f.s)].map(([s, x]) => `${nameOf(g, s)} ${[...new Set(x.map((f) => VERB[f.p]))].join(' y ')}`).join(' · ');
   return (
-    <section className="panel"><div className="scroll-x"><table className="t">
-      <thead><tr><th>{held.every((n) => n.type === 'topic') ? tr('Tema@@Kafka') : tr('Tabla')}</th><th>{tr('En el código')}</th><th>{tr('Visto en runs')}</th></tr></thead>
+    <section className="panel"><Lead>{tr('Lo que guarda: quién lo mapea o lo crea en el código y, aparte, quién lo leyó o escribió en los runs.')}</Lead><div className="scroll-x"><table className="t">
+      <thead><tr><th>{held.every((n) => n.type === 'topic') ? tr('Tema@@Kafka') : tr('Tabla')}</th><th>{tr('En el código')}</th><th><Origin of="observed" label={false} />{' '}{tr('Datos reales')}</th></tr></thead>
       <tbody>{held.map((n) => {
         const inn = g.in(n.id);
         const code = inn.filter((f) => f.origin !== 'observed' && f.p in VERB && f.p !== 'reads' && f.p !== 'writes');
@@ -191,8 +171,8 @@ function Content({ g, held }: { g: Indexed; held: MapNode[] }) {
         return (
           <tr key={n.id}>
             <td className="mono">{n.name}</td>
-            <td className="wrap">{code.length ? <><Origin of="extracted" label={false} /> {said(code)}</> : <span className="faint">—</span>}</td>
-            <td className="wrap">{seen.length ? <><Origin of="observed" label={false} /> {said(seen)} <span className="faint">{tr('(run')}{' '}{last?.run}, {last?.count}×)</span></> : <span className="faint">—</span>}</td>
+            <td className="wrap">{code.length ? <><Origin of="extracted" label={false} /> {said(code)}</> : <span className="faint">{tr('nadie lo mapea ni lo crea en el código')}</span>}</td>
+            <td className="wrap">{seen.length ? <><Origin of="observed" label={false} /> {said(seen)} <span className="faint">{tr('(run')}{' '}{last?.run}, {last?.count}×)</span></> : <span className="faint">{tr('ningún run lo ha tocado todavía')}</span>}</td>
           </tr>
         );
       })}</tbody>
@@ -205,25 +185,168 @@ const VERB: Record<string, [string, string]> = {
   reads: [tr('Lee'), tr('Lo lee')], writes: [tr('Escribe en'), tr('Lo escribe')],
 };
 
-function FactTable({ g, rows, self }: { g: Indexed; rows: Array<{ f: Fact; dir: 'in' | 'out' }>; self: string }) {
-  if (!rows.length) return <section className="panel"><div className="empty">{tr('Nada que mostrar aquí.')}</div></section>;
+/** What a tab is for, said once at its top. */
+const Lead = ({ children }: { children: ReactNode }) => <p className="api-note">{children}</p>;
+const real = (f: Fact) => f.origin === 'observed' || Boolean(f.seen);
+
+/**
+ * Who it talks to, grouped by the relation and by who is at the other end: each with what the code says of each call
+ * (how, where) and, apart, what the runs saw of it. Nothing to show says why and how it would show.
+ */
+function Links({ g, node, links }: { g: Indexed; node: MapNode; links: Fact[] }) {
+  const self = (id: string) => id === node.id || g.nodes.get(id)?.service === node.id;
+  const into = (f: Fact) => !self(f.s);
+  const other = (f: Fact) => { const id = into(f) ? f.s : f.o; const n = g.nodes.get(id); return n?.type === 'endpoint' && n.service ? n.service : id; };
+  const groups = [...Map.groupBy(links, (f) => VERB[f.p]?.[into(f) ? 1 : 0] || f.p)];
   return (
-    <section className="panel"><div className="scroll-x"><table className="t">
-      <thead><tr><th>{tr('Relación')}</th><th>{tr('Con')}</th><th>{tr('Cómo')}</th><th>{tr('Origen')}</th><th>{tr('Dónde')}</th></tr></thead>
-      <tbody>{rows.map(({ f, dir }, i) => {
-        const other = dir === 'out' ? f.o : f.s;
-        const into = dir === 'in' || (f.s !== self);
-        return (
-          <tr key={i}>
-            <td>{VERB[f.p]?.[into ? 1 : 0] || f.p}</td>
-            <td className="mono">{ICON[g.nodes.get(other)?.type ?? ''] ? <a className="rowlink" href={href('map', other)}>{nameOf(g, other)}</a> : nameOf(g, f.s === self ? f.o : f.s === other ? f.s : f.o)}</td>
-            <td className="wrap faint" style={{ maxWidth: 380 }}>{f.note}</td>
-            <td><Origin of={f.origin} /></td>
-            <td className="mono faint" title={f.anchor ? `${f.anchor.repo}:${f.anchor.path}` : ''}>{f.anchor ? `${f.anchor.path.split('/').pop()}${f.anchor.line ? `:${f.anchor.line}` : ''}` : ''}</td>
-          </tr>
-        );
-      })}</tbody>
-    </table></div></section>
+    <section className="panel" aria-labelledby="links-h">
+      <header><h3 id="links-h">{tr('Conexiones')}</h3><div className="meta">{plural(new Set(links.map(other)).size, tr('pieza'), tr('piezas'))}</div></header>
+      <Lead>{tr('Con quién habla, por relación y por pieza: lo que dice el código de cada llamada y, aparte, lo que vieron los runs.')}</Lead>
+      {!links.length ? <div className="empty"><Missing how={tr('El mapa sale del código: si llama a algo por una URL que Laru no ve (un .env, una variable sin valor de ejemplo), decláralo en laru.yaml bajo services.<nombre>.calls y relee el mapa.')}>{tr('Ni el código ni los runs muestran con quién habla.')}</Missing></div> : groups.map(([label, fs]) => (
+        <section key={label} className="link-group" aria-label={label}>
+          <h4>{label} <span className="faint">{plural(new Set(fs.map(other)).size, tr('pieza'), tr('piezas'))}</span></h4>
+          {[...Map.groupBy(fs, other)].map(([id, xs]) => {
+            const n = g.nodes.get(id), code = xs.filter((f) => !real(f)), ran = xs.filter(real);
+            const last = ran.reduce<Fact['seen']>((a, f) => (f.seen && (!a || Number(f.seen.run) > Number(a.run)) ? f.seen : a), undefined);
+            return (
+              <div key={id} className="link-card">
+                <div className="link-h">{ICON[n?.type ?? ''] ? <a className="rowlink" href={href('map', id)}>{n?.name ?? id}</a> : <span className="mono">{nameOf(g, id)}</span>}{n?.kind && <span className="faint">{KIND[n.kind] ?? n.kind}</span>}</div>
+                <div className="link-cols">
+                  <div><span className="src"><Origin of="extracted" label={false} />{tr('En el código')}</span>{code.length ? (
+                    <ul className="plain link-how">{code.map((f, i) => <li key={i}><span>{[[f.s, f.o].map((x) => g.nodes.get(x)).find((x) => x?.type === 'endpoint')?.name, f.note].filter(Boolean).join(' · ') || VERB[f.p]?.[into(f) ? 1 : 0] || f.p}</span>{f.origin === 'derived' && <Origin of="derived" label={false} />}{f.anchor && <span className="mono faint" title={full(f)}>{where(f)}</span>}</li>)}</ul>
+                  ) : <p className="faint ep-p">{tr('El código no lo dice: solo lo vieron los runs.')}</p>}</div>
+                  <div><span className="src"><Origin of="observed" label={false} />{tr('Datos reales')}</span>{ran.length ? <p className="ep-p">{last ? tr('Visto en el run {run}, en {n} runs', { run: last.run, n: last.count }) : tr('Visto en los runs')}</p> : <p className="faint ep-p">{tr('Ningún run lo ha visto todavía.')}</p>}</div>
+                </div>
+              </div>
+            );
+          })}
+        </section>
+      ))}
+    </section>
+  );
+}
+
+/** Where its code reads each variable and who gives it a value, by variable: the values each env has are above. */
+function VarReads({ g, vars }: { g: Indexed; vars: Fact[] }) {
+  return (
+    <section className="panel" aria-labelledby="var-reads-h">
+      <header><h3 id="var-reads-h">{tr('Dónde la lee su código')}</h3><div className="meta"><Origin of="extracted" /></div></header>
+      <Lead>{tr('Cada variable con el sitio de su código que la lee y lo que le da valor (el compose, un fichero de ejemplo); su valor en cada entorno está arriba.')}</Lead>
+      <div className="scroll-x"><table className="t">
+        <thead><tr><th>{tr('Variable')}</th><th>{tr('La lee')}</th><th>{tr('Le da valor')}</th></tr></thead>
+        <tbody>{[...Map.groupBy(vars, (f) => f.o)].map(([id, fs]) => {
+          const reads = fs.filter((f) => f.p === 'reads-var'), gives = fs.filter((f) => f.p === 'declares-var');
+          return (
+            <tr key={id}>
+              <td className="mono">{g.nodes.get(id)?.name ?? id.replace(/^var:/, '')}</td>
+              <td className="wrap">{reads.length ? reads.map((f, i) => <span key={i} className="mono faint" title={full(f)}>{i ? ', ' : ''}{where(f) || f.note}</span>) : <span className="faint">{tr('ningún código la lee: la recibe y no la usa')}</span>}</td>
+              <td className="wrap">{gives.length ? gives.map((f, i) => <span key={i} className="faint" title={full(f)}>{i ? ' · ' : ''}{f.note ?? ''} <span className="mono">{where(f)}</span></span>) : <span className="faint">{tr('nada en el código: su valor sale del vault o del entorno')}</span>}</td>
+            </tr>
+          );
+        })}</tbody>
+      </table></div>
+    </section>
+  );
+}
+
+/** Its dependencies as its build declares them: what it runs with first, then what only its tests and build use. */
+function Libs({ g, libs }: { g: Indexed; libs: Fact[] }) {
+  const dev = (f: Fact) => /^(test|dev|provided)$/i.test(String(g.nodes.get(f.o)?.attrs?.scope ?? ''));
+  const parts: Array<[string, Fact[]]> = [[tr('Con las que corre'), libs.filter((f) => !dev(f))], [tr('Solo para pruebas y build'), libs.filter(dev)]];
+  return (
+    <section className="panel" aria-labelledby="libs-h">
+      <header><h3 id="libs-h">{tr('Librerías')}</h3><div className="meta"><Origin of="extracted" /> · {plural(libs.length, tr('librería'), tr('librerías'))}</div></header>
+      <Lead>{tr('Lo que declara su build (pom.xml, package.json): con qué corre y, aparte, lo que solo usan sus pruebas.')}</Lead>
+      {!libs.length ? <div className="empty"><Missing how={tr('Laru las lee de pom.xml y package.json; un build de otro tipo no las muestra aquí.')}>{tr('Su build no declara dependencias que Laru lea.')}</Missing></div> : parts.filter(([, fs]) => fs.length).map(([label, fs]) => (
+        <section key={label} className="link-group" aria-label={label}>
+          <h4>{label} <span className="faint">{fs.length}</span></h4>
+          <div className="scroll-x"><table className="t">
+            <thead><tr><th>{tr('Librería')}</th><th>{tr('Versión')}</th><th>{tr('Dónde')}</th></tr></thead>
+            <tbody>{fs.map((f) => { const n = g.nodes.get(f.o), v = String(n?.attrs?.version ?? ''); return <tr key={f.o + full(f)}><td className="mono">{f.o.startsWith('repo:') ? <a className="rowlink" href={href('repos', f.o.slice(5))}>{f.o}</a> : n?.name}</td><td className="mono faint">{!v ? tr('la que fije su build') : /^\$\{/.test(v) ? tr('{v}, una propiedad de su build', { v }) : v}</td><td className="mono faint">{where(f)}</td></tr>; })}</tbody>
+          </table></div>
+        </section>
+      ))}
+    </section>
+  );
+}
+
+const LEVEL: Record<string, string> = { unit: tr('Unitarias'), integration: tr('De integración'), e2e: tr('De punta a punta') };
+type LiveTest = { file: string; level: string; count: number; cases: Array<{ name: string; line: number }> };
+
+/**
+ * Its tests by level, each file with what it tests (the class its name names, and that class's endpoints) and its
+ * cases; apart, what the runs say: the flows whose last run went through it and the endpoints none walked.
+ */
+function ServiceTests({ g, node, flows, mine }: { g: Indexed; node: MapNode; flows?: FlowInfo[]; mine: FlowInfo[] }) {
+  const t = useApi<LiveTest[]>(`/api/service-tests?id=${encodeURIComponent(node.id)}`);
+  const eps = g.out(node.id).filter((f) => f.p === 'exposes').map((f) => g.nodes.get(f.o)).filter((x): x is MapNode => Boolean(x));
+  const tested = (file: string) => file.split('/').pop()!.replace(/\.[^.]+$/, '').replace(/(\.test|\.spec|Tests?|IT|Spec)$/, '');
+  const of = (cls: string) => eps.filter((ep) => String(ep.attrs?.handler ?? '').split('.')[0] === cls);
+  const walked = flows ? eps.filter((ep) => walkers(flows, ep.id).length) : [];
+  const files = t.data ?? [];
+  return (
+    <section className="panel" aria-labelledby="tests-h">
+      <header><h3 id="tests-h">{tr('Pruebas')}</h3><div className="meta"><Origin of="extracted" /> · {plural(files.reduce((n, x) => n + x.count, 0), tr('prueba'), tr('pruebas'))}{' '}{tr('en')}{' '}{plural(files.length, tr('fichero'), tr('ficheros'))}</div></header>
+      <Lead>{tr('Sus pruebas por nivel, cada fichero con lo que prueba y sus casos; aparte, los flujos de Laru que pasaron por aquí y cuántos de sus endpoints recorrieron.')}</Lead>
+      {t.loading && !t.data ? <div className="body"><Skeleton lines={4} /></div> : !files.length ? (
+        <div className="empty"><Missing how={tr('Laru las lee de src/test (Java) y de los ficheros .test y .spec (JavaScript) bajo la carpeta del servicio; las de otro repositorio no cuentan aquí.')}>{tr('No hay pruebas bajo su carpeta.')}</Missing></div>
+      ) : ['unit', 'integration', 'e2e'].filter((l) => files.some((x) => x.level === l)).map((l) => (
+        <section key={l} className="link-group" aria-label={LEVEL[l]}>
+          <h4>{LEVEL[l]} <span className="faint">{plural(files.filter((x) => x.level === l).reduce((n, x) => n + x.count, 0), tr('prueba'), tr('pruebas'))}</span></h4>
+          {files.filter((x) => x.level === l).map((x) => {
+            const cls = tested(x.file), own = of(cls);
+            return (
+              <details key={x.file} className="test-file">
+                <summary><span className="mono">{x.file.slice(x.file.indexOf(':') + 1).split('/').at(-1)}</span>{' '}<span className="faint">{tr('prueba {cls}', { cls })}{own.length ? ` · ${plural(own.length, tr('endpoint'), tr('endpoints'))}` : ''} · {plural(x.count, tr('caso'), tr('casos'))}</span></summary>
+                <p className="mono faint test-path">{x.file}</p>
+                <ul>{x.cases.map((c) => <li key={c.line}><span>{c.name}</span> <span className="mono faint">:{c.line}</span></li>)}</ul>
+              </details>
+            );
+          })}
+        </section>
+      ))}
+      <section className="link-group real-box" aria-label={tr('Datos reales')}>
+        <h4><Origin of="observed" label={false} />{tr('Datos reales')} <span className="faint">{tr('lo que vieron los runs')}</span></h4>
+        {!flows ? <p className="faint ep-p">{tr('No se pudo leer el historial de runs.')}</p> : !mine.length ? (
+          <Missing how={tr('Lo trae el primer run de un flujo que pase por aquí: escribe uno en Documentación, o graba una sesión de «Probar en vivo» y conviértela en flujo.')}>{tr('Ningún flujo ha pasado por aquí en su último run.')}</Missing>
+        ) : (
+          <>
+            <ul className="plain link-how">{mine.map((f) => <li key={f.id}><Dot state={flowDot(f)} /><a className="rowlink" href={href('docs', f.id, 'map')}>{f.title}</a><span className="faint">{lastText(f.last)}</span></li>)}</ul>
+            {eps.length > 0 && <p className="ep-p">{tr('{walked} de sus {n} endpoints, recorridos por algún flujo en su último run.', { walked: walked.length, n: eps.length })}</p>}
+          </>
+        )}
+      </section>
+    </section>
+  );
+}
+
+/** The flows whose last run went through it, failing first: the endpoints of it each walked and, when one failed here, the hop. */
+function NodeFlows({ g, node, flows, mine, here }: { g: Indexed; node: MapNode; flows?: FlowInfo[]; mine: FlowInfo[]; here: (f: FlowInfo) => Hop | undefined }) {
+  const own = new Set(g.out(node.id).filter((f) => f.p === 'exposes').map((f) => f.o));
+  const list = [...mine].sort((a, b) => Number(failed(b)) - Number(failed(a)));
+  return (
+    <section className="panel" aria-labelledby="flows-h">
+      <header><h3 id="flows-h">{tr('Flujos')}</h3><div className="meta"><Origin of="observed" /> · {plural(mine.length, tr('flujo'), tr('flujos'))}</div></header>
+      <Lead>{tr('Los flujos cuyo último run pasó por aquí: cómo les fue, qué endpoints suyos recorrieron y, si fallaron aquí, en qué salto.')}</Lead>
+      {!flows ? <div className="empty">{tr('No se pudo leer el historial de runs.')}</div> : !mine.length ? (
+        <div className="empty"><Missing how={tr('Escribe un flujo que lo use (Documentación › Crear un flujo), o graba una sesión de «Probar en vivo» y conviértela en flujo; su primer run lo trae aquí.')}>{tr('Ningún flujo lo ha recorrido en su último run.')}</Missing></div>
+      ) : (
+        <div className="scroll-x"><table className="t">
+          <thead><tr><th>{tr('Flujo')}</th><th>{tr('Último')}</th><th>{tr('Recorrió')}</th><th>{tr('Falló aquí')}</th></tr></thead>
+          <tbody>{list.map((f) => {
+            const hop = here(f), walked = (f.last?.endpoints ?? []).filter((e) => own.has(e.id));
+            return (
+              <tr key={f.id}>
+                <td><a className="rowlink" href={href('docs', f.id, 'map')} style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}><Dot state={flowDot(f)} />{f.title}</a></td>
+                <td>{lastText(f.last)}</td>
+                <td className="wrap">{walked.length ? walked.map((e, i) => <span key={e.id} className={`mono${e.ok ? '' : ' err-ink'}`}>{i ? ', ' : ''}{g.nodes.get(e.id)?.name ?? e.id}</span>) : <span className="faint">{own.size ? tr('ningún endpoint suyo: pasó por sus datos o sus mensajes') : tr('no expone endpoints')}</span>}</td>
+                <td className="wrap">{hop ? <span className="err-ink">{hop.status ?? hop.error ?? tr('sin respuesta')}{' '}{tr('en')}{' '}{hop.what}</span> : <span className="faint">{failed(f) ? tr('falló en otro sitio') : tr('no')}</span>}</td>
+              </tr>
+            );
+          })}</tbody>
+        </table></div>
+      )}
+    </section>
   );
 }
 
@@ -232,62 +355,80 @@ function FactTable({ g, rows, self }: { g: Indexed; rows: Array<{ f: Fact; dir: 
 const at = (n: MapNode) => (n.anchor ? `${n.anchor.path.split('/').pop()}${n.anchor.line ? `:${n.anchor.line}` : ''}` : '');
 
 /**
- * A service's endpoints next to the operations that document them: each opens into its request, its responses and
- * errors and a real example. Drift is marked both ways (an endpoint no contract declares, an operation the code lacks)
- * and in what the runs saw (a status the contract does not list, a request a mock found off-contract).
+ * A service's endpoints, grouped as a reader looks for them: by the contract that documents them (what the contract is
+ * for names the group), the rest by the resource of their path, and those that only forward to other services last.
+ * Each opens into its contract (what it is for, takes and answers, with what its code says under each part) and, apart,
+ * what the runs saw of it and where that strays from the contract. Nothing is left blank: what is not known says what
+ * brings it.
  */
 function ServiceApi({ g, node, k, seen, flows }: { g: Indexed; node: MapNode; k?: KnowledgeData; seen: Loaded<Seen>; flows?: FlowInfo[] }) {
   const eps = g.out(node.id).filter((f) => f.p === 'exposes').map((f) => g.nodes.get(f.o)).filter((x): x is MapNode => Boolean(x));
   const ops = k ? opsOf(k.pieces) : [];
-  const rows = serviceApi(node.id, eps, ops);
-  const contracts = [...new Map(ops.filter((o) => o.service === node.id).map((o) => [o.contract.id, o.contract])).values()];
+  const reach = (ep: MapNode) => g.out(ep.id).filter((f) => f.p === 'forwards-to').map((f) => g.nodes.get(f.o)).filter((x): x is MapNode => Boolean(x));
+  // a wildcard route passes calls on even where no route below takes its method: to the services it calls under that prefix
+  const called = [...new Set(g.out(node.id).filter((f) => f.p === 'calls').map((f) => g.nodes.get(f.o)).flatMap((n) => (n?.type === 'service' ? [n.id] : n?.service ? [n.service] : [])))];
+  const under = (path: string) => called.filter((d) => g.out(d).some((f) => f.p === 'exposes' && String(g.nodes.get(f.o)?.attrs?.path).startsWith(path.slice(0, -3))));
+  const rows = serviceApi(node.id, eps, ops, (ep) => { const to = [...new Set(reach(ep).map((x) => x.service ?? ''))].filter(Boolean); return to.length || !String(ep.attrs?.path).endsWith('/**') ? to : under(String(ep.attrs?.path)); });
+  const groups = groupApi(rows);
   const o = useOpen();
   const [diff, setDiff] = useState(false);
   const seenOf = (r: ApiRow) => (r.ep ? seen.data?.endpoints[r.ep.id] : undefined);
-  const off = (r: ApiRow) => Boolean(r.drift) || (r.op ? unlisted(seenOf(r)?.statuses, errorsOf(r.op.contract)).length > 0 : false) || Boolean(seenOf(r)?.drift.length);
+  const said = contractsText(ops, node.id);
+  const diffs = new Map(rows.map((r) => [r.key, diffsOf(r, seenOf(r), said)]));
+  const off = (r: ApiRow) => Boolean(r.drift) || Boolean(diffs.get(r.key)?.length);
   const nOff = rows.filter(off).length;
-  const shown = diff ? rows.filter(off) : rows;
-  const documented = rows.filter((r) => r.op && r.ep).length, nSeen = rows.filter((r) => seenOf(r)).length;
+  const piece = k?.pieces.find((p) => p.id === node.id);
+  const write = href('docs', 'new', 'contract', piece?.id ?? '-');
+  const nSeen = rows.filter((r) => seenOf(r)).length;
+  const shown = (list: ApiRow[]) => (diff ? list.filter(off) : list);
   return (
     <section className="panel" aria-labelledby="api-h">
       <header>
-        <h3 id="api-h">{tr('Endpoints y contratos')}</h3>
+        <h3 id="api-h">Endpoints</h3>
         <div className="meta">
-          <span>{k ? tr('{documented} de {length} en contratos', { documented, length: eps.length }) : tr('Leyendo los contratos…')}{seen.data ? tr(' · {plural} en los runs', { plural: plural(nSeen, tr('visto'), tr('vistos')) }) : ''}</span>
-          {nOff > 0 && <button type="button" className="btn sm" aria-pressed={diff} onClick={() => setDiff((d) => !d)}>{tr('Solo diferencias (')}{nOff})</button>}
-          <AllButton o={o} keys={shown.map((r) => r.key)} />
+          <span>{k ? [plural(rows.filter((r) => r.ep).length, tr('endpoint'), tr('endpoints')), tr('{n} con contrato', { n: rows.filter((r) => r.op && r.ep).length }), seen.data ? tr('{n} vistos en los runs', { n: nSeen }) : ''].filter(Boolean).join(' · ') : tr('Leyendo los contratos…')}</span>
+          {nOff > 0 && <button type="button" className="btn sm" aria-pressed={diff} onClick={() => setDiff((d) => !d)}>{tr('Solo diferencias ({n})', { n: nOff })}</button>}
+          <AllButton o={o} keys={rows.map((r) => r.key)} />
         </div>
       </header>
-      {k && rows.length > 0 && (contracts.length
-        ? <p className="api-note">{tr('Lo documentan')}{' '}{contracts.map((c) => <a key={c.id} className="chip ctr" href={href('docs', c.id)}><Braces />{c.title}</a>)}</p>
-        : <p className="api-note faint">{tr('Ningún contrato declara operaciones de')}{' '}{node.name}{tr(': sus endpoints salen del código y no hay con qué contrastarlos.')}</p>)}
+      <p className="api-note">{tr('Cada endpoint con su contrato —para qué sirve, qué recibe, qué responde y sus errores—, lo que dice su código y, aparte, lo que vieron los runs.')}</p>
       {seen.error && <p className="api-note err-ink">{tr('No se pudo leer lo que vieron los runs:')}{' '}{seen.error}</p>}
-      {!rows.length ? <div className="empty">{tr('El código no expone endpoints HTTP en')}{' '}{node.name}.</div> : (
-        <div className="ops">
-          {shown.map((r) => {
-            const s = seenOf(r);
-            const callers = r.ep ? [...new Set(g.in(r.ep.id).filter((f) => f.p === 'calls' || f.p === 'forwards-to').map((f) => f.s))] : [];
-            const w = r.ep && flows ? walkers(flows, r.ep.id) : [];
-            const facts: Array<[string, ReactNode]> = [
-              [tr('Contrato'), r.op ? <><ContractChip op={r.op} />{r.op.summary ? <span className="faint"> <Inline text={r.op.summary} /></span> : null}</>
-                : r.ep?.attrs?.contract ? tr('Declarado en un fichero OpenAPI del código.') : contracts.length ? <Drift>{tr('Ningún contrato de')}{' '}{node.name}{' '}{tr('lo declara')}</Drift> : <span className="faint">—</span>],
-              [tr('Implementación'), r.ep ? <span className="mono" title={r.ep.anchor ? `${r.ep.anchor.repo}:${r.ep.anchor.path}` : undefined}>{String(r.ep.attrs?.handler ?? '')} <span className="faint">{at(r.ep)}</span></span>
-                : <Drift>{tr('Ningún endpoint de')}{' '}{node.name}{' '}{tr('responde')}{' '}{r.method} {r.path}</Drift>],
-              ...(r.ep ? [
-                [tr('Quién llega'), callers.length ? <span className="callers">{callers.map((c) => <span key={c} className="chip">{nameOf(g, c)}</span>)}</span> : <span className="faint">{tr('Nadie en el mapa')}</span>],
-                [tr('Lo recorren'), !flows ? <span className="faint">—</span> : w.length ? <span>{w.map((x, i) => <span key={x.id}>{i ? ', ' : ''}<a className={`rowlink${failedOn(x, r.ep!.id) ? ' err-ink' : ''}`} href={href('docs', x.id)}>{x.title}</a></span>)}</span> : <span className="faint">{tr('— sin recorrer')}</span>],
-              ] as Array<[string, ReactNode]> : []),
-              ...(s ? [[tr('Visto en los runs'), <>{plural(s.count, tr('llamada'), tr('llamadas'))}{tr(', la última en el')}{' '}<a className="rowlink" href={href('runs', s.run)}>run {s.run}</a> · {s.flows.join(', ')}</>]] as Array<[string, ReactNode]> : []),
-              ...(s?.drift.length ? [[tr('El mock vio'), <ul className="plain">{s.drift.map((d) => <li key={d} className="mono">{d}</li>)}</ul>]] as Array<[string, ReactNode]> : []),
-            ];
-            return (
-              <Operation key={r.key} id={`ep-${slug(r.key)}`} method={r.method} path={r.path} summary={r.op?.summary} seen={s} errors={r.op ? errorsOf(r.op.contract) : undefined} facts={facts}
-                chips={r.drift === 'not-in-code' ? <><ContractChip op={r.op!} /><Drift>{tr('No está en el código')}</Drift></> : r.op ? <ContractChip op={r.op} /> : r.drift === 'no-contract' ? <Drift>{tr('Sin contrato')}</Drift> : null}
-                open={o.has(r.key)} onToggle={() => o.toggle(r.key)} />
-            );
-          })}
-        </div>
-      )}
+      {!rows.length ? <div className="empty"><Missing how={tr('Si los tiene y Laru no los ve (un router propio, una imagen sin código), decláralos en laru.yaml bajo services.<nombre>.endpoints y relee el mapa.')}>{tr('El código no expone endpoints HTTP en {name}.', { name: node.name })}</Missing></div> : groups.map((gr) => {
+        const list = shown(gr.rows);
+        if (!list.length) return null;
+        const c = gr.contract, auth = c && typeof c.fields.auth === 'string' ? c.fields.auth : '';
+        const seenHere = gr.rows.filter((r) => seenOf(r)).length;
+        return (
+          <section key={gr.key} className={`api-group ${gr.kind}`} aria-label={c ? c.title : gr.prefix ?? tr('Reenvíos')}>
+            <header className="api-group-h">
+              <div className="api-group-t">
+                <h4 className={`ttl${gr.kind === 'resource' ? ' mono' : ''}`}>{c ? <a className="rowlink" href={href('docs', c.id)}><Braces />{c.title}</a> : gr.kind === 'forward' ? tr('Reenvía a otros servicios') : gr.prefix}</h4>
+                {c ? <Status state={c.status === 'deprecated' ? 'idle' : c.status === 'active' ? 'ok' : 'queue'}>{STATUS[c.status] ?? c.status}</Status> : gr.kind === 'resource' ? <Drift>{tr('Sin contrato')}</Drift> : null}
+                <span className="faint">{plural(gr.rows.length, tr('endpoint'), tr('endpoints'))}{seen.data ? ` · ${tr('{n} vistos en los runs', { n: seenHere })}` : ''}</span>
+              </div>
+              {c ? <p className="api-group-d"><Inline text={c.summary} /></p> : gr.kind === 'forward' ? <p className="api-group-d faint">{tr('Pasan las llamadas a otros servicios: su contrato es el de lo que alcanzan.')}</p> : <p className="api-group-d faint">{tr('Ningún contrato los documenta todavía.')}</p>}
+              {auth && <p className="api-group-auth" title={auth}><span className="faint">{tr('Autenticación:')}</span>{' '}<Inline text={auth} /></p>}
+            </header>
+            <div className="ops">{list.map((r) => {
+              const s = seenOf(r), d = diffs.get(r.key) ?? [];
+              const callers = r.ep ? [...new Set(g.in(r.ep.id).filter((f) => f.p === 'calls' || f.p === 'forwards-to').map((f) => f.s))] : [];
+              const w = r.ep && flows ? walkers(flows, r.ep.id) : [];
+              const facts: Array<[string, ReactNode]> = r.ep ? [
+                [tr('Implementación'), <span className="mono" title={r.ep.anchor ? `${r.ep.anchor.repo}:${r.ep.anchor.path}` : undefined}>{String(r.ep.attrs?.handler ?? (r.ep.attrs?.declared ? tr('declarado en laru.yaml') : r.ep.attrs?.contract ? tr('fichero OpenAPI') : ''))} <span className="faint">{at(r.ep)}</span></span>],
+                [tr('Quién llega'), callers.length ? <span className="callers">{callers.map((x) => <span key={x} className="chip">{nameOf(g, x)}</span>)}</span> : <span className="faint">{tr('Nadie en el mapa: ni el código ni los runs muestran quién lo llama.')}</span>],
+                [tr('Lo recorren'), !flows ? <span className="faint">—</span> : w.length ? <span>{w.map((x, i) => <span key={x.id}>{i ? ', ' : ''}<a className={`rowlink${failedOn(x, r.ep!.id) ? ' err-ink' : ''}`} href={href('docs', x.id)}>{x.title}</a></span>)}</span> : <span className="faint">{tr('Ningún flujo en su último run: escribe uno que lo use.')}</span>],
+              ] : [];
+              const summary = r.op?.summary ?? (typeof r.ep?.attrs?.summary === 'string' ? r.ep.attrs.summary : undefined);
+              return (
+                <Operation key={r.key} id={`ep-${slug(r.key)}`} method={r.method} path={r.path} summary={summary ?? (r.forward ? tr('reenvía a {services}', { services: r.forward.map((x) => g.nodes.get(x)?.name ?? x).join(', ') }) : undefined)} seen={s} errors={r.op ? errorsOf(r.op.contract, r.op) : undefined} facts={facts}
+                  chips={<>{r.drift === 'not-in-code' && <Drift>{tr('No está en el código')}</Drift>}{r.drift === 'no-contract' && <Drift>{tr('Sin contrato')}</Drift>}{d.length > 0 && <Drift title={tr('Lo que el código o los runs hacen y el contrato no dice')}>{plural(d.length, tr('diferencia'), tr('diferencias'))}</Drift>}</>}
+                  body={<EndpointBody r={r} seen={seen} diffs={d} write={write} reaches={r.ep ? reach(r.ep).map((x) => ({ ep: x, service: x.service ? g.nodes.get(x.service) : undefined })) : undefined} />}
+                  open={o.has(r.key)} onToggle={() => o.toggle(r.key)} grouped={false} />
+              );
+            })}</div>
+          </section>
+        );
+      })}
     </section>
   );
 }
@@ -297,22 +438,25 @@ function ServiceEvents({ g, node, k, seen }: { g: Indexed; node: MapNode; k?: Kn
   const evs = k ? eventsOf(k.pieces) : [];
   const mine = evs.filter((e) => e.service === node.id);
   const code = g.out(node.id).filter((f) => (f.p === 'publishes' || f.p === 'consumes') && !mine.some((e) => e.direction === f.p && `topic:${e.topic}` === f.o));
-  // drift only where contracts speak of this service's events, or of that topic
-  const unlisted = (topic: string) => mine.length > 0 || evs.some((e) => e.topic === topic);
+  const rows = [...mine.map((e, i) => ({ key: `c${i}`, e, off: false })), ...code.map((f) => ({ key: f.p + f.o, e: { topic: g.nodes.get(f.o)?.name ?? f.o.replace(/^topic:/, ''), direction: f.p, service: node.id }, off: Boolean(k) }))];
   return (
     <section className="panel" aria-labelledby="ev-h">
       <header><h3 id="ev-h">{tr('Eventos')}</h3><div className="meta">{k ? tr('{length} en contratos', { length: mine.length }) : tr('Leyendo los contratos…')}</div></header>
-      <ul className="evs">
-        {mine.map((e, i) => <EventRow key={`c${i}`} e={e} g={g} seen={seen} self />)}
-        {code.map((f) => { const topic = g.nodes.get(f.o)?.name ?? f.o.replace(/^topic:/, ''); return <EventRow key={f.p + f.o} e={{ topic, direction: f.p, service: node.id }} g={g} seen={seen} self unlisted={Boolean(k) && unlisted(topic)} />; })}
-      </ul>
+      <Lead>{tr('Lo que publica y lo que consume: cada tema con lo que su contrato dice que lleva y, aparte, lo que vieron los runs.')}</Lead>
+      {!rows.length && <div className="empty"><Missing how={tr('Laru lee Kafka del código; otra mensajería se declara en laru.yaml bajo services.<nombre>.publishes y consumes.')}>{tr('Ni el código ni sus contratos le dan eventos.')}</Missing></div>}
+      {(['publishes', 'consumes'] as const).map((d) => rows.some((r) => r.e.direction === d) && (
+        <section key={d} className="link-group" aria-label={DIRECTION[d]}>
+          <h4>{DIRECTION[d]} <span className="faint">{plural(rows.filter((r) => r.e.direction === d).length, tr('tema@@Kafka'), tr('temas@@Kafka'))}</span></h4>
+          <ul className="evs">{rows.filter((r) => r.e.direction === d).map((r) => <EventRow key={r.key} e={r.e} g={g} seen={seen} self apart unlisted={r.off} />)}</ul>
+        </section>
+      ))}
     </section>
   );
 }
 
 /** The tables it maps or was seen touching, each as its data model describes it, and the rules of those models. */
 function ServiceData({ g, node, k, tables }: { g: Indexed; node: MapNode; k?: KnowledgeData; tables: string[] }) {
-  if (!tables.length) return <section className="panel"><div className="empty">{node.name}{' '}{tr('no mapea tablas, ni los runs lo han visto tocar ninguna.')}</div></section>;
+  if (!tables.length) return <section className="panel"><div className="empty"><Missing how={tr('Si guarda datos por un camino que Laru no lee (SQL suelto, otro ORM), los runs lo muestran en cuanto toque la base.')}>{tr('{name} no mapea tablas, ni los runs lo han visto tocar ninguna.', { name: node.name })}</Missing></div></section>;
   const ents = k ? entitiesOf(k.pieces) : [];
   const rows = tables.map((t) => ({ t, e: ents.find((x) => `tbl:${x.table}` === t) }));
   const models = [...new Set(rows.flatMap((r) => (r.e ? [r.e.model] : [])))];
@@ -320,6 +464,7 @@ function ServiceData({ g, node, k, tables }: { g: Indexed; node: MapNode; k?: Kn
     <>
       <section className="panel" aria-labelledby="data-h">
         <header><h3 id="data-h">{tr('Tablas y modelos de datos')}</h3><div className="meta">{plural(tables.length, tr('tabla'), tr('tablas'))}{k ? tr(' · {length} en modelos de datos', { length: rows.filter((r) => r.e).length }) : ''}</div></header>
+        <Lead>{tr('Cada tabla que mapea o que los runs le vieron tocar: lo que dice su modelo de datos, lo que dice el código y, aparte, lo que hicieron los runs con ella.')}</Lead>
         <div className="ents">{rows.map(({ t, e }) => <EntityRow key={t} e={e ?? { table: g.nodes.get(t)?.name ?? t.replace(/^tbl:/, '') }} g={g} self={node.id} />)}</div>
       </section>
       {models.map((m) => {
@@ -342,6 +487,7 @@ function MockedFrom({ g, node, k, seen }: { g: Indexed; node: MapNode; k?: Knowl
     <>
       <section className="panel" aria-labelledby="mock-h">
         <header><h3 id="mock-h">{tr('Cómo lo imita Laru')}</h3><div className="meta"><AllButton o={o} keys={keys} /></div></header>
+        <Lead>{tr('Lo que usamos de un sistema que no es nuestro: cómo lo imita Laru en cada entorno y desde qué contrato; aparte, lo que vieron los runs al hablarle.')}</Lead>
         {mc.error ? <p className="api-note err-ink">{tr('No se pudieron leer los mocks:')}{' '}{mc.error}</p> : !mc.data ? <div className="body"><Skeleton lines={2} /></div> : !m ? (
           <div className="empty">{tr('Ningún entorno lo imita: los runs hablan con el')}{' '}{node.name}{' '}{tr('real. Un mock se declara en')}{' '}<code>{tr('envs/<entorno>.yaml')}</code>{' '}{tr('bajo')}{' '}<code>mocks:</code>.</div>
         ) : (
@@ -357,7 +503,7 @@ function MockedFrom({ g, node, k, seen }: { g: Indexed; node: MapNode; k?: Knowl
         )}
       </section>
       <section className="panel" aria-labelledby="mock-seen-h" style={{ marginTop: 16 }}>
-        <header><h3 id="mock-seen-h">{tr('En los runs')}</h3><Origin of="observed" /></header>
+        <header><h3 id="mock-seen-h">{tr('Datos reales')}</h3><div className="meta"><Origin of="observed" />{' '}{tr('lo que vieron los runs')}</div></header>
         <div className="body">{seen.error ? <span className="err-ink">{tr('No se pudo leer lo que vieron los runs:')}{' '}{seen.error}</span> : !seen.data ? <span className="faint">{tr('Leyendo…')}</span> : !t ? <span className="faint">{tr('Ningún flujo le ha hablado en su último run.')}</span> : (
           <>
             <p className="api-p">{plural(t.count, tr('intercambio'), tr('intercambios'))} ({t.kinds.join(', ')}{tr('), el último en el')}{' '}<a className="rowlink" href={href('runs', t.run)}>run {t.run}</a>{t.mock ? <>{tr('; respondidos por el mock (')}<span className="mono">{t.mock}</span>)</> : tr('; con el real')}.</p>
@@ -370,9 +516,3 @@ function MockedFrom({ g, node, k, seen }: { g: Indexed; node: MapNode; k?: Knowl
   );
 }
 
-/** The tests under the service's directory, by name and line. */
-function ServiceTests({ id }: { id: string }) {
-  const t = useApi<Array<{ file: string; level: string; count: number; cases: Array<{ name: string; line: number }> }>>(`/api/service-tests?id=${encodeURIComponent(id)}`);
-  if (t.loading && !t.data) return <section className="panel"><div className="body"><Skeleton lines={4} /></div></section>;
-  return <TestList tests={t.data ?? []} rule={tr('Las pruebas que cuelgan de la carpeta del servicio, por nombre y línea.')} />;
-}

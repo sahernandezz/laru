@@ -81,6 +81,8 @@ const clamd = (port: number, payload: string | Buffer = 'hello', idle = 0) => ne
   sock.write(request);
 });
 
+/** A rotated file and its previous one, read together. */
+const withPrevious = (dir: string, f: string) => [f, `${f}.1`].map((x) => (existsSync(join(dir, x)) ? readFileSync(join(dir, x), 'utf8') : '')).join('');
 const readRecords = (dir: string): TrafficRecord[] => {
   try {
     return readFileSync(join(dir, 'traffic.jsonl'), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
@@ -480,7 +482,8 @@ test('the tap, in process with fake upstreams', async (t) => {
 
   await t.test('faults', async (t) => {
     const rules = (faults: TapRules['faults'], extra: Partial<TapRules> = {}) => tap.setRules({ ...NO_RULES, faults, ...extra });
-    const lastFault = (path: string) => waitFor(`record of ${path}`, () => records().findLast((x) => x.path === path && x.kind === 'http'));
+    // by method too: a record is written after its answer, so a path asked twice may still show only its first record
+    const lastFault = (path: string, method = 'GET') => waitFor(`record of ${method} ${path}`, () => records().findLast((x) => x.path === path && x.method === method && x.kind === 'http'));
     t.after(() => tap.setRules(NO_RULES));
 
     await t.test('latency', async () => {
@@ -501,7 +504,7 @@ test('the tap, in process with fake upstreams', async (t) => {
       assert.equal(gw.hits(), before, 'the upstream never saw it');
       assert.equal((await call(P8080, { path: '/up' })).status, 200);
       assert.equal((await call(P8080, { method: 'POST', path: '/down/x' })).status, 200);
-      assert.equal((await lastFault('/down/x')).status, 200);
+      assert.equal((await lastFault('/down/x', 'POST')).status, 200);
     });
 
     await t.test('abort destroys the connection', async () => {
@@ -606,7 +609,12 @@ test('the journal: rotation keeps one previous file, a slow disk drops lines, a 
       await tap.close();
       up.close();
     });
-    for (let i = 0; i < 30; i++) assert.equal((await call(P, { path: `/r${i}`, headers: { host: 'one' } })).status, 200);
+    // One record at a time: a rotation then holds only the line that started it, as in use, where the backlog (8 MB) is
+    // below the threshold. A burst against a threshold this small would start the emptied file above it.
+    for (let i = 0; i < 30; i++) {
+      assert.equal((await call(P, { path: `/r${i}`, headers: { host: 'one' } })).status, 200);
+      await waitFor(`record /r${i}`, () => withPrevious(out, 'traffic.jsonl').includes(`"/r${i}"`));
+    }
     await waitFor('last record', () => readRecords(out).find((x) => x.path === '/r29'));
     const older = readFileSync(join(out, 'traffic.jsonl.1'), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l) as TrafficRecord);
     assert.ok(older.length && Number(older.at(-1)!.path!.slice(2)) < Number(readRecords(out)[0].path!.slice(2)));
@@ -634,7 +642,11 @@ test('the journal: rotation keeps one previous file, a slow disk drops lines, a 
     const [P, ENT] = await freePorts(2);
     const tap = await startTap({ config: { app: 'a', env: 'e', entrance: ENT, routes: [route('one', P, 1)] }, rules: NO_RULES, masker: createMasker([]), out, host: '127.0.0.1', rotate: 1000 });
     t.after(() => tap.close());
-    for (let i = 0; i < 40; i++) assert.equal((await call(ENT, { path: `/x${i}`, headers: { host: 'nope.a.localhost' } })).status, 421);
+    // one line at a time, as in the journal's rotation test
+    for (let i = 0; i < 40; i++) {
+      assert.equal((await call(ENT, { path: `/x${i}`, headers: { host: 'nope.a.localhost' } })).status, 421);
+      await waitFor(`line /x${i}`, () => withPrevious(out, 'tap.log').includes(`/x${i} `));
+    }
     await waitFor('the last 421 line', () => readFileSync(join(out, 'tap.log'), 'utf8').includes('/x39 '));
     assert.ok(existsSync(join(out, 'tap.log.1')) && !existsSync(join(out, 'tap.log.2')));
     for (const f of ['tap.log', 'tap.log.1']) assert.ok(statSync(join(out, f)).size <= 1000, f);

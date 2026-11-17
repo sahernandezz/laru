@@ -137,6 +137,20 @@ test('participants come from the map, in lane order; assets collapse; parents ne
   assert.ok(observed.some((o) => o.s === 'svc:api-gateway' && o.p === 'calls' && o.o === 'ep:file-service:POST /api/files/upload'));
 });
 
+test('what a request did goes with its endpoint: a statement, a store and a message inside it, never what a consumer did after', () => {
+  const i = input();
+  i.map!.nodes.push({ id: 'topic:file.uploaded', type: 'topic', name: 'file.uploaded' }, { id: 'svc:antivirus-service', type: 'service', name: 'antivirus-service', kind: 'spring' });
+  // the antivirus reads the object once the message reaches it: its own work, not the upload's
+  i.traffic.push(rec('av', ip.av, 'minio', 1500, 1600, { method: 'GET', path: '/quarantine/x' }));
+  const { observed } = assemble(i);
+  const via = (s: string, p: string, o: string) => observed.find((x) => x.s === s && x.p === p && x.o === o)?.via;
+  const up = ['ep:file-service:POST /api/files/upload'];
+  assert.deepEqual(via('svc:file-service', 'writes', 'tbl:file_service.files'), up);
+  assert.deepEqual(via('svc:file-service', 'uses', 'ds:minio'), up);
+  assert.deepEqual(via('svc:file-service', 'publishes', 'topic:file.uploaded'), up);
+  assert.ok(observed.some((x) => x.s === 'svc:antivirus-service' && x.p === 'uses' && x.o === 'ds:minio' && !x.via), JSON.stringify(observed));
+});
+
 test('the failure points at the first bad exchange of the failed step; the chain goes deepest first', () => {
   const { traces: [a] } = assemble(input());
   assert.equal(a.failure?.step, 2);

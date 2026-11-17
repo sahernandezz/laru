@@ -313,7 +313,9 @@ test('a stream whose forward failed stays unfolded, so the failure shows (run 32
   for (const e of bad) for (let x = c.cause.get(e.id)?.parent; x; x = c.cause.get(x)?.parent) assert.ok(!c.noise.has(x), `${e.label} hides under ${x}`);
 });
 
-test('performance: 5,000 exchanges under 100 ms; the largest fixture under 10 ms', () => {
+// Per-actor scans make chain O(n·k) (see causes): one trace of 5,000 exchanges costs some 8× what the same exchanges
+// cost in traces of 100. A pass over every exchange for each one (n²) makes it over 20×.
+test('performance: 5,000 exchanges in one trace cost under 15× what they cost in traces of 100; the largest fixture under what 2,500 cost', () => {
   const ex: Exchange[] = [];
   const svc = ['file-service', 'folder-service', 'share-service', 'report-service'];
   for (let i = 0; i < 1000; i++) {
@@ -322,11 +324,16 @@ test('performance: 5,000 exchanges under 100 ms; the largest fixture under 10 ms
     ex.push(h('b', 'browser', 'frontend', 0), h('f', 'frontend', 'api-gateway', 1), h('g', 'api-gateway', to, 2));
     for (const d of [3, 3]) ex.push({ id: `q${d}${i}${ex.length}`, kind: 'sql', from: to, to: 'postgres', t0: t + d, t1: t + d, label: 'SELECT t', ok: true, origin: 'observed', req: { bytes: 1, text: `select ${i % 3}` } });
   }
-  // the best of three, so a busy machine does not fail it
-  const best = (f: () => unknown) => Math.min(...[0, 1, 2].map(() => { const t0 = performance.now(); f(); return performance.now() - t0; }));
-  const big = best(() => chain({ exchanges: ex, steps: [] })), fixture = best(() => chain(infectado));
-  assert.ok(big < 100, `${Math.round(big)} ms`);
-  assert.ok(fixture < 10, `${Math.round(fixture)} ms`);
+  const pieces = Array.from({ length: 50 }, (_, i) => ex.slice(i * 100, i * 100 + 100));
+  // This thread's CPU time, the best of five taken in turns: a busy machine adds no waits and slows each alike. The
+  // fixture goes first, so chain's property reads are already megamorphic, as real traces leave them.
+  const cpu = () => { const u = process.threadCpuUsage(); return u.user + u.system; };
+  const runs = [() => chain(infectado), () => chain({ exchanges: ex, steps: [] }), () => { for (const p of pieces) chain({ exchanges: p, steps: [] }); }];
+  const best = runs.map(() => Infinity);
+  for (let r = 0; r < 5; r++) runs.forEach((f, i) => { const t0 = cpu(); f(); best[i] = Math.min(best[i], cpu() - t0); });
+  const [fixture, big, small] = best;
+  assert.ok(big < 15 * small, `one trace ${big} µs, traces of 100 ${small} µs`);
+  assert.ok(fixture < small / 2, `the fixture ${fixture} µs, 2,500 exchanges ${small / 2} µs`);
 });
 
 test('callback: a message hangs from the request that sent it, and its status calls hang from the message however late they come; a mail sent after the answer has no cause to hang from', () => {

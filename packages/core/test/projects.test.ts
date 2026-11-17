@@ -301,7 +301,7 @@ test('services laru.yaml declares: a Lambda folder with its routes, a gateway th
   const file = join(ws.root, 'laru.yaml');
   writeFileSync(file, readFileSync(file, 'utf8') + [
     'services:',
-    '  api-gateway:', '    repo: portal', '    kind: gateway', '    endpoints: ["/usuarios/**"]', '    calls: ["usuarios GET /usuarios/{id}", pagos]',
+    '  api-gateway:', '    repo: portal', '    kind: gateway', '    endpoints: ["/usuarios/**", GET /usuarios]', '    calls: ["usuarios GET /usuarios/{id}", pagos]',
     '  usuarios:', '    repo: portal', '    dir: lambdas/usuarios', '    kind: lambda', '    endpoints: [GET /usuarios, "/usuarios/{id}"]', '    calls: [postgres, api.vendor.example]',
     '  pagos:', '    repo: portal', '    dir: lambdas/pagos', '    kind: lambda',
   ].join('\n') + '\n');
@@ -309,11 +309,12 @@ test('services laru.yaml declares: a Lambda folder with its routes, a gateway th
   const svc = map.nodes.filter((n) => n.type === 'service').map((n) => `${n.name} ${n.kind}`).sort();
   assert.deepEqual(svc, ['api-gateway gateway', 'pagos lambda', 'usuarios lambda']);
   assert.ok(!map.nodes.some((n) => n.id === 'ext:api-gateway' || n.id === 'ext:usuarios'), 'a container the workspace declares a service is no longer infrastructure');
-  assert.deepEqual(map.nodes.filter((n) => n.type === 'endpoint').map((n) => n.id).sort(), ['ep:api-gateway:ANY /usuarios/**', 'ep:usuarios:ANY /usuarios/{id}', 'ep:usuarios:GET /usuarios']);
+  assert.deepEqual(map.nodes.filter((n) => n.type === 'endpoint').map((n) => n.id).sort(), ['ep:api-gateway:ANY /usuarios/**', 'ep:api-gateway:GET /usuarios', 'ep:usuarios:ANY /usuarios/{id}', 'ep:usuarios:GET /usuarios']);
   const facts = map.facts.filter((f) => f.origin === 'declared' && f.s.startsWith('svc:') && f.p !== 'exposes').map((f) => `${f.s} ${f.p} ${f.o}`).sort();
   assert.deepEqual(facts, ['svc:api-gateway calls ep:usuarios:ANY /usuarios/{id}', 'svc:api-gateway calls svc:pagos', 'svc:usuarios uses ds:postgres', 'svc:usuarios uses ext:api.vendor.example']);
   assert.equal(map.names?.portal?.['api-gateway'], 'api-gateway', 'its compose name still runs it');
   assert.ok(map.facts.some((f) => f.s === 'ep:api-gateway:ANY /usuarios/**' && f.p === 'forwards-to' && f.o === 'ep:usuarios:GET /usuarios'), 'a declared gateway forwards to what its declared calls reach');
+  assert.deepEqual(map.facts.filter((f) => f.s === 'ep:api-gateway:GET /usuarios' && f.p === 'forwards-to').map((f) => f.o), ['ep:usuarios:GET /usuarios'], 'its exact route passes the call on to the same route of the service it calls');
 });
 
 test('laru.yaml says what an image does not: stores of any kind, topics, a service’s own application, and pieces no project holds', async () => {

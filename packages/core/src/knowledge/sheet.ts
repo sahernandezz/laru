@@ -7,7 +7,7 @@
 import type { Graph } from '../graph.ts';
 import { loadAccepted } from '../findings.ts';
 import type { Workspace } from '../workspace.ts';
-import { coverage, endpointOwner, scopeFiles, type ConventionResult } from './coverage.ts';
+import { coverage, endpointOwner, endpointsWithoutContract, scopeFiles, type ConventionResult } from './coverage.ts';
 import { documentNote, endpointIn } from './lint.ts';
 import type { Row } from './piece.ts';
 import { childrenOf, type Knowledge, type Loaded } from './store.ts';
@@ -70,6 +70,12 @@ export function sheetNote(ws: Workspace, k: Knowledge, g: Graph | null, p: Loade
       }
       if (p.status === 'draft') add({ key: 'plan', kind: 'contrast', ok: of('plan').length > 0, action: 'create', create: 'plan' });
     }
+    // every endpoint a service exposes is an operation of some contract, wherever that contract lives
+    if (p.type === 'service' && g) {
+      const all = g.outOf(p.id).filter((f) => f.p === 'exposes').length;
+      const missing = all ? endpointsWithoutContract(g, k.pieces).get(p.id) ?? [] : [];
+      if (all) add({ key: 'endpoint-contracts', kind: 'contrast', ok: !missing.length, params: { missing: missing.length, endpoints: all, list: missing.map((e) => e.name).join(', ') }, action: 'create', create: 'contract', weight: 2 });
+    }
     if (p.type === 'application') {
       add({ key: 'modules', kind: 'contrast', ok: kids.some((x) => x.type === 'module'), action: 'create', create: 'module', weight: 2 });
       for (const t of ['architecture', 'stack', 'infrastructure', 'versioning', 'test-plan'] as const) add({ key: `has-${t}`, kind: 'contrast', ok: of(t).length > 0, action: 'create', create: t });
@@ -105,6 +111,7 @@ export function owedLine(i: OwedItem): string {
   if (i.key.startsWith('doc-')) return `${i.key.slice(4)}${at}`;
   if (i.key === 'usecase-flow') return `use case "${p.case}" has no flow${at}`;
   if (i.key === 'contract') return `${p.endpoints} endpoints and no contract`;
+  if (i.key === 'endpoint-contracts') return `${p.missing} of its ${p.endpoints} endpoints in no contract: ${p.list}`;
   if (i.key.startsWith('stage-')) return `${i.stage}: ${i.key.slice(`stage-${i.stage}-`.length)}${at}`;
   return `${i.key}${at}`;
 }

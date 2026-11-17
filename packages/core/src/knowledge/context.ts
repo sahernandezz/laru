@@ -9,10 +9,16 @@ import { anchorCovers, anchorResolver, ancestors, childrenOf, freshness, type Kn
 import { isContainer, STANDARD } from './standard.ts';
 
 const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1).trimEnd() + '…' : s);
+/** A diagram reads as its class and title (`[sequenceDiagram «La subida»]`): its source, cut, says nothing; the file has it whole. */
+export const diagramsNamed = (s: string) => s.replace(/```mermaid\s*([\s\S]*?)```/g, (_, body: string) => {
+  const kind = body.replace(/^\s*---[\s\S]*?---\s*/, '').match(/^\s*([\w-]+)/)?.[1] ?? 'mermaid';
+  const title = body.match(/^\s*title:?\s+(.+?)\s*$/m)?.[1];
+  return `[${kind}${title ? ` «${title}»` : ''}]`;
+});
 const fieldLine = (p: Loaded, name: string): string | null => {
   const v = p.fields[name];
   if (v === undefined) return null;
-  if (typeof v === 'string') return clip(v.replace(/\s+/g, ' '), 500);
+  if (typeof v === 'string') return clip(diagramsNamed(v).replace(/\s+/g, ' '), 500);
   if (v.length && typeof v[0] === 'string') return (v as string[]).map((x) => clip(x, 120)).join('; ');
   return (v as Row[]).map((r) => Object.values(r).join(' · ')).slice(0, 8).join(' | ') + ((v as Row[]).length > 8 ? ` | … ${(v as Row[]).length - 8} more` : '');
 };

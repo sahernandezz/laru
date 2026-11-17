@@ -60,7 +60,7 @@ class Builder {
 
 interface Service {
   /** `local`: the name inside its own project (compose or detected); `name`: unique in the workspace */
-  id: string; name: string; local: string; repo: string; commit: string; dir: string; tech: Tech; stack?: string; platform?: string;
+  id: string; name: string; local: string; repo: string; commit: string; dir: string; tech: Tech; stack?: string; platform?: string; base?: string;
   findings: Located[]; ports: Set<number>; config: Map<string, Array<{ value: string; profile?: string; at: Anchor }>>;
   /** what laru.yaml says of it; `container`: it is a compose container of its project, not a folder of code */
   declared?: ServiceOverride; container?: boolean;
@@ -83,14 +83,15 @@ export function buildSystemMap(ws: Workspace, extractions: RepoExtraction[]): Sy
     const all: Located[] = Object.entries(ex.files).flatMap(([path, f]) => f.findings.map((x) => ({ ...x, file: path, repo: repo.name, commit: ex.commit }) as Located));
     located.push(...all);
 
-    const roots = new Map<string, { tech: Tech; name?: string; stack?: string; platform?: string }>();
+    const roots = new Map<string, { tech: Tech; name?: string; stack?: string; platform?: string; base?: string }>();
     const parents = new Set(all.filter((f) => f.kind === 'parent-module').map((f) => dirname(f.file).replace(/^\.$/, '')));
     for (const f of all) {
       if (f.kind !== 'service-root') continue;
       const dir = dirname(f.file).replace(/(^|\/)[^/]+\.xcodeproj$/, '').replace(/^\.$/, '');
       if (parents.has(dir)) continue;
       const cur = roots.get(dir);
-      if (!cur || (cur.tech === 'docker' && STRONG.includes(f.tech))) roots.set(dir, { tech: f.tech, name: f.name ?? cur?.name, stack: f.stack, platform: f.platform });
+      if (!cur || (cur.tech === 'docker' && STRONG.includes(f.tech))) roots.set(dir, { tech: f.tech, name: f.name ?? cur?.name, stack: f.stack, platform: f.platform, base: f.base ?? cur?.base });
+      else if (f.base) cur.base ??= f.base; // its Dockerfile says what it runs on, whatever said what it is
     }
     for (const [dir, r] of [...roots]) {
       if (r.tech === 'docker' && [...roots].some(([d, o]) => d !== dir && STRONG.includes(o.tech) && (dir === '' || d.startsWith(dir + '/')))) roots.delete(dir);
@@ -113,7 +114,7 @@ export function buildSystemMap(ws: Workspace, extractions: RepoExtraction[]): Sy
       const cfg = (key: string) => findings.find((f) => f.kind === 'config' && f.key === key && !f.profile) as FindingOf<'config'> | undefined;
       const declared = folders.find((o) => o.dir === dir);
       const name = declared?.name ?? composeNames.get(dir) ?? cfg('spring.application.name')?.value ?? cfg('quarkus.application.name')?.value ?? r.name ?? (dir ? posix.basename(dir) : repo.name);
-      services.push({ id: `svc:${name}`, name, local: name, repo: repo.name, commit: ex.commit, dir, tech: (declared?.kind ?? r.tech) as Tech, stack: r.stack, platform: r.platform, findings, ports: new Set(), config: new Map(), ...(declared ? { declared } : {}) });
+      services.push({ id: `svc:${name}`, name, local: name, repo: repo.name, commit: ex.commit, dir, tech: (declared?.kind ?? r.tech) as Tech, stack: r.stack, platform: r.platform, base: r.base, findings, ports: new Set(), config: new Map(), ...(declared ? { declared } : {}) });
     }
   }
 
@@ -156,7 +157,7 @@ export function buildSystemMap(ws: Workspace, extractions: RepoExtraction[]): Sy
     for (const f of s.findings) if (f.kind === 'tests') tests[f.level] += f.count;
     const group = s.declared?.group ? { group: s.declared.group } : {};
     if (!s.repo) { b.node({ id: s.id, type: 'service', name: s.name, kind: s.tech, attrs: { tech: s.tech, declared: true, tests, ports: [], ...group } }); b.fact(appId, 'contains', s.id, 'declared'); continue; }
-    b.node({ id: s.id, type: 'service', name: s.name, kind: s.tech, repo: s.repo, attrs: { dir: s.dir || '.', tech: s.tech, ...(s.stack ? { stack: s.stack } : {}), ...(s.platform ? { platform: s.platform } : {}), tests, ports: [...s.ports].sort((a, b) => a - b), ...group }, anchor: { repo: s.repo, commit: s.commit, path: s.dir || '.' } });
+    b.node({ id: s.id, type: 'service', name: s.name, kind: s.tech, repo: s.repo, attrs: { dir: s.dir || '.', tech: s.tech, ...(s.stack ? { stack: s.stack } : {}), ...(s.platform ? { platform: s.platform } : {}), ...(s.base ? { base: s.base } : {}), tests, ports: [...s.ports].sort((a, b) => a - b), ...group }, anchor: { repo: s.repo, commit: s.commit, path: s.dir || '.' } });
     b.fact(`repo:${s.repo}`, 'contains', s.id, 'extracted', { repo: s.repo, commit: s.commit, path: s.dir || '.' });
   }
 
@@ -251,7 +252,9 @@ export function buildSystemMap(ws: Workspace, extractions: RepoExtraction[]): Sy
       if (f.kind !== 'endpoint') continue;
       const path = ('/' + root + '/' + f.path).replace(/\/+/g, '/').replace(/(.)\/$/, '$1');
       const id = `ep:${s.name}:${f.method} ${path}`;
-      b.node({ id, type: 'endpoint', name: `${f.method} ${path}`, service: s.id, repo: s.repo, attrs: { method: f.method, path, ...(f.source === 'openapi' ? { contract: true } : { handler: f.symbol }) }, anchor: anchorOf(f) });
+      // what its code says it takes, returns and answers: the start of its contract when nobody has written one
+      const shape = { ...(f.params?.length ? { params: f.params } : {}), ...(f.returns ? { returns: f.returns } : {}), ...(f.statuses?.length ? { statuses: f.statuses } : {}), ...(f.summary ? { summary: f.summary } : {}) };
+      b.node({ id, type: 'endpoint', name: `${f.method} ${path}`, service: s.id, repo: s.repo, attrs: { method: f.method, path, ...(f.source === 'openapi' ? { contract: true } : { handler: f.symbol }), ...shape }, anchor: anchorOf(f) });
       b.fact(s.id, 'exposes', id, 'extracted', anchorOf(f), f.source === 'openapi' ? 'declared in an OpenAPI file' : undefined);
       eps.push({ id, method: f.method, path });
     }
@@ -405,11 +408,20 @@ export function buildSystemMap(ws: Workspace, extractions: RepoExtraction[]): Sy
     }
   }
 
-  // A gateway's `/prefix/**` endpoint forwards to the endpoints under that prefix in the services it calls.
+  // A gateway's `/prefix/**` endpoint forwards to the endpoints under that prefix in the services it calls, and one of
+  // its own exact routes to the endpoint with that same method and path in a service it calls: it passes the call on.
   const forwards = new Map<string, Array<{ id: string; method: string; path: string; via: string }>>();
   for (const s of services) {
     // what it calls, a service or one of its endpoints
     const downstream = new Set(b.facts.filter((f) => f.s === s.id && f.p === 'calls').map((f) => b.nodes.get(f.o)).flatMap((n) => n?.type === 'service' ? [n.id] : n?.type === 'endpoint' && n.service ? [n.service] : []));
+    for (const w of (endpointsOf.get(s.id) ?? []).filter((e) => !e.path.endsWith('/**'))) {
+      for (const d of downstream) {
+        const e = (endpointsOf.get(d) ?? []).find((x) => normalizePath(x.path) === normalizePath(w.path) && (w.method === x.method || w.method === 'ANY'));
+        if (!e) continue;
+        b.fact(w.id, 'forwards-to', e.id, 'derived', undefined, `${w.path} is passed on to ${b.nodes.get(d)!.name}`);
+        (forwards.get(w.id) ?? forwards.set(w.id, []).get(w.id)!).push({ ...e, via: s.name });
+      }
+    }
     for (const w of (endpointsOf.get(s.id) ?? []).filter((e) => e.path.endsWith('/**'))) {
       const prefix = normalizePath(w.path.slice(0, -3));
       for (const d of downstream) {

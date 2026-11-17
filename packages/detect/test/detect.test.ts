@@ -157,3 +157,111 @@ test('fronts: the stack of a web one and every kind of mobile app', () => {
   assert.equal(root('ios/Pods/Pods.xcodeproj/project.pbxproj', ''), undefined);
   assert.equal(root('lib/build.gradle', 'plugins { id "java-library" }'), undefined);
 });
+
+test('an endpoint says what its handler takes, returns and answers: Spring and JAX-RS', () => {
+  const spring = detectFile('svc/src/main/java/a/FileController.java', `
+    @RestController
+    @RequestMapping("/api/files")
+    public class FileController {
+      @PostMapping("/upload")
+      public ResponseEntity<FileInfoResponse> upload(
+          @RequestParam("file") MultipartFile file,
+          @RequestParam(value = "folderId", required = false) UUID folderId,
+          @RequestHeader("X-User-Id") UUID userId) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(service.upload(file, userId, folderId));
+      }
+      @GetMapping("/{fileId}/download")
+      public ResponseEntity<InputStreamResource> download(@PathVariable UUID fileId, @RequestParam(value = "inline", defaultValue = "false") boolean inline, HttpServletRequest raw) {
+        if (meta == null) return ResponseEntity.notFound().build();
+        if (meta.getScanStatus() != ScanStatus.CLEAN) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        return ResponseEntity.ok().body(new InputStreamResource(stream));
+      }
+      @PutMapping("/{fileId}/move")
+      @ResponseStatus(HttpStatus.NO_CONTENT)
+      public void move(@PathVariable("fileId") UUID id, @RequestBody @Valid MoveRequest body) { service.move(id, body); }
+    }`);
+  const shape = (e: any) => [`${e.method} ${e.path}`, (e.params ?? []).map((p: any) => `${p.in}:${p.name}:${p.type}${p.required ? '!' : ''}`).join(' '), e.returns, (e.statuses ?? []).join(',')];
+  assert.deepEqual(pick(spring, 'endpoint').map(shape), [
+    ['POST /api/files/upload', 'form:file:MultipartFile! query:folderId:UUID header:X-User-Id:UUID!', 'FileInfoResponse', '201'],
+    ['GET /api/files/{fileId}/download', 'path:fileId:UUID! query:inline:boolean', 'InputStreamResource', '200,403,404'],
+    ['PUT /api/files/{fileId}/move', 'path:fileId:UUID! body:body:MoveRequest!', 'void', '204'],
+  ]);
+
+  const jaxrs = detectFile('api/src/main/java/acme/RefundResource.java', `
+    @Path("/refunds")
+    public class RefundResource {
+      @GET @Path("/{id}")
+      public Uni<Refund> get(@PathParam("id") String id, @QueryParam("expand") String expand, @Context UriInfo info) {
+        if (id.isBlank()) throw new BadRequestException();
+        return repo.find(id).onItem().ifNull().failWith(new NotFoundException());
+      }
+      @POST
+      public Response create(@Valid @NotNull RefundRequest r) { return Response.status(Response.Status.CREATED).entity(r).build(); }
+    }`);
+  assert.deepEqual(pick(jaxrs, 'endpoint').map(shape), [
+    ['GET /refunds/{id}', 'path:id:String! query:expand:String', 'Refund', '200,400,404'],
+    ['POST /refunds', 'body:r:RefundRequest!', undefined, '201'],
+  ]);
+});
+
+test('an endpoint says what its handler takes, returns and answers: Express, Nest and an OpenAPI file', () => {
+  const express = detectFile('portal/src/server.ts', `
+    const app = express();
+    app.get('/orders/:id', async (req, res) => {
+      const { expand } = req.query;
+      if (!req.get('authorization')) return res.status(401).end();
+      res.json(await find(req.params.id, expand));
+    });
+    app.post('/orders', (req, res) => { const { item, qty } = req.body; res.status(201).json(create(item, qty)); });`);
+  const shape = (e: any) => [`${e.method} ${e.path}`, (e.params ?? []).map((p: any) => `${p.in}:${p.name}${p.type ? `:${p.type}` : ''}`).join(' '), e.returns, (e.statuses ?? []).join(',')];
+  assert.deepEqual(pick(express, 'endpoint').map(shape), [
+    ['GET /orders/:id', 'path:id query:expand header:authorization', undefined, '200,401'],
+    ['POST /orders', 'body:item body:qty', undefined, '201'],
+  ]);
+
+  const nest = detectFile('api/src/files/files.controller.ts', `
+    @Controller('files')
+    export class FilesController {
+      @Get(':id')
+      async one(@Param('id') id: string, @Query('expand') expand?: string): Promise<FileDto> {
+        const f = await this.files.find(id);
+        if (!f) throw new NotFoundException();
+        return f;
+      }
+      @Post()
+      @HttpCode(202)
+      create(@Body() dto: CreateFileDto): void { this.files.create(dto); }
+    }`);
+  assert.deepEqual(pick(nest, 'endpoint').map(shape), [
+    ['GET /files/:id', 'path:id:string query:expand:string', 'FileDto', '200,404'],
+    ['POST /files', 'body:dto:CreateFileDto', 'void', '202'],
+  ]);
+
+  const openapi = detectFile('api/openapi.yaml', `
+openapi: 3.0.0
+paths:
+  /files/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      summary: One file of the caller
+      responses:
+        '200': { content: { application/json: { schema: { $ref: '#/components/schemas/FileInfo' } } } }
+        '404': { description: not found }
+    post:
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/Rename' } } } }
+      responses: { '204': { description: renamed } }`);
+  assert.deepEqual(pick(openapi, 'endpoint').map((e) => [...shape(e), e.summary]), [
+    ['GET /files/{id}', 'path:id:string', 'FileInfo', '200,404', 'One file of the caller'],
+    ['POST /files/{id}', 'path:id:string body:Rename:Rename', undefined, '204', undefined],
+  ]);
+});
+
+test('a Dockerfile says the image it builds from: its last stage, past its flags and through the stages it names', () => {
+  const base = (src: string) => (detectFile('api/Dockerfile', src).find((f) => f.kind === 'service-root') as { base?: string }).base;
+  assert.equal(base('FROM gradle:8.11-jdk21 AS build\nRUN gradle build\nFROM eclipse-temurin:21-jre-alpine\nCOPY --from=build /app.jar .'), 'eclipse-temurin:21-jre-alpine');
+  assert.equal(base('FROM --platform=$BUILDPLATFORM node:22-alpine AS base\nFROM base AS release\nCMD ["node", "server.js"]'), 'node:22-alpine');
+  // what only a build argument says, or an empty image, is not known
+  assert.equal(base('ARG IMAGE=nginx\nFROM ${IMAGE}'), undefined);
+  assert.equal(base('FROM golang:1.23 AS b\nFROM scratch\nCOPY --from=b /app /app'), undefined);
+});

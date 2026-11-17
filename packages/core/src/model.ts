@@ -35,7 +35,8 @@ export type Relation =
 /** When a run last saw an observed fact, and how many runs have. */
 export interface Seen { run: string; at: string; count: number }
 
-export interface Fact { s: string; p: Relation; o: string; origin: Origin; anchor?: Anchor; note?: string; seen?: Seen }
+/** `via`: the endpoints whose requests did it, as runs saw it (a service's statement, call or message, per endpoint). */
+export interface Fact { s: string; p: Relation; o: string; origin: Origin; anchor?: Anchor; note?: string; seen?: Seen; via?: string[] }
 
 export interface SystemMap {
   version: 1;

@@ -72,6 +72,7 @@ const ISSUE: Record<string, (p: P) => string> = {
   vague: (p) => `Dilo en concreto, o compruébalo y quita la duda: ${String(p?.words ?? '').split(', ').map((w) => `«${w}»`).join(', ')}.`,
   'repeats-summary': () => 'Repite el título o el resumen: di lo que ellos no dicen.',
   'unknown-endpoint': (p) => `Dice \`${p?.endpoint}\`, pero el código no tiene ese endpoint.`,
+  'service-endpoints-uncovered': (p) => `${p?.service} aún tiene ${p?.count} endpoints en ningún contrato: ${p?.endpoints}. Escribe cada uno como una operación, aquí o en el contrato al que pertenezca.`,
   'bad-enum': (p) => `Uno de: ${p?.options}.`,
   'bad-date': () => 'Una fecha AAAA-MM-DD.',
   'unknown-ref': (p) => `«${p?.id}» no existe${p?.suggestion ? `; ¿quisiste decir ${p.suggestion}?` : '.'}`,
@@ -82,7 +83,7 @@ const ISSUE: Record<string, (p: P) => string> = {
   'anchor-empty': () => 'No encuentra ningún fichero en la rama de referencia.',
   'unknown-repo': (p) => `No hay ningún repo «${p?.repo}» en este workspace.`,
   'id-prefix': (p) => `El id empieza por \`${p?.prefix}:\`.`,
-  immutable: () => 'Una decisión aceptada no se edita: escribe otra que la sustituya.',
+  immutable: (p) => `Una decisión aceptada conserva lo que decidió: para cambiarlo, escribe otra con «supersedes» ${p?.id ?? ''} y, cuando la aceptes, esta pasa a sustituida. Sí cambian su estado de cumplimiento, sus anclas, sus relaciones y su dueño, y una sección que quedó vacía se puede llenar.`,
   'extractable-inventory': () => 'Esto enumera endpoints: se extraen del código, una copia escrita se queda vieja.',
   'broken-link': (p) => `[[${p?.id}]] no existe.`,
 };

@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import { existsSync, openSync, readFileSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import {
-  addRepo, ask, checkWorkspace, context, docsTree, documentNote, endpointIn, envOf, isContainer, isWorkspace, owedLine, scaffoldPieces, sheetNote, loadKnowledge, migrateWorkspace, movePiece, newPiece, renamePiece, agentRoot, idOf, laruHome, knowledgeShape, knowledgeWrite, loadRegistry, PIECE_TYPES, realRoot, register, resolveId, resolveRoot, unregister, verifyPiece, type PieceType, type WriteInput, initWorkspace, linkRepo, loadGraph, loadWorkspace, withEvidence, path, refreshMap,
+  addRepo, ask, checkWorkspace, context, docsTree, documentNote, endpointIn, envOf, isContainer, isWorkspace, owedLine, scaffoldPieces, sheetNote, loadKnowledge, migrateWorkspace, movePiece, newPiece, renamePiece, deletePiece, agentRoot, idOf, laruHome, knowledgeShape, knowledgeWrite, loadRegistry, PIECE_TYPES, realRoot, register, resolveId, resolveRoot, unregister, verifyPiece, type PieceType, type WriteInput, initWorkspace, linkRepo, loadGraph, loadWorkspace, withEvidence, path, refreshMap,
   repoStatus, ROLES, syncRepos, tree, verify, WorkspaceError, writeAgentFiles, type RepoRole, type RepoStatus, type Workspace,
   instructions, MOMENTS, rulesFor, rulesForText, ruleText, type Moment,
 } from '@laru/core';
@@ -36,6 +36,7 @@ const HELP = `laru — a workspace around your application's repositories
   laru docs new <type> "<title>" [--in <id>] [--kind k]   a piece with its title: its note says what it still owes
   laru docs move <id> <container id>   the piece changes container (its folder moves; ids stay)
   laru docs rename <id> <new slug>     the id changes, and every reference to it with it
+  laru docs delete <id> [--contents]   the piece goes (a container only with what it holds); says what still names it
   laru docs migrate [--dry-run]        bring a workspace to this standard: old headings and statuses, production rows; loses nothing
   laru docs scaffold [--dry-run]       create the pieces the application lacks (architecture, stack, versioning, infrastructure, secrets, operating guides), started from the code
   laru docs note [id] [--json]         how complete each piece is (0–100) and what it still owes
@@ -99,7 +100,7 @@ export async function run(argv: string[], io: Out = stdio, cwd = process.cwd()):
       app: { type: 'string' }, title: { type: 'string' }, 'docs-language': { type: 'string' }, name: { type: 'string' }, branch: { type: 'string' },
       role: { type: 'string' }, port: { type: 'string' }, workspace: { type: 'string', short: 'C' }, budget: { type: 'string' }, depth: { type: 'string' }, json: { type: 'boolean' }, 'no-fetch': { type: 'boolean' }, help: { type: 'boolean', short: 'h' },
       worklist: { type: 'boolean' }, from: { type: 'string' }, status: { type: 'string' }, hybrid: { type: 'string' }, rebuild: { type: 'string' }, services: { type: 'string' }, worktree: { type: 'boolean' }, verbose: { type: 'boolean', short: 'v' },
-      'dry-run': { type: 'boolean' }, fix: { type: 'boolean' }, caches: { type: 'boolean' }, env: { type: 'string' }, service: { type: 'string' }, follow: { type: 'boolean', short: 'f' }, tail: { type: 'string' }, level: { type: 'string' }, secret: { type: 'boolean' }, write: { type: 'boolean' }, limit: { type: 'string' }, ephemeral: { type: 'boolean' }, retries: { type: 'string' }, 'pw-trace': { type: 'boolean' }, run: { type: 'string' },
+      'dry-run': { type: 'boolean' }, contents: { type: 'boolean' }, fix: { type: 'boolean' }, caches: { type: 'boolean' }, env: { type: 'string' }, service: { type: 'string' }, follow: { type: 'boolean', short: 'f' }, tail: { type: 'string' }, level: { type: 'string' }, secret: { type: 'boolean' }, write: { type: 'boolean' }, limit: { type: 'string' }, ephemeral: { type: 'boolean' }, retries: { type: 'string' }, 'pw-trace': { type: 'boolean' }, run: { type: 'string' },
       flow: { type: 'string' }, last: { type: 'string' }, step: { type: 'string' }, exchange: { type: 'string' }, affected: { type: 'boolean' }, failed: { type: 'boolean' }, workers: { type: 'string' }, runs: { type: 'string' }, key: { type: 'string' }, recursive: { type: 'boolean' }, latency: { type: 'string' }, abort: { type: 'boolean' }, timeout: { type: 'boolean' }, bandwidth: { type: 'string' }, 'slow-after': { type: 'string' }, p: { type: 'string' }, path: { type: 'string' }, method: { type: 'string' }, 'no-cache': { type: 'boolean' }, reason: { type: 'string' }, until: { type: 'string' }, reorder: { type: 'boolean' },
       filter: { type: 'string' }, sort: { type: 'string' }, projection: { type: 'string' }, skip: { type: 'string' }, broker: { type: 'string' },
       kind: { type: 'string' }, q: { type: 'string' }, part: { type: 'string' }, to: { type: 'string' }, as: { type: 'string' }, code: { type: 'string' }, within: { type: 'string' }, join: { type: 'string' }, share: { type: 'string' }, ignore: { type: 'string' },
@@ -182,7 +183,7 @@ export async function run(argv: string[], io: Out = stdio, cwd = process.cwd()):
         for (const [r, c] of Object.entries(lock)) io.log(`${r.padEnd(18)} verified at ${c.slice(0, 7)}`);
         return 0;
       }
-      case 'tree': io.log(tree(loadGraph(ws()), Number(o.depth ?? 2))); return 0;
+      case 'tree': { const w = ws(); io.log(tree(loadGraph(w), Number(o.depth ?? 2), w)); return 0; }
       case 'rules': {
         const w = ws();
         const none = 'No instructions yet: write how you want the agent to work here in your working agreement («Cómo se trabaja», its «Instrucciones para el agente»).';
@@ -194,7 +195,7 @@ export async function run(argv: string[], io: Out = stdio, cwd = process.cwd()):
         return 0;
       }
       case 'context': { if (!args[0]) { io.err('usage: laru context <target>'); return 2; } const w = ws(); io.log(context(loadGraph(w), w, args.join(' '), Number(o.budget ?? 2000))); return 0; }
-      case 'ask': { if (!args[0]) { io.err('usage: laru ask "<question>"'); return 2; } io.log(ask(loadGraph(ws()), args.join(' '), Number(o.budget ?? 2000))); return 0; }
+      case 'ask': { if (!args[0]) { io.err('usage: laru ask "<question>"'); return 2; } const w = ws(); io.log(ask(loadGraph(w), args.join(' '), Number(o.budget ?? 2000), loadKnowledge(w))); return 0; }
       case 'path': { if (args.length < 2) { io.err('usage: laru path <from> <to>'); return 2; } const w = ws(); io.log(path(loadGraph(w), w, args[0], args[1])); return 0; }
       case 'check': {
         const w = ws();
@@ -239,7 +240,7 @@ export async function run(argv: string[], io: Out = stdio, cwd = process.cwd()):
             // the agent's way to write without MCP: as strict as knowledge_write
             const r = knowledgeWrite(w, piece, g, { batch, strict: true });
             // each warning with where and why: a count alone left the agent guessing what to fix
-            if (r.ok) { io.log(`wrote ${r.id} → ${r.path}${r.issues.length ? `  (${r.issues.length} warnings)` : ''}`); for (const i of r.issues) io.log(`  ${i.at}: ${i.message}`); }
+            if (r.ok) { io.log(`wrote ${r.id} → ${r.path}${r.issues.length ? `  (${r.issues.length} warnings)` : ''}`); for (const x of r.superseded ?? []) io.log(`  ${x} is superseded`); for (const i of r.issues) io.log(`  ${i.at}: ${i.message}`); }
             else { failed++; io.err(`${r.id || piece.title}: not written`); for (const i of r.issues.filter((x) => x.level === 'error')) io.err(`  ${i.at}: ${i.message}`); }
           }
           return failed ? 1 : 0;
@@ -253,6 +254,13 @@ export async function run(argv: string[], io: Out = stdio, cwd = process.cwd()):
           io.log(`${r.id} → ${r.path}  (note ${note.score}; owes: ${note.owed.map((x) => x.at).join(', ') || 'nothing'})`); return 0;
         }
         if (args[0] === 'move' && args[1] && args[2]) { const r = movePiece(w, args[1], args[2]); if (!r.ok) { io.err(r.issues[0].message); return 1; } io.log(`${r.id} → ${r.path}`); return 0; }
+        if (args[0] === 'delete' && args[1]) {
+          const r = deletePiece(w, args[1], { contents: Boolean(o.contents), dryRun: Boolean(o['dry-run']) });
+          if (!r.ok) { io.err(r.issues[0].message); return 1; }
+          io.log(`${o['dry-run'] ? 'would delete' : 'deleted'} ${r.removed!.join(', ')} → ${r.path}`);
+          for (const n of r.named ?? []) io.log(`  ${n} still names it: update it`);
+          return 0;
+        }
         if (args[0] === 'rename' && args[1] && args[2]) { const r = renamePiece(w, args[1], args[2]); if (!r.ok) { io.err(r.issues[0].message); return 1; } io.log(`${args[1]} → ${r.id}  (${r.rewritten} files rewritten)`); return 0; }
         if (args[0] === 'migrate') {
           const r = migrateWorkspace(w, { dryRun: Boolean(o['dry-run']) });

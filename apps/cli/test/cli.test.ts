@@ -54,7 +54,7 @@ test('the MCP server answers through the real SDK client', async () => {
   const listed = (await client.listTools()).tools, tools = listed.map((t) => t.name).sort();
   const peek = listed.find((t) => t.name === 'queue_peek')!;
   assert.deepEqual([peek.annotations?.readOnlyHint, /marks each one redelivered/.test(peek.description ?? '')], [false, true], 'a RabbitMQ peek is not a pure read, and says so');
-  assert.deepEqual(tools, ['ask', 'behavior_approve', 'behavior_diff', 'check', 'context', 'db_query', 'db_schema', 'db_write', 'env_down', 'env_list', 'env_logs', 'env_reset', 'env_status', 'env_up', 'fault_set', 'fidelity', 'findings', 'flow_env', 'flow_list', 'flow_run', 'flow_scaffold', 'impact', 'knowledge_shape', 'knowledge_verify', 'knowledge_write', 'mail_clear', 'mail_enable', 'mail_list', 'map_refresh', 'mock_list', 'mock_mode', 'path', 'queue_peek', 'queue_publish', 'queue_topics', 'repo_status', 'repo_sync', 'run_cancel', 'run_evidence', 'run_status', 'scenario_apply', 'scenario_list', 'service_exec', 'session_events', 'session_mark', 'session_start', 'session_stop', 'session_to_flow', 'session_to_scenario', 'sms', 'storage_ls', 'tree', 'vars_list', 'where']);
+  assert.deepEqual(tools, ['ask', 'behavior_approve', 'behavior_diff', 'check', 'context', 'db_query', 'db_schema', 'db_write', 'env_down', 'env_list', 'env_logs', 'env_reset', 'env_status', 'env_up', 'fault_set', 'fidelity', 'findings', 'flow_env', 'flow_list', 'flow_run', 'flow_scaffold', 'impact', 'knowledge_delete', 'knowledge_shape', 'knowledge_verify', 'knowledge_write', 'mail_clear', 'mail_enable', 'mail_list', 'map_refresh', 'mock_list', 'mock_mode', 'path', 'queue_peek', 'queue_publish', 'queue_topics', 'repo_status', 'repo_sync', 'run_cancel', 'run_evidence', 'run_status', 'scenario_apply', 'scenario_list', 'service_exec', 'session_events', 'session_mark', 'session_start', 'session_stop', 'session_to_flow', 'session_to_scenario', 'sms', 'storage_ls', 'tree', 'vars_list', 'where']);
   // what every session pays before it does anything: no store tools the map has no store for, no SDK boilerplate, no guide twice
   assert.ok(!tools.some((t) => /^(mongo|redis)_/.test(t)), 'no MongoDB or Redis in this application: no tools for them');
   assert.ok(listed.every((t) => !('$schema' in (t.inputSchema as object)) && !('execution' in t)), 'the list carries no schema dialect nor task-support note');
@@ -74,6 +74,12 @@ test('the MCP server answers through the real SDK client', async () => {
   // the shape says each thing once: the hint in the docs language, required only where it is, the example as knowledge_write takes it
   const shape = JSON.parse(await text('knowledge_shape', { type: 'module' }));
   assert.deepEqual([shape.fields.some((f: object) => 'hintEs' in f || ('required' in f && !(f as { required: boolean }).required)), typeof shape.example.fields, shape.example.markdown], [false, 'object', undefined]);
+  // a piece the person wants gone goes whole, not marked deprecated
+  const write = async (x: Record<string, unknown>) => JSON.parse(await text('knowledge_write', x));
+  assert.ok((await write({ type: 'application', title: 'Comercio', kind: 'product', status: 'active', summary: 'Tienda en línea.', fields: { purpose: 'Vender.', users: [{ actor: 'Cliente', need: 'Comprar' }], scope: ['Pagos'] } })).ok);
+  assert.ok((await write({ type: 'convention', in: 'app:comercio', title: 'Sin System.out', summary: 'Se registra con el logger.', fields: { rule: 'Nada de System.out.', rationale: 'Se pierde.', good: '`log.info(...)`' } })).ok);
+  const gone = JSON.parse(await text('knowledge_delete', { id: 'conv:sin-system-out' }));
+  assert.deepEqual([gone.ok, gone.removed, existsSync(join(root, gone.path))], [true, ['conv:sin-system-out'], false]);
   assert.match(await text('context', { target: 'ep:billing-api:POST /refunds' }), /is called by svc:portal/);
   assert.match(await text('path', { from: 'portal', to: 'tbl:billing.refunds' }), /maps table/);
   await client.close();

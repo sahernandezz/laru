@@ -4,6 +4,7 @@
  * is it not up» at a glance, and every name is a way into its sheet.
  */
 import { Database, Globe, Server } from 'lucide-react';
+import { TechIcon } from './TechIcon.tsx';
 import { type EnvSummary, type Indexed } from '../api.ts';
 import { href } from '../lib/route.ts';
 import { appsOf, groupsOf } from '../lib/sysmap.ts';
@@ -35,7 +36,7 @@ export function ServiceEnvMap({ g, envs, limit }: { g: Indexed | null; envs?: En
           const I = n.type === 'datastore' ? Database : n.type === 'external' ? Globe : Server;
           return (
             <tr key={n.id}>
-              <td><a className="rowlink" href={href('map', n.id)}><I size={13} style={{ marginRight: 6, verticalAlign: -2 }} />{n.name}</a><span className="faint sub"> {n.type === 'datastore' ? n.kind : ''}</span></td>
+              <td><a className="rowlink" href={href('map', n.id)}><TechIcon g={g} node={n} size={13} fallback={I} style={{ marginRight: 6, verticalAlign: -2 }} />{n.name}</a><span className="faint sub"> {n.type === 'datastore' ? n.kind : ''}</span></td>
               {apps && <td>{apps.get(n.id)}</td>}
               {cols.map((e) => {
                 const s = e.services.find((x) => norm(x.service) === norm(n.name) || norm(x.compose) === norm(n.name));

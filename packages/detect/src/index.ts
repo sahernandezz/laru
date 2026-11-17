@@ -8,11 +8,11 @@ import { detectJs } from './node.ts';
 import { detectProperties, detectYamlConfig } from './config.ts';
 import { detectCompose, detectDockerfile, detectEnvFile, detectGradle, detectNginx, detectOpenApi, detectPackageJson, detectPom, detectPrisma, detectProxyConf, detectPubspec, detectSql, detectXcode } from './files.ts';
 
-export type { Finding, FindingOf, Tech } from './types.ts';
+export type { Finding, FindingOf, Param, Tech } from './types.ts';
 export { envName, normalizePath } from './text.ts';
 
 /** Bump when a detector changes what it emits: cached findings from an older version are re-read. */
-export const DETECTORS_VERSION = 8; // 8: mobile fronts (React Native, Expo, Flutter, Android, iOS) and the stack of a web one; 7: Angular `new HttpRequest(verb, url)` is an outbound call; 6: a topic a service creates says its partitions; 5: a tests finding lists its cases by name and line; 4: an env-var finding says `hasDefault`, no longer the default's value
+export const DETECTORS_VERSION = 10; // 10: a Dockerfile says the image it builds from (its last FROM); 9: an endpoint says its parameters, the body it returns and the statuses its handler answers (an OpenAPI one also its summary); 8: mobile fronts (React Native, Expo, Flutter, Android, iOS) and the stack of a web one; 7: Angular `new HttpRequest(verb, url)` is an outbound call; 6: a topic a service creates says its partitions; 5: a tests finding lists its cases by name and line; 4: an env-var finding says `hasDefault`, no longer the default's value
 
 const SKIP_DIR = /(^|\/)(node_modules|dist|build|target|\.git|vendor|coverage|\.next|\.angular|\.nuxt|out|bin|obj|\.idea|\.vscode|\.gradle|\.mvn)\//;
 

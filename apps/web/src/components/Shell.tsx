@@ -342,7 +342,7 @@ function Switcher({ app, rows, offline, onAdd }: { app: string; rows?: Workspace
                 <a className="item" href={wsPage(w.id!, screenOnly(location.hash))} aria-current={w.id === WS ? 'true' : undefined}>
                   {w.id === WS ? <Check aria-label={tr('Actual')} /> : <span />}
                   <span style={{ minWidth: 0 }}>{nameOf(w, list)}<span className="sub">{tilde(w.root)}</span></span>
-                  <span className="faint" style={{ fontSize: 12, display: 'inline-flex', gap: 6, alignItems: 'center' }}>{w.envs?.length ? <><Dot state="ok" />{w.envs.join(', ')}</> : <><Dot state="idle" />{tr('parado')}</>}</span>
+                  <span className="faint" style={{ fontSize: 12, display: 'inline-flex', gap: 6, alignItems: 'center' }} title={w.envs?.length ? w.envs.join(', ') : undefined}>{w.envs?.length ? <><Dot state="ok" />{tr('en marcha')}</> : <><Dot state="idle" />{tr('parado')}</>}</span>
                 </a>
               </li>
             ))}

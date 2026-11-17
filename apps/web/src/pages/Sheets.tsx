@@ -14,7 +14,7 @@ import { askFirst } from '../lib/ask.ts';
 import { admissionText, plural, pieceLabel, piecesLabel, PLATFORM, reasonText, STACK, STAGE, STATUS } from '../lib/es.ts';
 import { frontNodes } from '../lib/fronts.ts';
 import { href, pageOf } from '../lib/route.ts';
-import { NoteChip, noteLevel, PieceFields } from './Docs.tsx';
+import { noteLevel, PieceFields } from './Docs.tsx';
 import { iconOf } from '../lib/pieceMenu.ts';
 import { flowDot, lastWord } from './Flows.tsx';
 import { Session, Start, type Preset } from './Live.tsx';
@@ -30,7 +30,6 @@ export function AppSummary({ k, p, g, flows, envs }: { k: KnowledgeData; p: DocP
   const failing = runnable.filter((f) => flowDot(f) === 'err'), passing = runnable.filter((f) => flowDot(f) === 'ok'), idle = runnable.filter((f) => flowDot(f) === 'idle');
   const attention = [...failing, ...idle, ...(flows ?? []).filter((f) => !f.exists)].slice(0, 6);
   const ready = (envs ?? []).filter((e) => e.state === 'ready');
-  const owed = (p.sheet?.owed.length ?? 0);
   return (
     <>
       <PieceFields k={k} p={p} only={['purpose', 'users', 'scope', 'out-of-scope']} empty={tr('Todavía no se ha escrito qué es este aplicativo.')} />
@@ -38,7 +37,6 @@ export function AppSummary({ k, p, g, flows, envs }: { k: KnowledgeData; p: DocP
       <div className="stats">
         <a className="stat" href={href('docs', p.id, 't', 'flows')}><span className="k"><Workflow />{tr('Flujos que pasan')}</span><span className="v">{passing.length}<span className="faint"> / {flows?.length ?? '…'}</span></span><span className="s">{failing.length ? `${plural(failing.length, tr('falla'), tr('fallan'))}` : idle.length ? `${plural(idle.length, tr('sin ejecutar'), tr('sin ejecutar'))}` : tr('sin fallos')}</span></a>
         <a className="stat" href={href('envs')}><span className="k"><Container />{tr('Entornos listos')}</span><span className="v">{ready.length}<span className="faint"> / {envs?.length ?? '…'}</span></span><span className="s">{ready.length ? ready.map((e) => e.env).join(', ') : tr('ninguno levantado')}</span></a>
-        <a className="stat" href={href('docs', p.id, 't', 'owed')}><span className="k"><Dot state={owed ? 'run' : 'ok'} />{tr('Documentación')}</span><span className="v">{owed}</span><span className="s">{owed ? `${plural(owed, tr('cosa por completar'), tr('cosas por completar'))}` : tr('al día')}</span></a>
         <a className="stat" href={href('map')}><span className="k"><Server />{tr('Servicios')}</span><span className="v">{g?.map.nodes.filter((n) => n.type === 'service').length ?? '—'}</span><span className="s">{g ? tr('{length} proyectos leídos', { length: g.map.repos.length }) : tr('sin leer el código')}</span></a>
       </div>
       {attention.length > 0 && (
@@ -69,7 +67,7 @@ export function ModuleCards({ k, p, type = 'module' }: { k: KnowledgeData; p: Do
         <a key={m.id} className="card" href={pageOf(m.id)}>
           <span className="card-h"><I />{m.title}</span>
           <span className="card-s">{m.summary}</span>
-          <span className="card-f"><NoteChip note={m.note} shown={m.sheet?.shown} />{subs.length > 0 && <span className="faint">{type === 'module' ? plural(subs.length, tr('submódulo'), tr('submódulos')) : plural(subs.length, tr('subproceso'), tr('subprocesos'))}</span>}</span>
+          <span className="card-f">{subs.length > 0 && <span className="faint">{type === 'module' ? plural(subs.length, tr('submódulo'), tr('submódulos')) : plural(subs.length, tr('subproceso'), tr('subprocesos'))}</span>}</span>
         </a>
       );
     })}</div>
@@ -116,7 +114,7 @@ export function PieceKinds({ k, p, types, title, origin }: { k: KnowledgeData; p
         const I = iconOf({ type: t }), list = all(t);
         return (
           <div key={t} className="kinds-box"><div className="kinds-h"><I /><b>{piecesLabel(t)}</b>{!list.length && k.shapes[t as keyof typeof k.shapes]?.livesIn.includes('application') && <a className="btn sm" href={href('docs', 'new', t, p.id)}><Plus />{tr('Crear')}</a>}</div>
-            {list.length ? <ul>{list.map((x) => <li key={x.id}><a className="rowlink" href={pageOf(x.id)}>{x.title}</a> <span className="faint">{STATUS[x.status] ?? x.status}</span> <NoteChip note={x.note} /></li>)}</ul> : <p className="faint">{tr('Falta')}{' '}{pieceLabel(t).toLowerCase()}.</p>}
+            {list.length ? <ul>{list.map((x) => <li key={x.id}><a className="rowlink" href={pageOf(x.id)}>{x.title}</a> <span className="faint">{STATUS[x.status] ?? x.status}</span></li>)}</ul> : <p className="faint">{tr('Falta')}{' '}{pieceLabel(t).toLowerCase()}.</p>}
           </div>
         );
       })}</div></section>
@@ -330,20 +328,6 @@ export function VarLevels({ names, service }: { names: Array<{ name: string; sec
             <td className="faint">{r?.levels.map((l) => LEVEL_WORD[l] ?? l).join(' › ') || '—'}{service && r && !r.readers.includes(service) ? '' : ''}</td></tr>;
         })}
       </tbody></table></div></section>
-  );
-}
-
-/** Test files by name and line, with where each came from. */
-export function TestList({ tests, rule }: { tests: LiveData['tests']; rule?: string }) {
-  const total = tests.reduce((n, t) => n + t.count, 0);
-  return (
-    <section className="panel"><header><h3>{tr('Pruebas')}</h3><div className="meta"><Origin of="extracted" /> · {plural(total, tr('prueba'), tr('pruebas'))}{' '}{tr('en')}{' '}{plural(tests.length, tr('fichero'), tr('ficheros'))}</div></header>
-      {rule && <p className="faint" style={{ padding: '0 16px' }}>{rule}</p>}
-      {tests.length ? <div className="body">{tests.map((t) => (
-        <details key={t.file} className="test-file"><summary><span className="mono">{t.file.slice(t.file.indexOf(':') + 1).split('/').at(-1)}</span> <span className="faint">· {t.level} · {plural(t.count, tr('prueba'), tr('pruebas'))} · {t.file}</span></summary>
-          <ul>{t.cases.map((c) => <li key={c.line}><span>{c.name}</span> <span className="mono faint">:{c.line}</span></li>)}</ul></details>
-      ))}</div> : <div className="empty">{tr('Ninguna prueba.')}</div>}
-    </section>
   );
 }
 

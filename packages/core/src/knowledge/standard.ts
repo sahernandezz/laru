@@ -69,7 +69,7 @@ export interface PieceStandard {
   /** code anchors: required, optional, or not part of this piece */
   anchors: 'required' | 'optional' | 'no';
   /** frontmatter beyond the common keys */
-  meta?: Array<{ name: string; ref?: string[]; list?: boolean; hint: string }>;
+  meta?: Array<{ name: string; ref?: string[]; list?: boolean; hint: string; hintEs?: string }>;
   fields: Field[];
   /** classes of diagram that usually help in a piece of this type; any class of the catalogue is taken anywhere */
   diagrams?: string[];
@@ -217,7 +217,7 @@ export const STANDARD: Record<PieceType, PieceStandard> = {
   decision: {
     type: 'decision', prefix: 'dec', label: L('Decision', 'Decisión'), question: L('Why is it like this?', '¿Por qué es así?'),
     folder: 'decisions', statuses: ['proposed', 'accepted', 'superseded', 'rejected'], livesIn: ANY, stage: 'design', anchors: 'optional',
-    meta: [{ name: 'supersedes', ref: ['dec:'], hint: 'The decision this one replaces; that one becomes superseded.' }, { name: 'number', hint: 'DEC-0001: given when it is created, in order, and never reused.' }],
+    meta: [{ name: 'supersedes', ref: ['dec:'], hint: 'The decision this one replaces: when this one is accepted, Laru marks that one superseded.' }, { name: 'number', hint: 'DEC-0001: given when it is created, in order, and never reused.' }],
     fields: [
       { name: 'context', label: L('Context', 'Contexto'), type: 'markdown', required: true, hint: 'The forces at play when the decision was taken.' },
       { name: 'decision', label: L('Decision', 'Decisión'), type: 'markdown', required: true, hint: 'What was decided, in the active voice.' },
@@ -233,12 +233,12 @@ export const STANDARD: Record<PieceType, PieceStandard> = {
     fields: [
       { ...purpose('Who uses this interface and for what.'), label: L('Overview', 'Visión general'), alias: ['Propósito', 'Purpose'] },
       md('auth', 'Authentication', 'Autenticación', 'How a caller proves who it is, and what it may do.', 'Cómo se identifica quien llama y qué puede hacer.', { required: true }),
-      { name: 'operations', label: L('Operations', 'Operaciones'), type: 'rows', hint: 'Each operation with the service that should expose it. Contrasted with the extracted endpoints in both directions.', columns: [{ name: 'method', label: L('Method', 'Método'), required: true, enum: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] }, { name: 'path', label: L('Path', 'Ruta'), required: true }, { name: 'service', label: L('Service', 'Servicio'), required: true, ref: SERVICE }, { name: 'summary', label: L('Summary', 'Resumen') }] },
+      { name: 'operations', label: L('Operations', 'Operaciones'), type: 'rows', hint: 'One row per endpoint the service exposes, every one of them: a service\'s endpoint in no contract is owed. Summary: what it is for, the caller\'s goal in one sentence. Request: its path, query and header parameters with their types and whether each is optional, and its body by its fields or its named type (`none` when it takes nothing). Response: the success status and what its body holds. Read the handler: `context` on the endpoint says what its code takes, returns and answers. Contrasted with the extracted endpoints in both directions, and with what the runs saw.', columns: [{ name: 'method', label: L('Method', 'Método'), required: true, enum: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] }, { name: 'path', label: L('Path', 'Ruta'), required: true }, { name: 'service', label: L('Service', 'Servicio'), required: true, ref: SERVICE }, { name: 'summary', label: L('Summary', 'Resumen'), required: true }, { name: 'request', label: L('Request', 'Petición'), required: true }, { name: 'response', label: L('Response', 'Respuesta'), required: true }] },
       { name: 'events', label: L('Events', 'Eventos'), type: 'rows', hint: 'Topics it publishes or consumes.', columns: [{ name: 'topic', label: L('Topic', 'Tema'), required: true }, { name: 'direction', label: L('Direction', 'Dirección'), required: true, enum: ['publishes', 'consumes'] }, { name: 'service', label: L('Service', 'Servicio'), required: true, ref: SERVICE }, { name: 'payload', label: L('Payload', 'Contenido') }] },
-      { name: 'errors', label: L('Errors and compatibility', 'Errores y compatibilidad'), alias: ['Errores', 'Errors'], type: 'rows', required: true, hint: 'Error answers a caller must handle.', columns: [{ name: 'status', label: L('Status', 'Estado'), required: true }, { name: 'when', label: L('When', 'Cuándo'), required: true }] },
+      { name: 'errors', label: L('Errors and compatibility', 'Errores y compatibilidad'), alias: ['Errores', 'Errors'], type: 'rows', required: true, hint: 'Error answers a caller must handle, each with the operations that answer it (`GET /path`, several separated by commas; empty when any of them may). The runs\' error statuses are contrasted with them, operation by operation.', columns: [{ name: 'status', label: L('Status', 'Estado'), required: true }, { name: 'when', label: L('When', 'Cuándo'), required: true }, { name: 'operation', label: L('Operation', 'Operación') }] },
       md('versioning', 'Contract versioning', 'Versionado del contrato', 'How it changes without breaking callers: versions, deprecation, compatibility.', 'Cómo cambia sin romper a quien llama: versiones, deprecación, compatibilidad.', {}),
     ],
-    example: { title: 'Returns API', status: 'draft', summary: 'What the portal calls to return an order.', fields: { purpose: 'The portal asks for a return and follows its state.', auth: 'The portal sends the customer token; only the owner of the order may ask for its return.', operations: [{ method: 'POST', path: '/returns', service: 'svc:shop-api', summary: 'Ask for a return' }], errors: [{ status: '409', when: 'The order was already returned' }] } },
+    example: { title: 'Returns API', status: 'draft', summary: 'What the portal calls to return an order.', fields: { purpose: 'The portal asks for a return and follows its state.', auth: 'The portal sends the customer token; only the owner of the order may ask for its return.', operations: [{ method: 'POST', path: '/returns', service: 'svc:shop-api', summary: 'Ask for the return of a paid order', request: 'Body `{ orderId: UUID, reason: string, lines?: [{ sku, qty }] }` (no lines: the whole order)', response: '201 with the return `{ id, state: requested, refund: amount }`' }, { method: 'GET', path: '/returns/{id}', service: 'svc:shop-api', summary: 'Follow the state of a return', request: 'Path `id` (UUID of the return); no body', response: '200 with the return `{ id, state: requested | approved | rejected | refunded, refund }`' }], errors: [{ status: '409', when: 'The order was already returned', operation: 'POST /returns' }, { status: '404', when: 'No return with that id belongs to the customer', operation: 'GET /returns/{id}' }] } },
   },
   'data-model': {
     type: 'data-model', prefix: 'dm', label: L('Data model', 'Modelo de datos'), question: L('Which data exists, and with which rules?', '¿Qué datos hay y con qué reglas?'),
@@ -461,7 +461,10 @@ for (const [t, s] of Object.entries(STANDARD)) {
 }
 
 /** The piece that holds each facet folder name: `decisions` → decision. */
-for (const [t, s] of Object.entries(STANDARD)) for (const f of s.fields) f.hintEs ??= HINT_ES[`${t}.${f.name}`];
+for (const [t, s] of Object.entries(STANDARD)) {
+  for (const f of s.fields) f.hintEs ??= HINT_ES[`${t}.${f.name}`];
+  for (const m of s.meta ?? []) m.hintEs ??= HINT_ES[`${t}.meta.${m.name}`];
+}
 
 export const FACET_BY_FOLDER: Record<string, FacetType> = Object.fromEntries(FACETS.map((f) => [STANDARD[f].folder, f]));
 export const CONTAINER_BY_FOLDER: Record<string, ContainerType> = Object.fromEntries(CONTAINERS.filter((c) => c !== 'application').map((c) => [STANDARD[c].folder, c]));

@@ -1,12 +1,15 @@
 /**
- * The three edits that are not a write: a piece that does not exist yet (`new`), one that changes container
- * (`move`) and one that changes its id (`rename`). The folder is the containment, so each is a rename on disk;
- * `rename` also rewrites every reference to the old id.
+ * The edits that are not a write: a piece that does not exist yet (`new`), one that changes container (`move`), one
+ * that changes its id (`rename`) and one that goes (`delete`). The folder is the containment, so each is a rename or a
+ * removal on disk; `rename` also rewrites every reference to the old id, and `delete` says which pieces still name it.
  */
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import type { Graph } from '../graph.ts';
 import type { Workspace } from '../workspace.ts';
+import { evidenceDir } from '../evidence.ts';
+import { writeAgentFiles } from '../init.ts';
+import { E2E_GUIDE } from './e2e.ts';
 import { containerOf, loadKnowledge, type Loaded } from './store.ts';
 import { isContainer, OWN_FOLDER, STANDARD, type PieceType } from './standard.ts';
 import { knowledgeWrite, slugify, type WriteResult } from './write.ts';
@@ -52,7 +55,7 @@ export function renamePiece(ws: Workspace, id: string, slug: string): WriteResul
   if (p.type === 'application' || OWN_FOLDER.includes(p.type)) return fail(id, 'not-supported', `a ${p.type} keeps its id: its tests and evidence are filed under it`);
   const next = `${STANDARD[p.type].prefix}:${slugify(slug)}`;
   if (k.byId.has(next)) return fail(id, 'duplicate-id', `"${next}" already exists`);
-  const re = new RegExp(`(?<![\\w.:-])${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w.-])`, 'g');
+  const re = idIn(id, 'g');
   let rewritten = 0;
   for (const q of k.pieces) {
     const text = q.source.replace(re, next);
@@ -64,4 +67,37 @@ export function renamePiece(ws: Workspace, id: string, slug: string): WriteResul
   if (existsSync(join(ws.root, dest))) return fail(id, 'duplicate-id', `${dest} already exists`);
   renameSync(join(ws.root, src), join(ws.root, dest));
   return { ok: true, id: next, path: isContainer(p.type) ? join(dest, basename(p.path)) : dest, issues: [], rewritten };
+}
+
+/** An id where a text names it: whole, not the start of a longer one (`mod:pagos` is not in `mod:pagos-web`). */
+const idIn = (id: string, flags = '') => new RegExp(`(?<![\\w.:-])${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w.-])`, flags);
+
+/**
+ * A piece deleted: its file, or its folder when it has one (a flow goes with its spec and its shared evidence). A
+ * container that holds other pieces goes only with `contents`, and they with it. The pieces that still name it are said
+ * (`check` reports them as broken references): they are updated, not rewritten here.
+ */
+export function deletePiece(ws: Workspace, id: string, o: { contents?: boolean; dryRun?: boolean } = {}): WriteResult & { removed?: string[]; named?: string[] } {
+  const k = loadKnowledge(ws);
+  const p = k.byId.get(id);
+  if (!p) return fail(id, 'unknown-ref', `no piece "${id}"`);
+  if (p.type === 'application') return fail(id, 'not-supported', 'the application is the root of the documentation: it is not deleted');
+  if (id === E2E_GUIDE.id) return fail(id, 'not-supported', `${id} is Laru's e2e standard, which the agent files point to and write again when it is missing: edit it instead`);
+  const src = holds(p);
+  const held = isContainer(p.type) ? k.pieces.filter((q) => q !== p && q.path.startsWith(`${src}/`)) : [];
+  if (held.length && !o.contents) return fail(id, 'not-empty', `${id} holds ${held.length === 1 ? 'a piece' : `${held.length} pieces`} (${held.map((q) => q.id).join(', ')}): delete ${held.length === 1 ? 'it' : 'them'} with it (contents), or move ${held.length === 1 ? 'it' : 'them'} out first`);
+  const removed = [p, ...held];
+  const named = k.pieces.filter((q) => !removed.includes(q) && removed.some((r) => idIn(r.id).test(q.source))).map((q) => q.id);
+  if (!o.dryRun) {
+    rmSync(join(ws.root, src), { recursive: true, force: true });
+    for (const f of removed.filter((q) => q.type === 'flow')) rmSync(join(evidenceDir(ws), f.id.split(':')[1]), { recursive: true, force: true });
+    const emptied = join(ws.root, dirname(src));
+    if (existsSync(emptied) && !readdirSync(emptied).length) rmdirSync(emptied);
+    // the agent files import the working agreement: gone, they stop pointing at it
+    if (p.type === 'agreement') writeAgentFiles(ws);
+  }
+  return {
+    ok: true, id, path: src, removed: removed.map((q) => q.id), named,
+    issues: named.map((n) => ({ level: 'warning' as const, at: n, key: 'still-named', message: `${n} still names ${id}: update it`, params: { id: n } })),
+  };
 }

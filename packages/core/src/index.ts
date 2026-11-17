@@ -47,7 +47,7 @@ export { STANDARD, PIECE_TYPES, CONTAINERS, FACETS, STAGES, STAGE_LABEL, isConta
 export { parsePiece, renderPiece, type Piece, type Row, type FieldValue } from './knowledge/piece.ts';
 export { validatePiece, type Issue } from './knowledge/validate.ts';
 export { scaffoldPieces } from './knowledge/scaffold.ts';
-export { newPiece, movePiece, renamePiece } from './knowledge/ops.ts';
+export { newPiece, movePiece, renamePiece, deletePiece } from './knowledge/ops.ts';
 export { deriveDiagram, derivedList, protocolOf, relationsOf, type DerivedInfo, type EnvMembers } from './knowledge/derive.ts';
 export { liveOf, serviceTests, testFolders, SECRET_NAME, type LiveData, type LiveEndpoint, type LiveTest } from './knowledge/live.ts';
 export { sheetNote, acceptKey, owedLine, type SheetNote, type OwedItem } from './knowledge/sheet.ts';

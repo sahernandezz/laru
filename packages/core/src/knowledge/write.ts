@@ -10,12 +10,12 @@ import type { Graph } from '../graph.ts';
 import type { Workspace } from '../workspace.ts';
 import { documentNote, endpointIn, type DocNote } from './lint.ts';
 import { sheetNote } from './sheet.ts';
-import { renderPiece, type FieldValue, type Piece } from './piece.ts';
+import { renderPiece, type FieldValue, type Piece, type Row } from './piece.ts';
 import { agreementPath, anchorResolver, containerOf, DOCS_DIR, fingerprint, freshness, loadKnowledge, type Knowledge, type Loaded } from './store.ts';
 import { isContainer, OWN_FOLDER, STANDARD, type Lang, type PieceType } from './standard.ts';
 import { EXAMPLE_ES } from './standard-es.ts';
 import { validatePiece, type Issue } from './validate.ts';
-import { coverage, evaluateConventions } from './coverage.ts';
+import { coverage, endpointsWithoutContract, evaluateConventions } from './coverage.ts';
 import { E2E_GUIDE, E2E_RULES } from './e2e.ts';
 import { writeAgentFiles } from '../init.ts';
 import { DIAGRAM_STANDARDS } from '@laru/diagrams';
@@ -60,7 +60,7 @@ export function knowledgeShape(ws: Workspace, type: PieceType, withExample = tru
   const example: Piece = { id: `${std.prefix}:${slugify(ex.title)}`, type, kind: ex.kind, title: ex.title, status: ex.status, summary: ex.summary, anchors: ex.anchors, meta: ex.meta as Piece['meta'], relations: ex.relations as Piece['relations'], fields: ex.fields as Record<string, FieldValue> };
   return {
     type, prefix: `${std.prefix}:`, question: std.question[lang], livesIn: std.livesIn, kinds: std.kinds, statuses: std.statuses, anchors: std.anchors, stage: std.stage,
-    meta: std.meta, expects: std.expects, folder: isContainer(type) ? `${std.folder}/<slug>/${type}.md` : OWN_FOLDER.includes(type) ? `${std.folder}/<slug>/${type}.md` : `${std.folder}/<slug>.md`,
+    meta: std.meta?.map((m) => ({ ...m, hint: lang === 'es' && m.hintEs ? m.hintEs : m.hint, hintEn: m.hint })), expects: std.expects, folder: isContainer(type) ? `${std.folder}/<slug>/${type}.md` : OWN_FOLDER.includes(type) ? `${std.folder}/<slug>/${type}.md` : `${std.folder}/<slug>.md`,
     fields: std.fields.map((f) => ({ name: f.name, heading: f.label[lang], type: f.type, required: Boolean(f.required), hint: lang === 'es' && f.hintEs ? f.hintEs : f.hint, hintEs: f.hintEs, hintEn: f.hint, diagram: f.diagram, suggested: f.kinds, minWords: f.minWords, ref: f.ref, columns: f.columns?.map((c) => ({ name: c.name, heading: c.label[lang], required: Boolean(c.required), enum: c.enum, ref: c.ref, date: c.date })) })),
     writing: WRITING,
     diagrams: { rule: DIAGRAM_RULE, suggested: (std.diagrams ?? []).flatMap((k) => drawn(k)), catalogue: CATALOGUE },
@@ -84,7 +84,7 @@ export interface WriteInput {
   relations?: Piece['relations'];
   fields: Record<string, FieldValue>;
 }
-export interface WriteResult { ok: boolean; id: string; path?: string; issues: Issue[]; /** how complete the piece is and what it owes */ note?: DocNote }
+export interface WriteResult { ok: boolean; id: string; path?: string; issues: Issue[]; /** how complete the piece is and what it owes */ note?: DocNote; /** the decisions this one, accepted, superseded */ superseded?: string[] }
 
 /**
  * `strict`, for the agent (knowledge_write, `laru docs write`): what a diagram's own standard calls an error, a diagram of a
@@ -108,7 +108,13 @@ export function knowledgeWrite(ws: Workspace, input: WriteInput, g: Graph | null
   if (held) issues.push({ level: 'error', at: 'id', key: 'agreement-one', message: `you already have a working agreement here, ${held.id}: update that one (with its id); writing another would replace it`, params: { id: held.id } });
   const rival = !held && input.type === 'agreement' && input.status !== 'deprecated' && k.pieces.find((p) => p.type === 'agreement' && p.status !== 'deprecated' && p.id !== id);
   if (rival) issues.push({ level: 'error', at: 'type', key: 'agreement-one', message: `this workspace already has a working agreement in force, ${rival.id}: update that one, or mark it deprecated first`, params: { id: rival.id } });
-  if (existing?.type === 'decision' && existing.status === 'accepted' && !(input.status === 'superseded' && sameContent(existing, input))) issues.push({ level: 'error', at: 'status', key: 'immutable', message: 'an accepted decision is not edited: write a new one with `supersedes`' });
+  // An accepted decision keeps what it decided; where it stands today (compliance, anchors, relations, owner) keeps up, and
+  // a section it left empty is filled. What it decided changes with a new decision that supersedes it.
+  if (existing?.type === 'decision' && existing.status === 'accepted') {
+    const was = decided(existing), now = decided(input);
+    const at = Object.keys(was).find((f) => reads(was[f]) && reads(was[f]) !== reads(now[f])) ?? (['accepted', 'superseded'].includes(input.status ?? 'accepted') ? undefined : 'status');
+    if (at) issues.push({ level: 'error', at, key: 'immutable', params: { id }, message: `an accepted decision keeps what it decided (${at} would change): to change it, write a new decision with \`meta.supersedes: ${id}\`; once that one is accepted, Laru marks this one superseded. Its compliance, anchors, relations and owner do change, and so does a section it left empty.` });
+  }
 
   // A decision is numbered when it is created: in order, never reused (a deleted file leaves its number spent in git, not here).
   let meta = input.meta;
@@ -120,7 +126,7 @@ export function knowledgeWrite(ws: Workspace, input: WriteInput, g: Graph | null
     meta = { ...meta, number: given || `DEC-${String(next).padStart(4, '0')}` };
   }
   const piece: Piece = {
-    id, type: input.type, kind: input.kind, title: input.title?.trim() ?? '', status: input.status ?? (std.statuses.includes('proposed') ? 'proposed' : 'draft'),
+    id, type: input.type, kind: input.kind, title: input.title?.trim() ?? '', status: input.status ?? existing?.status ?? (std.statuses.includes('proposed') ? 'proposed' : 'draft'),
     summary: input.summary?.trim() ?? '', owner: input.owner, anchors: input.anchors?.length ? input.anchors : undefined, meta, relations: input.relations, fields: input.fields ?? {},
   };
   const known = knownIds(k, g, [id, ...(opts.batch ?? [])]);
@@ -131,20 +137,38 @@ export function knowledgeWrite(ws: Workspace, input: WriteInput, g: Graph | null
     if (min !== undefined && note < min) issues.push({ level: 'error', at: 'note', key: 'policy-documento', message: `the document's note would be ${note} and this workspace asks at least ${min}: fill what the warnings say it owes`, params: { note, min } });
   }
   if (issues.some((i) => i.level === 'error')) return { ok: false, id, issues };
+  // a contract written for a service says which of that service's endpoints are still in no contract: the scan is not done
+  if (piece.type === 'contract' && g) {
+    const left = endpointsWithoutContract(g, [...k.pieces.filter((x) => x.id !== id), piece]);
+    for (const svc of new Set(((piece.fields.operations ?? []) as Row[]).map((o) => o.service).filter(Boolean))) {
+      const eps = left.get(svc) ?? [];
+      if (eps.length) issues.push({ level: 'warning', at: 'fields.operations', key: 'service-endpoints-uncovered', message: `${svc} still has ${eps.length} endpoints in no contract: ${eps.map((e) => e.name).join(', ')}. Write each as an operation, here or in the contract it belongs to`, params: { service: svc, count: eps.length, endpoints: eps.map((e) => e.name).join(', ') } });
+    }
+  }
 
   if (piece.anchors?.length) { const fp = fingerprint(ws, piece.anchors); piece.verified = { fingerprint: fp.fingerprint, commits: fp.commits, at: new Date().toISOString().slice(0, 10) }; }
   const path = existing?.path ?? pathFor(ws, k, piece, parentId);
+  // what an accepted decision supersedes stops ruling: superseded, as it was written
+  const replaced = piece.type === 'decision' && piece.status === 'accepted'
+    ? [meta?.supersedes ?? []].flat().map((r) => k.byId.get(r)).filter((x): x is Loaded => x?.type === 'decision' && x.id !== id && ['accepted', 'proposed'].includes(x.status))
+    : [];
   if (!opts.dryRun) {
-    const abs = join(ws.root, path);
-    mkdirSync(dirname(abs), { recursive: true });
-    const tmp = `${abs}.${process.pid}.tmp`;
-    writeFileSync(tmp, renderPiece(piece, docsLang(ws)));
-    renameSync(tmp, abs);
+    save(ws, path, piece);
+    for (const x of replaced) save(ws, x.path, { ...x, status: 'superseded' });
     if (piece.type === 'application' && !existing) writeFlowGuide(ws);
     // the agent files import the working agreement: written, they point at it at once
     if (piece.type === 'agreement') writeAgentFiles(ws);
   }
-  return { ok: true, id, path, issues, note: documentNote(piece, known) };
+  return { ok: true, id, path, issues, note: documentNote(piece, known), ...(replaced.length ? { superseded: replaced.map((x) => x.id) } : {}) };
+}
+
+/** Written whole or not at all: a reader never sees half a piece. */
+function save(ws: Workspace, path: string, p: Piece) {
+  const abs = join(ws.root, path);
+  mkdirSync(dirname(abs), { recursive: true });
+  const tmp = `${abs}.${process.pid}.tmp`;
+  writeFileSync(tmp, renderPiece(p, docsLang(ws)));
+  renameSync(tmp, abs);
 }
 
 /**
@@ -159,7 +183,13 @@ export function writeFlowGuide(ws: Workspace): string | null {
   return r.ok ? r.path ?? null : null;
 }
 
-const sameContent = (a: Piece, b: WriteInput) => JSON.stringify(a.fields) === JSON.stringify(b.fields) && a.title === b.title;
+/** What a decision decided, by where a write says it: its title, summary, what it supersedes and every section but its compliance. */
+const decided = (p: Pick<WriteInput, 'title' | 'summary' | 'meta' | 'fields'>): Record<string, unknown> =>
+  ({ title: p.title, summary: p.summary, supersedes: p.meta?.supersedes, ...Object.fromEntries(Object.entries(p.fields ?? {}).filter(([f]) => f !== 'compliance').map(([f, v]) => [`fields.${f}`, v])) });
+/** A value as it reads, whatever its spacing or the order of a row's columns: '' when nothing is written. */
+const reads = (v: unknown): string => (typeof v === 'string' ? [v] : Array.isArray(v) ? v : [])
+  .map((x) => (x && typeof x === 'object' ? Object.entries(x).filter(([, c]) => String(c ?? '').trim()).sort(([a], [b]) => a.localeCompare(b)).map(([c, s]) => `${c}: ${s}`).join('\n') : String(x ?? '')).replace(/\s+/g, ' ').trim())
+  .filter(Boolean).join('\n');
 
 function pathFor(ws: Workspace, k: Knowledge, p: Piece, parentId: string | null): string {
   const std = STANDARD[p.type];
@@ -214,6 +244,10 @@ export async function checkWorkspace(ws: Workspace, g: Graph | null): Promise<Ch
     if (['module', 'process', 'application', 'service'].includes(p.type)) {
       for (const c of coverage(ws, k, g, p as Loaded, conventions)) if (c.required && c.state !== 'full') out.push({ level: 'warning', at: `coverage.${c.stage}`, key: 'coverage', message: `${c.stage}: ${c.reasons.map((r) => r.text).join('; ')}`, path: p.path, id: p.id, block: 'contrast' });
     }
+  }
+  // Every endpoint of every service is an operation of some contract: one warning per service that still owes some.
+  if (g) for (const [svc, eps] of endpointsWithoutContract(g, k.pieces)) {
+    out.push({ level: 'warning', at: 'operations', key: 'endpoint-without-contract', message: `${eps.length} endpoints in no contract: ${eps.map((e) => e.name).join(', ')}. Write each as an operation of a contract (knowledge_write, type contract), with its summary, request and response`, params: { service: svc, count: eps.length, endpoints: eps.map((e) => e.name).join(', ') }, path: k.byId.get(svc)?.path ?? svc, id: svc, block: 'contrast' });
   }
   // Policies, only when the workspace turns them on: a note under the minimum breaks the check.
   const memo = new Map();

@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Versión" src="https://img.shields.io/badge/versi%C3%B3n-0.1.0--beta.19-22D3EE">
+  <img alt="Versión" src="https://img.shields.io/badge/versi%C3%B3n-0.1.0--beta.20-22D3EE">
   <img alt="Licencia" src="https://img.shields.io/badge/licencia-FSL--1.1--ALv2-0E3B45">
   <img alt="Node" src="https://img.shields.io/badge/node-%E2%89%A5%2024-3c873a">
   <img alt="Local" src="https://img.shields.io/badge/todo%20corre-en%20tu%20m%C3%A1quina-444">
@@ -66,6 +66,10 @@ Laru lee cada proyecto (Spring, Node, Angular, React y más) y construye el mapa
 - almacenes y externos.
 
 Cada línea del mapa dice de dónde sale: si está en el código, si se observó en una prueba o si se dedujo.
+Cada servicio, almacén y externo lleva el logo de su tecnología, como en Docker Desktop.
+
+La ficha de un servicio da el contrato de cada endpoint: para qué sirve, qué recibe y qué responde.
+Aparte, en «Datos reales», está lo que vieron los runs y en qué se aparta del contrato.
 
 <img src="docs/images/mapa.png" alt="El mapa del sistema: frontend, gateway, servicios, almacenes y las llamadas entre ellos">
 
@@ -80,6 +84,9 @@ El aplicativo, sus módulos, flujos, escenarios, decisiones, modelos de datos, g
   con cómo se dibuja cada uno, y un diagrama sube la nota.
 
 Los diagramas se editan en un lienzo (Excalidraw) o como texto (Mermaid).
+
+El agente escribe el contrato de cada endpoint al escanear, y `laru check` señala los que ningún contrato documenta.
+Una pieza que sobra se elimina desde su cabecera o con `laru docs delete`; antes, Laru avisa de qué piezas la nombran.
 
 <img src="docs/images/documentacion.png" alt="La documentación del aplicativo: árbol de módulos y flujos y la ficha del aplicativo">
 
@@ -177,7 +184,10 @@ Abre `claude` (o Codex) en el workspace y ya sabe dónde está todo:
 - **Empieza sabiendo dónde está:** cada sesión arranca con la aplicación y sus módulos, el estado de cada entorno,
   los flujos con su último resultado, tu forma de trabajo y cómo se hace cada cosa con Laru (un agente sin hooks
   lo pide con `laru start`). También se puede abrir en la carpeta de Laru: trabaja sobre el último workspace que abriste.
-- **Contexto:** `laru context <pieza>` da al agente lo justo antes de tocar algo.
+- **Contexto:** `laru context <pieza>` da al agente lo justo antes de tocar algo. El de un servicio dice cada
+  endpoint en un renglón, con quién lo llama y qué flujos lo recorren; el de un endpoint, qué hizo en los runs.
+  Avisa cuando tu copia del repo no coincide con lo que leyó el mapa. `laru ask "¿quién escribe la tabla files?"`
+  responde sobre el mapa y la documentación.
 - **Tu forma de trabajo:** para qué usas el workspace, tus ramas, las ramas donde no se edita código, lo que nunca
   se hace y lo que pide confirmación. Es de cada persona y no entra en git; el agente la lee siempre.
 - **Hooks para Claude Code que hacen cumplir:** antes de editar, el agente recibe las convenciones del archivo;

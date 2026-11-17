@@ -202,9 +202,15 @@ test('a 64 KB body costs one pass, however it is built', () => {
     ['clauses', fill('select from where and or join on ')], ['brackets', fill('[ "')], ['marks', fill('"…ab-d", …')], ['spaces', `${fill(' ')}x`],
     ['lines', fill('a: b\n')], ['log', fill('2026-10-22T08:41:13Z ERROR [x "GET 200 a=b c.d.e  : ')], ['real JSON', JSON.stringify(Array.from({ length: 900 }, (_, i) => ({ id: i, name: `user-${i}`, ok: true, tags: ['a', 'b'] }))).slice(0, K)],
   ];
+  // This thread's CPU time, the best of five taken in turns: a busy machine adds no waits and slows each alike. One pass
+  // costs about what 16 bodies of 4 KB cost (up to some 2.5× on an efficiency core); work that grows with the square
+  // of the length costs 16× that.
+  const cpu = () => { const u = process.threadCpuUsage(); return u.user + u.system; };
   for (const [name, body] of bodies) for (const lang of LANGS) {
-    let best = Infinity;
-    for (let r = 0; r < 3; r++) { const t0 = performance.now(); highlight(body, lang, true); best = Math.min(best, performance.now() - t0); }
-    assert.ok(best < 30, `${name} as ${lang}: ${best.toFixed(1)} ms`);
+    const small = body.slice(0, K / 16);
+    const runs = [() => highlight(body, lang, true), () => { for (let i = 0; i < 16; i++) highlight(small, lang, true); }];
+    const best = runs.map(() => Infinity);
+    for (let r = 0; r < 5; r++) runs.forEach((f, i) => { const t0 = cpu(); f(); best[i] = Math.min(best[i], cpu() - t0); });
+    assert.ok(best[0] < 5 * best[1], `${name} as ${lang}: 64 KB ${best[0]} µs, 16 × 4 KB ${best[1]} µs`);
   }
 });

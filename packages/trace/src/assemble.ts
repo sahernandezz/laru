@@ -62,7 +62,8 @@ export interface AssembleInput {
   person?: boolean;
 }
 
-export interface Observed { s: string; p: 'calls' | 'reads' | 'writes' | 'uses'; o: string }
+/** A fact a run saw. `via`: the endpoints whose requests did it (its service was serving them when it happened). */
+export interface Observed { s: string; p: 'calls' | 'reads' | 'writes' | 'uses' | 'publishes'; o: string; via?: string[] }
 
 const ASSET = /\.(js|mjs|css|map|png|jpe?g|gif|svg|ico|woff2?|ttf|webp|avif)(\?|$)/i;
 const NOISE = /^\s*(SET|SHOW|BEGIN|COMMIT|ROLLBACK|START TRANSACTION|SELECT 1|DISCARD|DEALLOCATE)\b/i;
@@ -206,7 +207,10 @@ export function assemble(input: AssembleInput): { traces: Trace[]; observed: Obs
   const begins = input.events.filter((e): e is Extract<RunnerEvent, { e: 'test-begin' }> => e.e === 'test-begin').sort((a, b) => a.t - b.t);
   const traces: Trace[] = [];
   const observed = new Map<string, Observed>();
-  const see = (o: Observed) => observed.set(`${o.s}|${o.p}|${o.o}`, o);
+  const see = (o: Observed, via?: string) => {
+    const k = `${o.s}|${o.p}|${o.o}`, had = observed.get(k) ?? observed.set(k, { ...o }).get(k)!;
+    if (via && !(had.via ??= []).includes(via)) had.via.push(via);
+  };
 
   const endOf = (test: string) => input.events.find((e): e is Extract<RunnerEvent, { e: 'test-end' }> => e.e === 'test-end' && e.test === test);
   begins.forEach((b, i) => {
@@ -277,6 +281,7 @@ export function assemble(input: AssembleInput): { traces: Trace[]; observed: Obs
       (results.get(k) ?? results.set(k, []).get(k)!).push({ ...r.pg, t: r.t0 });
     }
     const flat = (s: string) => s.replace(/\s+/g, ' ').trim();
+    const writing = new Set<string>();
     const resultOf = (q: SqlLine) => {
       const mine = q.pid ? results.get(pgKey(q.store, q.pid)) : undefined;
       const hit = mine?.find((x) => !x.used && Math.abs(x.t - q.t1) < 3000 && flat(x.stmt) === flat(q.statement));
@@ -294,6 +299,7 @@ export function assemble(input: AssembleInput): { traces: Trace[]; observed: Obs
         ...(q.pid ? { conn: `${q.store}#${q.pid}` } : {}),
         req: { bytes: q.statement.length, text: q.statement.slice(0, 2000) + (q.params ? `\n-- ${q.params.slice(0, 500)}` : '') }, error: q.error, ...(result ? { result } : {}) });
       if (tg.table && nodeOf(from)) see({ s: nodeOf(from)!.id, p: tg.writes ? 'writes' : 'reads', o: `tbl:${tg.table}` });
+      if (tg.writes) writing.add(ex[ex.length - 1].id);
     }
     for (const k of input.kafka ?? []) {
       if (!inWin(k.t)) continue;
@@ -330,6 +336,18 @@ export function assemble(input: AssembleInput): { traces: Trace[]; observed: Obs
       e.step = stepAt(e.t0);
       const c = cause.get(e.id);
       if (c) e.parent = c.parent;
+    }
+    // Which endpoint each effect belongs to: the request its service was serving when it happened (inside it in the
+    // chain, never a link that is only possible, nor what a message it consumed set off). The fact keeps it in `via`.
+    const exOf = new Map(collapsed.map((e) => [e.id, e]));
+    for (const e of collapsed) {
+      const c = cause.get(e.id), p = c?.how === 'inside' && c.certainty !== 'possible' ? exOf.get(c.parent) : undefined;
+      const svc = nodeOf(e.from);
+      if (!p?.endpoint || p.to !== e.from || svc?.type !== 'service') continue;
+      if (e.kind === 'sql') { if (e.table) see({ s: svc.id, p: writing.has(e.id) ? 'writes' : 'reads', o: `tbl:${e.table}` }, p.endpoint); }
+      else if (e.kind === 'kafka') { if (e.topic && nodes.has(`topic:${e.topic}`)) see({ s: svc.id, p: 'publishes', o: `topic:${e.topic}` }, p.endpoint); }
+      else if (e.endpoint) see({ s: svc.id, p: 'calls', o: e.endpoint }, p.endpoint);
+      else if (nodeOf(e.to) && nodeOf(e.to)!.type !== 'service') see({ s: svc.id, p: 'uses', o: nodeOf(e.to)!.id }, p.endpoint);
     }
 
     // Participants in lane order: browser, runner, host, then whoever appears, services before stores and externals.

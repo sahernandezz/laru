@@ -308,8 +308,9 @@ test('known values', async (t) => {
   });
 });
 
-// A quadratic mask takes seconds on 64 KB; the bound is wide enough that a busy machine (the whole suite in parallel) does not trip it.
-test('linear time: adversarial 64 KB bodies mask in under 250 ms each', () => {
+// A linear mask of 64 KB costs about what 16 bodies of 4 KB cost; a quadratic one, 16× that. This thread's CPU time,
+// the best of up to five taken in turns (it stops once under 5×): a busy machine adds no waits and slows each alike.
+test('linear time: masking an adversarial 64 KB body costs under 5× masking 16 bodies of its first 4 KB', () => {
   const k = createMasker([SECRET, PEM, 'plainpw123', ...Array.from({ length: 20 }, (_, i) => `known-value-${i}-${randomBytes(8).toString('hex')}`)], randomBytes(32).toString('base64url'));
   const n = 64 * 1024;
   const fill = (unit: string) => unit.repeat(Math.ceil(n / unit.length)).slice(0, n);
@@ -339,12 +340,14 @@ test('linear time: adversarial 64 KB bodies mask in under 250 ms each', () => {
     'unfinished entities': fill('&#x1234'),
     'JS %u escapes': fill('%u0041'),
   };
+  const cpu = () => { const u = process.threadCpuUsage(); return u.user + u.system; };
   for (const [name, s] of Object.entries(bodies)) {
-    for (const [how, run] of [['text', () => k.text(s)], ['json body', () => k.body(s, 'application/json')], ['form body', () => k.body(s, 'application/x-www-form-urlencoded')], ['query', () => k.query(s)]] as const) {
-      const t0 = performance.now();
-      run();
-      const ms = performance.now() - t0;
-      assert.ok(ms < 250, `${name} as ${how}: ${ms.toFixed(1)} ms`);
+    const small = s.slice(0, n / 16);
+    for (const [how, mask] of [['text', (x: string) => k.text(x)], ['json body', (x: string) => k.body(x, 'application/json')], ['form body', (x: string) => k.body(x, 'application/x-www-form-urlencoded')], ['query', (x: string) => k.query(x)]] as const) {
+      const runs = [() => mask(s), () => { for (let i = 0; i < 16; i++) mask(small); }];
+      const best = runs.map(() => Infinity);
+      for (let r = 0; r < 5 && !(best[0] < 5 * best[1]); r++) runs.forEach((f, i) => { const t0 = cpu(); f(); best[i] = Math.min(best[i], cpu() - t0); });
+      assert.ok(best[0] < 5 * best[1], `${name} as ${how}: 64 KB ${best[0]} µs, 16 × 4 KB ${best[1]} µs`);
     }
   }
 });

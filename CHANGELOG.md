@@ -6,6 +6,69 @@ Todos los cambios de Laru que importan a quien lo usa quedan aquí. El formato s
 
 ## [Sin publicar]
 
+## [0.1.0-beta.20] - 2026-11-17
+
+### Añadido
+
+- **Cada servicio, almacén y externo lleva el logo de su tecnología, como en Docker Desktop.** Antes todos tenían el mismo icono genérico de servidor, base de datos o globo.
+  - Se ve en el mapa de «Mapa y servicios», en su tabla de componentes, en la cabecera de la ficha de cada pieza, en «Servicios por entorno» y en el mapa de cada run.
+  - Laru reconoce la tecnología así: un almacén por la imagen que corre (`postgres:16-alpine` es PostgreSQL y `confluentinc/cp-kafka` es Kafka), un externo por su host (`api.stripe.com` es Stripe) y un servicio por el marco que dicen sus librerías (`@angular/core` es Angular; Next antes que React y Nest antes que Express). Un driver de base de datos no cuenta como el marco del servicio.
+  - Un servicio sin marco conocido se reconoce, por este orden, por cómo está hecho su front, por la imagen de la que parte su Dockerfile y por el lenguaje de sus librerías. Por ejemplo, `eclipse-temurin` es Java, `nginx:alpine` es nginx y unas librerías npm son Node.js. Si no, por su tipo (`spring`, `quarkus`). El mapa guarda ahora esa imagen de partida, el último `FROM`, tras resolver las etapas y `--platform`, y la lee al refrescarse.
+  - Lo que no tiene marca dice qué hace: un escudo para un antivirus (ClamAV), un sobre para un servidor de correo (SMTP, Mailpit), un matraz para un mock (WireMock) y una nube para LocalStack. Laru lo reconoce por su imagen, por la de su Dockerfile o por su nombre (`payments-mock`); el nombre de un servicio nunca le da una marca (`kafka-consumer` no es Kafka).
+  - Hay 184 logos de bases de datos, colas, almacenamiento, infraestructura, lenguajes, marcos, nubes y servicios externos. Salen a todo color del juego «logos» de Iconify y, donde no lo hay, en el color de la marca de simple-icons. Los dos son de dominio público (CC0) y van dentro de Laru: no se piden a internet y se cargan aparte la primera vez que hacen falta.
+  - Las partes casi negras de un logo (Kafka, Express, GitHub…) toman el color del texto, para verse en los temas oscuros.
+  - Solo conserva el icono genérico de servidor, base de datos o globo lo que Laru no reconoce de ninguna de estas formas.
+
+- **Una pieza de la documentación se puede eliminar.** Hasta ahora no se podía borrar ninguna, ni desde la documentación, ni el agente, ni la terminal. Al agente se le prohíbe tocar `docs/` a mano, así que lo único que le quedaba era marcarla «Retirado», que la conserva como historia. Ahora hay «Eliminar» en la cabecera de cada pieza, `knowledge_delete` para el agente y `laru docs delete <id>` en la terminal.
+  - Una faceta (una convención, una decisión…) se va con su fichero.
+  - Un flujo se va con su carpeta, que incluye su especificación, y con su evidencia compartida.
+  - Un contenedor con piezas dentro se elimina con ellas solo si se pide (`--contents`). En la documentación, el aviso las enumera.
+  - Antes de borrar, el aviso dice qué se va y qué piezas la siguen nombrando. Esas piezas quedan con una referencia rota que `laru check` señala hasta que se actualizan.
+  - La guía del agente le dice que eliminar es eliminar: «Retirado» es para lo que la aplicación tuvo y ya no tiene.
+  - El aplicativo y la guía e2e de Laru no se eliminan, porque Laru la volvería a escribir.
+- **Cada endpoint de un servicio dice su contrato.** En «Mapa y servicios», la pestaña Endpoints de un servicio enseñaba la lista de endpoints y lo que habían visto los runs, pero no qué era cada uno ni qué intercambia. Ahora:
+  - Los endpoints se agrupan por el contrato que los documenta: su título, para qué es y su autenticación encabezan el grupo. Los que ningún contrato documenta se agrupan por el recurso de su ruta (`/api/files/trash`), y los que solo reenvían a otro servicio van al final.
+  - Cada endpoint abre su contrato: para qué sirve, qué recibe, qué responde y los errores que el contrato le da a esa operación. Debajo de cada parte, lo que dice su código: sus parámetros con su tipo, lo que devuelve y los estados que responde. Lo que el contrato explica de él en su propio apartado se despliega al final.
+  - Aparte, «Datos reales»: lo que vieron los runs (las llamadas, una petición real, las respuestas vistas) y en qué se apartan del contrato: un estado de error que no lista para esa operación, otro éxito, parámetros de consulta o campos que ningún contrato del servicio nombra, lo que vio un mock.
+  - Nada queda en blanco: lo que no se sabe dice qué falta y qué lo trae (el escaneo del agente, el primer run de un flujo, una sesión de «Probar en vivo»).
+  - La página de un contrato enseña también la petición, la respuesta y los errores propios de cada operación.
+- **El agente escribe el contrato de cada endpoint.** El contrato tiene ahora, por operación, su petición y su respuesta junto al resumen, que dice para qué sirve, y cada error dice qué operaciones lo responden.
+  - Las tres columnas se deben: la nota del documento dice qué operaciones no las tienen.
+  - Cada endpoint de un servicio se debe a algún contrato. Al escribir un contrato, Laru nombra los endpoints de sus servicios que siguen sin él; `laru check` los lista por servicio y la hoja del servicio los debe. Las rutas de un gateway que solo reenvían no lo deben: su contrato es el del servicio al que llegan.
+  - La guía del agente, el arquitecto y las herramientas MCP le dicen que un contrato no es un inventario y que el escaneo no deja ningún endpoint sin su operación.
+  - `context` sobre un endpoint da lo que su código recibe, devuelve y responde: el punto de partida de su operación. El mapa lo lee de los handlers de Spring, JAX-RS y Quarkus REST, Express, Fastify y Nest, y de un fichero OpenAPI, que da también su resumen.
+  - En un workspace con `policies.documento`, un contrato escrito antes, sin petición ni respuesta, queda por debajo de la nota exigida: `laru check` lo marca hasta que el agente lo complete.
+- **Las demás pestañas de la ficha, igual.** Cada una dice para qué es, agrupa lo que muestra, pone aparte como «Datos reales» lo que vieron los runs y dice qué falta en vez de quedar vacía.
+  - Eventos: por lo que publica y lo que consume, cada tema con el contenido que dice su contrato y los mensajes vistos.
+  - Conexiones: por relación y por la pieza del otro lado, con lo que dice el código de cada llamada y cuándo la vieron los runs.
+  - Datos: cada tabla con lo que dicen su modelo, su código y sus runs.
+  - Variables: dónde la lee su código y qué le da valor.
+  - Librerías: con las que corre y, aparte, las que solo usan sus pruebas.
+  - Pruebas: por nivel, cada fichero con la clase que prueba y sus casos; aparte, los flujos que pasaron por el servicio y cuántos de sus endpoints recorrieron.
+  - Flujos: los que fallan primero, con los endpoints que recorrió cada uno.
+
+### Cambiado
+
+- **«Lo que debe» se aparta del camino.**
+  - Ya no está en el menú lateral ni en las pestañas del aplicativo y de los módulos.
+  - El árbol de la documentación, las tarjetas de módulos y las listas de piezas ya no llevan el círculo con la nota.
+  - El resumen del aplicativo deja el recuadro «Documentación · N cosas por completar».
+  - Cada pieza lo guarda plegado al final de su página, con su nota y sus hallazgos, en vez de abierto arriba.
+  - El agente lo sigue recibiendo igual.
+- **El agente entiende más de la aplicación con el mismo contexto.** Medido en VaultFlow: el contexto de file-service usaba 2.026 tokens, la mayoría repitiendo tres veces cada llamada, y dejaba fuera sus endpoints, sus datos, sus variables y sus librerías. Ahora lo dice todo en 1.690.
+  - Un servicio dice cada endpoint en un renglón: su handler, quién lo llama y a través de qué gateway, cuántas veces lo vieron los runs y cuántos flujos lo recorren. Cada tabla y cada tema van también en un renglón, con lo que el servicio hace con ellos en su código y en los runs.
+  - Un endpoint dice qué hizo en los runs: las tablas que leyó o escribió, los almacenes que usó y los mensajes que publicó mientras atendía esa petición. No cuenta lo que hizo después quien consumió sus mensajes. Los runs lo graban desde esta versión.
+  - Un endpoint, una tabla, un tema, un almacén o un servicio dicen qué flujos pasaron por ellos en su último run: lo que hay que correr después de cambiarlos.
+  - El contexto y `tree` avisan cuando tu copia del repo va por delante o por detrás de lo que leyó el mapa, o tiene cambios sin commit, y cuando la rama de referencia avanzó. Dicen también qué hacer: `impact` o `map_refresh`.
+  - `ask` entiende preguntas con tildes y en español («¿quién escribe la tabla files?»). Pone primero lo del tipo y el verbo que nombras, y busca también en la documentación: si la pregunta usa las palabras del negocio («cuarentena»), llega a las piezas que las usan y a lo que esas piezas nombran.
+  - Un diagrama se nombra por su clase y su título en vez de copiar su código cortado.
+- **El selector de workspaces solo dice si cada uno está en marcha.** Antes listaba cada entorno levantado («f-editar-perfil, local…»), y con muchos la fila se desbordaba. Ahora dice «en marcha» o «parado». Los nombres de los entornos aparecen al pasar el ratón.
+
+### Arreglado
+
+- **Una decisión aceptada sigue al día y se sustituye en un solo paso.** Laru no dejaba tocar nada de una decisión aceptada, ni siquiera lo que la propia decisión pide mantener al día: su «Estado de cumplimiento», sus anclas al código, sus relaciones o su dueño. Tampoco dejaba llenar una sección vacía que la nota del documento le pedía. Al agente se le pedía además actualizar las decisiones que un cambio contradice, y Laru se lo rechazaba. Y la pista de `supersedes` prometía que la decisión sustituida pasaba a «Sustituida», pero nadie la marcaba: quedaban dos decisiones aceptadas que se contradecían, y marcar la vieja a mano exigía reenviarla idéntica carácter por carácter. Ahora una decisión aceptada conserva lo que decidió (título, resumen, `supersedes` y todas sus secciones menos «Estado de cumplimiento»), y un espacio de más o columnas en otro orden no cuentan como cambio. Lo que dice de hoy sí se actualiza, y una sección vacía se puede llenar. Para cambiar lo decidido se escribe otra decisión con `supersedes`, y al aceptarla Laru marca la vieja como sustituida sin tocar nada más. El rechazo dice qué cambiaría y cómo hacerlo. La guía del agente le pide escribir la decisión como propuesta hasta que el texto sea definitivo. Una actualización que no indica el estado conserva el que tenía; antes lo devolvía a propuesta o borrador.
+- **Las pistas de los metadatos salen en el idioma elegido.** En el formulario de una pieza, las pistas de `supersedes`, `number`, `needs`, `scenario`, `timeout`, `screen`, `extends`, `exclusive` y las demás salían en inglés aunque la interfaz estuviera en español. Ahora salen en el idioma de la interfaz, como las de cada sección, y el agente las recibe en el idioma de la documentación. Una prueba exige que cada una tenga su español.
+
 ## [0.1.0-beta.19] - 2026-11-16
 
 ### Añadido
@@ -364,7 +427,8 @@ Primera beta pública.
   - `CLAUDE.md` y `AGENTS.md` generados.
   - Hooks para Claude Code.
 
-[Sin publicar]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.19...HEAD
+[Sin publicar]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.20...HEAD
+[0.1.0-beta.20]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.19...v0.1.0-beta.20
 [0.1.0-beta.19]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.18...v0.1.0-beta.19
 [0.1.0-beta.18]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.17...v0.1.0-beta.18
 [0.1.0-beta.17]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.16...v0.1.0-beta.17

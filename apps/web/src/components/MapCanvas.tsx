@@ -1,8 +1,9 @@
 /** The frame both maps draw in (the system's and a flow's), and the box a piece is drawn as. */
 import { Database, Globe, Maximize, Server, User, ZoomIn, ZoomOut, type LucideIcon } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type SVGProps } from 'react';
-import type { MapNode } from '../api.ts';
+import type { Indexed, MapNode } from '../api.ts';
 import { midCut } from '../lib/es.ts';
+import { TechIcon } from './TechIcon.tsx';
 import { LABEL_H, NODE_H, NODE_W, type Layout } from '../lib/sysmap.ts';
 import { tr } from '../lib/i18n.ts';
 
@@ -101,14 +102,14 @@ export function fitText(text: string, font: string, max: number, middle = true):
 }
 const NAME_FONT = '500 13px Geist, ui-sans-serif, system-ui, sans-serif', SUB_FONT = '11px "Geist Mono", ui-monospace, Menlo, monospace';
 
-/** A piece on a map: its icon, its name and one line under it, each cut to the box (whole on hover). */
-export function NodeBox({ node, x, y, sub, className = '', ...rest }: { node: MapNode; x: number; y: number; sub: string; className?: string } & SVGProps<SVGGElement>) {
+/** A piece on a map: its icon (its technology's logo when Laru knows it), its name and one line under it, each cut to the box (whole on hover). */
+export function NodeBox({ node, x, y, sub, className = '', g, ...rest }: { node: MapNode; x: number; y: number; sub: string; className?: string; g?: Indexed | null } & SVGProps<SVGGElement>) {
   const Icon = node.kind === 'actor' ? User : ICON[node.type] ?? Server;
   return (
     <g className={`n ${className}`} data-node={node.id} transform={`translate(${x},${y})`} {...rest}>
       <title>{sub ? `${node.name}\n${sub}` : node.name}</title>
       <rect width={NODE_W} height={NODE_H} rx="8" />
-      <foreignObject x="12" y="12" width="16" height="16"><Icon size={16} color="var(--ink-2)" /></foreignObject>
+      <foreignObject x="12" y="12" width="16" height="16">{node.kind === 'actor' ? <Icon size={16} color="var(--ink-2)" /> : <TechIcon g={g} node={node} size={16} fallback={Icon} color="var(--ink-2)" />}</foreignObject>
       <text className="t" x="36" y="25">{fitText(node.name, NAME_FONT, NODE_W - 46)}</text>
       <text className="s" x="36" y="43">{fitText(sub, SUB_FONT, NODE_W - 46, false)}</text>
     </g>

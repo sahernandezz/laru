@@ -4,7 +4,7 @@
  * its latest evidence. Declared, extracted and observed sit together with their origin in sight.
  */
 import {
-  ChevronDown, ChevronRight, CircleAlert, CornerLeftUp, GitBranch, GitPullRequestArrow, Radio, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RefreshCw, Ruler, Users, type LucideIcon,
+  ChevronDown, ChevronRight, CircleAlert, CornerLeftUp, GitBranch, GitPullRequestArrow, Radio, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RefreshCw, Ruler, Trash2, Users, type LucideIcon,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { typeColor } from '../lib/typeColor.ts';
@@ -29,6 +29,7 @@ import { AppSummary, Architecture, FidelityByEnv, FlowLists, FlowLive, FlowStart
 import { DiagramViewer } from '../components/Viewer.tsx';
 import type { FlowView } from './Runs.tsx';
 import { tr } from '../lib/i18n.ts';
+import { ask } from '../lib/ask.ts';
 
 const SYSTEM = ['repository', 'service', 'datastore', 'external'];
 /** What the tree holds: the application, its modules and processes; services, stores and externals live in the map. */
@@ -174,7 +175,6 @@ function DocsTree({ k, flows, current, onHide }: { k: KnowledgeData; flows?: Flo
             {p.type === 'flow' && <span className="sr-only">{tr(', flujo,')}{' '}{flowSaid(p.id)}</span>}
             {p.type !== 'flow' && st && <span className="sr-only">, {SAY[st]}</span>}
             {p.freshness === 'stale' && <CircleAlert size={13} color="var(--run)" aria-label={tr('Desactualizado')} />}
-            {p.type !== 'flow' && <NoteChip note={p.note} shown={p.sheet?.shown} />}
             {st && <Dot state={st} />}
           </div>
         )}
@@ -244,6 +244,33 @@ type Flows = { data?: FlowInfo[]; error?: string; loading: boolean };
 /** What is read from the code, apart from what is written: the sections that look like the pieces' but come from the repositories. */
 const FROM_CODE = new Set(['interfaces', 'data', 'tests', 'vars', 'code']);
 
+type Deleted = { ok: boolean; path?: string; removed?: string[]; named?: string[]; issues: Array<{ message: string }> };
+/** «Eliminar»: what goes (with what it holds; a flow, with its spec and evidence) and what still names it, asked first. */
+function DeleteButton({ k, p, reload }: { k: KnowledgeData; p: DocPiece; reload: () => void }) {
+  const quoted = (ids: string[]) => ids.map((id) => `«${k.pieces.find((x) => x.id === id)?.title ?? id}»`).join(', ');
+  const go = async () => {
+    try {
+      const plan = await api<Deleted>('/api/knowledge/delete', { method: 'POST', body: { id: p.id, contents: true, dryRun: true } });
+      if (!plan.ok) { toast(plan.issues[0]?.message ?? p.id); return; }
+      const held = (plan.removed ?? []).filter((x) => x !== p.id);
+      const text = [
+        tr('Se elimina esta pieza: {path}.', { path: plan.path }),
+        held.length === 1 ? tr('Y la pieza que contiene: {list}.', { list: quoted(held) }) : held.length ? tr('Y las {n} piezas que contiene: {list}.', { n: held.length, list: quoted(held) }) : '',
+        p.type === 'flow' ? tr('Y su especificación y su evidencia compartida.') : '',
+        plan.named?.length === 1 ? tr('Todavía la nombra {list}: quedará con una referencia rota hasta que la actualices.', { list: quoted(plan.named) })
+          : plan.named?.length ? tr('Todavía la nombran {list}: quedarán con una referencia rota hasta que las actualices.', { list: quoted(plan.named) }) : '',
+        tr('Laru no puede deshacerlo.'),
+      ].filter(Boolean).join('\n\n');
+      if (!(await ask(text, tr('Eliminar'), tr('Eliminar «{title}»', { title: p.title })))) return;
+      await api<Deleted>('/api/knowledge/delete', { method: 'POST', body: { id: p.id, contents: true } });
+      toast(tr('Se eliminó «{title}»', { title: p.title }));
+      location.hash = p.parent ? pageOf(p.parent) : href('docs');
+      reload();
+    } catch (e) { toast((e as Error).message); }
+  };
+  return <button type="button" className="btn danger" onClick={go}><Trash2 />{tr('Eliminar')}</button>;
+}
+
 function Sheet({ k, g, p, byId, reload, flows, envs, seen, view, test, op, tabArg, sub }: { k: KnowledgeData; g: Indexed | null; p: DocPiece; byId: Map<string, DocPiece>; reload: () => void; flows: Flows; envs?: EnvSummary[]; seen: Loaded<Seen>; view?: FlowView; test?: string; op?: string; tabArg?: string; sub?: string }) {
   // A sheet with sections in the menu takes its tab from the address alone (no copy of it here: a copy is one render late, and
   // the menu and the sheet would show the old tab for a moment); the other pieces keep theirs while they are open.
@@ -304,10 +331,10 @@ function Sheet({ k, g, p, byId, reload, flows, envs, seen, view, test, op, tabAr
           )}
           {p.type !== 'flow' && <a className="btn" href={href('docs', p.id, 'edit')}><Pencil />{tr('Editar')}</a>}
           {CONTAINERS.includes(p.type) && <AddMenu k={k} p={p} />}
+          {p.type !== 'application' && p.id !== 'guide:flujos-e2e' && <DeleteButton k={k} p={p} reload={reload} />}
         </div>
       </div>
       <Stale p={p} reload={reload} />
-      {p.type !== 'application' && <Owed k={k} p={p} />}
       {p.type === 'flow' ? (
         <>
           <Tabs id="piece" label={tr('Secciones de {title}', { title: p.title })} value={tab} onChange={pick} tabs={tabs} className="tabs piece-tabs" />
@@ -347,12 +374,10 @@ function Sheet({ k, g, p, byId, reload, flows, envs, seen, view, test, op, tabAr
             {p.type === 'module' && tab === 'p-test-plan' && <><div style={{ height: 16 }} /><LiveTab p={p} which="tests" /></>}
             {p.type === 'application' && tab === 'p-secrets' && <AppVars />}
             {p.type === 'module' && tab === 'p-secrets' && <><div style={{ height: 16 }} /><LiveTab p={p} which="vars" /></>}
-            {p.type === 'application' && tab === 'owed' && <Owed k={k} p={p} />}
             {p.type === 'application' && tab === 'doc' && <><PieceFields k={k} p={p} /><div style={{ height: 16 }} /><ReferencedBy k={k} p={p} /></>}
             {p.type === 'module' && tab === 'built' && <PieceFields k={k} p={p} only={['built', 'design', 'submodules']} empty={tr('Todavía no se ha escrito cómo está construido.')} />}
             {p.type === 'module' && tab === 'flows' && <><h2 className="section-h">{tr('Escenarios')}</h2><FacetList k={k} facets={facets.filter((f) => f.type === 'scenario')} inherited={[]} /><h2 className="section-h" style={{ marginTop: 20 }}>{tr('Flujos')}</h2><Estado key={p.id} k={k} g={g} p={p} flows={flows} envs={envs} toCode={toCode} /></>}
             {p.type === 'module' && tab === 'code' && <><CodePanel p={p} g={g} flows={flows.data} /></>}
-            {p.type === 'module' && tab === 'owed' && <Owed k={k} p={p} />}
             {p.type === 'module' && tab === 'doc' && <><PieceFields k={k} p={p} /><div style={{ height: 16 }} /><FacetList k={k} facets={facets} inherited={inherited} /><div style={{ height: 16 }} /><ReferencedBy k={k} p={p} /><div style={{ height: 16 }} /></>}
             {p.type !== 'application' && tab === 'summary' && (p.type === 'contract' ? <ContractReference k={k} g={g} p={p} seen={seen} focus={op} />
               : p.type === 'data-model' ? <DataModelReference p={p} g={g} />
@@ -364,6 +389,7 @@ function Sheet({ k, g, p, byId, reload, flows, envs, seen, view, test, op, tabAr
           </div>
         </>
       )}
+      <Owed k={k} p={p} />
     </div>
   );
 }
@@ -385,7 +411,7 @@ function PieceList({ k, p, type, under }: { k: KnowledgeData; p: DocPiece; type:
         <div className="meta"><span className="faint">{k.shapes[type as keyof typeof k.shapes]?.question}</span><a className="btn sm" href={href('docs', 'new', type, p.id)}><Plus />{tr('Crear')}{' '}{pieceLabel(type).toLowerCase()}</a></div></header>
       {list.length ? (
         <ul className="feed">{list.map((x) => (
-          <li key={x.id}><a className="main rowlink" href={pageOf(x.id)}>{x.title}</a><span className="faint">{STATUS[x.status] ?? x.status}</span><NoteChip note={x.note} /></li>
+          <li key={x.id}><a className="main rowlink" href={pageOf(x.id)}>{x.title}</a><span className="faint">{STATUS[x.status] ?? x.status}</span></li>
         ))}</ul>
       ) : <div className="empty">{tr('Todavía no hay')}{' '}{piecesLabel(type).toLowerCase()}{' '}{tr('aquí.')}</div>}
     </section>
@@ -415,6 +441,7 @@ export function owedText(k: KnowledgeData, p: DocPiece, o: DocNote['owed'][numbe
   if (o.key === 'relation-expected') return tr('Declara la relación {p0}.', { p0: o.params?.relation });
   if (o.key === 'vague') return tr('Dilo en concreto: {join}.', { join: String(o.params?.words ?? '').split(', ').map((w) => `«${w}»`).join(', ') });
   if (o.key === 'unknown-endpoint') return tr('Nombra endpoints que el código no tiene: {p0}.', { p0: o.params?.endpoints });
+  if (o.key === 'operation-detail') return tr('Operaciones sin su resumen, su petición o su respuesta: {p0}.', { p0: o.params?.operations });
   return o.at;
 }
 /** One thing a container still owes, in words. */
@@ -424,6 +451,7 @@ export function owedItemText(k: KnowledgeData, p: DocPiece, o: OwedItem): string
   if (o.key === 'anchors') return tr('Ánclalo al código del que habla: repo:ruta/**, y que encuentre ficheros.');
   if (o.key === 'usecase-flow') return tr('El caso «{case}» no tiene un flujo que lo pruebe.', { case: prm.case });
   if (o.key === 'contract') return tr('Su código expone {endpoints} endpoints y ningún contrato los declara.', { endpoints: prm.endpoints });
+  if (o.key === 'endpoint-contracts') return tr('{missing} de sus {endpoints} endpoints no están en ningún contrato: {list}.', { missing: prm.missing, endpoints: prm.endpoints, list: prm.list });
   if (o.key === 'test-plan') return tr('Le falta un plan de pruebas.');
   if (o.key === 'submodule-named') return tr('Nombra {id} en «Submódulos».', { id: prm.id });
   if (o.key === 'child-sheet') return tr('La hoja de {id} aún no está al 100.', { id: prm.id });
@@ -457,8 +485,8 @@ function Owed({ k, p }: { k: KnowledgeData; p: DocPiece }) {
     : i.action === 'review' ? <a className="btn sm" href={href('docs', p.id, 'edit')}>{tr('Revisar')}</a>
     : i.action === 'complete' ? <a className="btn sm" href={href('docs', p.id, 'edit')}>{tr('Completar')}</a> : null;
   return (
-    <details className="owed" open={owed.length + mine.length > 0 && owed.length + mine.length <= 8}>
-      <summary id="owed-h" title={tr('Cada cosa que falta baja una de las dos notas')}>{tr('Lo que debe (')}{owed.length + mine.length})</summary>
+    <details className="owed">
+      <summary id="owed-h" title={tr('Cada cosa que falta baja una de las dos notas')}>{tr('Lo que debe (')}{owed.length + mine.length}){' '}<NoteChip note={p.note} shown={p.sheet?.shown} /></summary>
       <ul className="owed-list">
         {owed.map((i, n) => (
           <li key={n}><span className="owed-kind">{i.kind === 'structure' ? tr('Estructura') : tr('Contraste')}</span><span className="owed-text">{owedItemText(k, p, i)}</span>

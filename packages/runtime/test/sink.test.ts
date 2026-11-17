@@ -537,7 +537,8 @@ test('api sink: any messaging API is kept in the mailbox: the recipient and text
     await wait(() => s.box().some((l) => l.kind === 'sms'));
     const sms = s.box().find((l) => l.kind === 'sms')!;
     assert.deepEqual([sms.to, sms.sender, sms.provider, sms.codes], ['+573001112233', 'VaultFlow', 'api', ['551204']]);
-    assert.ok(s.box().some((l) => l.kind === 'status' && l.id === sms.id && l.status === 'delivered'));
+    // its status is a line of its own, written after the message's: waited for, not assumed
+    await wait(() => s.box().some((l) => l.kind === 'status' && l.id === sms.id && l.status === 'delivered'));
     // a health check is answered and sends nothing
     assert.equal((await send(port, '/health', undefined, 'GET')).status, 200);
     // an API that mails, read by `fields`: only its send path keeps a message, and it answers what `reply` says
@@ -552,7 +553,8 @@ test('api sink: any messaging API is kept in the mailbox: the recipient and text
     assert.ok(mail.eml && existsSync(join(s.mail, mail.eml)), 'a mail by its fields is kept as a real one: the screen draws it from its original');
     assert.equal(mail.links[0].url, 'https://app.vaultflow.localhost/reset/abc');
     assert.equal(s.box().filter((l) => l.kind === 'mail' || l.kind === 'sms').length, 2, 'the health check and the other path kept nothing');
-    // the traffic journal names the message, never its body
+    // the traffic journal names the message, never its body; its record, too, lands after the answer
+    await wait(() => s.traffic().some((r) => r.msg?.kind === 'sms'));
     const rec = s.traffic().find((r) => r.msg?.kind === 'sms');
     assert.ok(rec && !JSON.stringify(rec).includes('551204'));
   } finally { await s.close(); }

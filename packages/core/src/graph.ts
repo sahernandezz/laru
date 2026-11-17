@@ -33,12 +33,12 @@ export class Graph {
 export const observedFile = (ws: Workspace) => join(stateDir(ws), 'observed.json');
 export const OBSERVED_DAYS = 30;
 
-/** What runs saw (calls, reads, writes, uses), written by the runtime after each run; older than 30 days drops out. */
-export function loadObserved(ws: Workspace): Array<{ s: string; p: Relation; o: string; seen: Seen }> {
+/** What runs saw (calls, reads, writes, uses, publishes), written by the runtime after each run; older than 30 days drops out. */
+export function loadObserved(ws: Workspace): Array<{ s: string; p: Relation; o: string; seen: Seen; via?: string[] }> {
   const f = observedFile(ws);
   if (!existsSync(f)) return [];
   const cutoff = Date.now() - OBSERVED_DAYS * 86400_000;
-  return ((JSON.parse(readFileSync(f, 'utf8')) as { facts?: Array<{ s: string; p: Relation; o: string; seen: Seen }> }).facts ?? []).filter((x) => Date.parse(x.seen.at) > cutoff);
+  return ((JSON.parse(readFileSync(f, 'utf8')) as { facts?: Array<{ s: string; p: Relation; o: string; seen: Seen; via?: string[] }> }).facts ?? []).filter((x) => Date.parse(x.seen.at) > cutoff);
 }
 
 /** One entry per map file: the daemon serves several workspaces, and switching between them parses nothing again. */
@@ -59,11 +59,14 @@ export function loadGraph(ws: Workspace): Graph {
   // A map written before detectors version 4 says «default <value>»; it is served as it lies until the next refresh, so it is cleaned here.
   for (const f of map.facts) if (f.p === 'reads-var' && f.note?.startsWith('default ')) f.note = 'has a default';
   const ids = new Set(map.nodes.map((n) => n.id));
+  const first = new Map<string, Fact>();
+  for (const f of map.facts) if (!first.has(`${f.s}|${f.p}|${f.o}`)) first.set(`${f.s}|${f.p}|${f.o}`, f);
   for (const o of loadObserved(ws)) {
     if (!ids.has(o.s) || !ids.has(o.o)) continue;
-    const same = map.facts.find((f) => f.s === o.s && f.p === o.p && f.o === o.o);
-    if (same) same.seen = o.seen;
-    else map.facts.push({ s: o.s, p: o.p, o: o.o, origin: 'observed', seen: o.seen });
+    const via = o.via?.filter((e) => ids.has(e));
+    const same = first.get(`${o.s}|${o.p}|${o.o}`);
+    if (same) { same.seen = o.seen; if (via?.length) same.via = via; }
+    else map.facts.push({ s: o.s, p: o.p, o: o.o, origin: 'observed', seen: o.seen, ...(via?.length ? { via } : {}) });
   }
   const graph = new Graph(map);
   cached.set(file, { mtime, obs, graph });

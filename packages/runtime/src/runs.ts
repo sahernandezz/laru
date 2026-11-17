@@ -835,16 +835,23 @@ async function kafkaMessages(container: string, broker: string, m: Masker, memo?
   return msgs;
 }
 
-/** Facts a run observed, kept 30 days in .laru/observed.json for the map and impact. */
-export function recordObserved(ws: Workspace, run: string, facts: Array<{ s: string; p: string; o: string }>) {
+/**
+ * Facts a run observed, kept 30 days in .laru/observed.json for the map and impact; each with the endpoints whose
+ * requests did it (`via`, the most recent first, at most 30).
+ */
+export function recordObserved(ws: Workspace, run: string, facts: Array<{ s: string; p: string; o: string; via?: string[] }>) {
   const f = join(stateDir(ws), 'observed.json');
   const now = new Date().toISOString();
-  const cur = existsSync(f) ? (JSON.parse(readFileSync(f, 'utf8')) as { facts: Array<{ s: string; p: string; o: string; seen: { run: string; at: string; count: number } }> }) : { facts: [] };
+  type Kept = { s: string; p: string; o: string; via?: string[]; seen: { run: string; at: string; count: number } };
+  const cur = existsSync(f) ? (JSON.parse(readFileSync(f, 'utf8')) as { facts: Kept[] }) : { facts: [] };
   const cutoff = Date.now() - 30 * 86400_000;
   const keep = cur.facts.filter((x) => Date.parse(x.seen.at) > cutoff);
+  const byKey = new Map(keep.map((k) => [`${k.s}|${k.p}|${k.o}`, k]));
   for (const x of facts) {
-    const hit = keep.find((k) => k.s === x.s && k.p === x.p && k.o === x.o);
-    if (hit) hit.seen = { run, at: now, count: hit.seen.count + 1 }; else keep.push({ ...x, seen: { run, at: now, count: 1 } });
+    const hit = byKey.get(`${x.s}|${x.p}|${x.o}`);
+    const via = [...new Set([...(x.via ?? []), ...(hit?.via ?? [])])].slice(0, 30);
+    if (hit) { hit.seen = { run, at: now, count: hit.seen.count + 1 }; if (via.length) hit.via = via; }
+    else { const k: Kept = { s: x.s, p: x.p, o: x.o, ...(via.length ? { via } : {}), seen: { run, at: now, count: 1 } }; keep.push(k); byKey.set(`${x.s}|${x.p}|${x.o}`, k); }
   }
   writeFileSync(f, JSON.stringify({ facts: keep }, null, 1));
 }

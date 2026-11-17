@@ -113,7 +113,7 @@ export function MapView({ g: whole, selected, tabArg }: { g: Indexed; selected?:
             {shown.filter((e) => sel && e.kind !== 'store' && (e.from === sel.id || e.to === sel.id)).map((e) => <EdgeLabel key={e.id} e={e} className="hot" />)}
           </g>
           {lay.nodes.map(({ node, x, y }) => (
-            <NodeBox key={node.id} node={node} x={x} y={y} sub={`${node.type === 'service' ? `${node.kind}, ${g.out(node.id).filter((f) => f.p === 'exposes').length} endpoints` : KIND[node.kind ?? ''] ?? node.kind ?? ''}${several && node.repo ? ` · ${node.repo}` : ''}`}
+            <NodeBox key={node.id} g={whole} node={node} x={x} y={y} sub={`${node.type === 'service' ? `${node.kind}, ${g.out(node.id).filter((f) => f.p === 'exposes').length} endpoints` : KIND[node.kind ?? ''] ?? node.kind ?? ''}${several && node.repo ? ` · ${node.repo}` : ''}`}
               className={sel?.id === node.id ? 'sel' : sel && !near.has(node.id) ? 'dim' : ''} role="button" tabIndex={0} aria-pressed={sel?.id === node.id} aria-label={nodeName(node)}
               onClick={() => select(node.id)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); select(node.id); } }} />
           ))}

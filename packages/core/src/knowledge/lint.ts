@@ -61,6 +61,10 @@ export function documentNote(p: Piece, ctx: { endpoint?: (method: string, path: 
   const vague = [...new Set(texts(p).flatMap(vagueIn))];
   items.push({ key: 'vague', at: 'fields', weight: 1, ok: !vague.length, ...(vague.length ? { params: { words: vague.join(', ') } } : {}) });
   if (ctx.endpoint) { const missing = [...new Set(texts(p).flatMap((t) => unknownEndpoints(t, ctx.endpoint!)))]; items.push({ key: 'unknown-endpoint', at: 'fields', weight: 2, ok: !missing.length, ...(missing.length ? { params: { endpoints: missing.join(', ') } } : {}) }); }
+  // a contract says of each operation what it is for, what it takes and what it answers: an operation without them is a name, not a contract
+  const ops = p.type === 'contract' && Array.isArray(p.fields.operations) ? (p.fields.operations as Array<Record<string, string>>) : [];
+  const bare = ops.filter((o) => !['summary', 'request', 'response'].every((c) => String(o[c] ?? '').trim())).map((o) => `${o.method ?? ''} ${o.path ?? ''}`.trim());
+  if (ops.length) items.push({ key: 'operation-detail', at: 'fields.operations', weight: 2, ok: !bare.length, ...(bare.length ? { params: { operations: bare.join(', '), count: bare.length } } : {}) });
   if (texts(p).some(hasDiagram)) items.push({ key: 'illustrated', at: 'fields', weight: 1, ok: true });
   const total = items.reduce((n, i) => n + i.weight, 0);
   const got = items.reduce((n, i) => n + (i.ok ? i.weight : 0), 0);

@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import {
   addRepo, checkWorkspace, coverage, freshness, initWorkspace, knowledgeShape, knowledgeWrite, loadGraph, loadKnowledge, parsePiece,
-  E2E_GUIDE, E2E_RULES, PIECE_TYPES, documentNote, refreshMap, renderPiece, STANDARD, syncRepos, validatePiece, verifyPiece, type FieldValue, type Piece,
+  E2E_GUIDE, E2E_RULES, PIECE_TYPES, documentNote, refreshMap, renderPiece, sheetNote, STANDARD, syncRepos, validatePiece, verifyPiece, type FieldValue, type Piece,
 } from '../src/index.ts';
 import { EXAMPLE_ES } from '../src/knowledge/standard-es.ts';
 import { makeFixture } from './fixture.ts';
@@ -38,6 +38,7 @@ test('the Spanish worked examples and hints: every type has them, they validate 
     assert.equal(documentNote(p).score, 100, t);
     assert.deepEqual(Object.keys(EXAMPLE_ES[t].fields).sort(), Object.keys(STANDARD[t].example.fields).sort(), `${t}: the same sections as the English one`);
     for (const f of STANDARD[t].fields) assert.ok(f.hintEs, `${t}.${f.name} has its hint in Spanish`);
+    for (const m of STANDARD[t].meta ?? []) assert.ok(m.hintEs, `${t}.meta.${m.name} has its hint in Spanish`);
   }
 });
 
@@ -99,7 +100,7 @@ test('the documentation model over a real workspace', async (t) => {
     const r = w({ type: 'contract', in: 'mod:devoluciones', title: 'API', summary: '', fields: { purpose: 'p', operations: [{ method: 'FETCH', path: '/refunds', service: 'svc:nope' }] } });
     assert.equal(r.ok, false);
     assert.deepEqual(r.issues.filter((i) => i.level === 'error').map((i) => i.at), ['summary'], 'an empty summary breaks it');
-    assert.deepEqual(r.issues.filter((i) => i.level === 'warning' && i.at.startsWith('fields.operations')).map((i) => i.at), ['fields.operations[0].method', 'fields.operations[0].service'], 'an unknown method or service is said, not refused');
+    assert.deepEqual(r.issues.filter((i) => i.level === 'warning' && i.at.startsWith('fields.operations')).map((i) => i.at), ['fields.operations[0].method', 'fields.operations[0].service', 'fields.operations[0].summary', 'fields.operations[0].request', 'fields.operations[0].response'], 'an unknown method or service, and what an operation does not say, is said, not refused');
     assert.deepEqual(readdirSync(join(ws.root, 'docs', 'modules', 'pagos', 'modules', 'devoluciones')), before);
     const said = (x: ReturnType<typeof w>) => x.issues.filter((i) => i.level === 'warning').map((i) => i.key);
     assert.ok(said(w({ type: 'infrastructure', in: 'mod:devoluciones', title: 'R', summary: '', fields: { envs: [{ env: 'local', purpose: 'p' }] } })).includes('wrong-parent'));
@@ -132,6 +133,33 @@ test('the documentation model over a real workspace', async (t) => {
     assert.ok(w({ ...d, summary: 'Otra, reescrita.' }).ok);
     assert.equal(num('dec:segunda'), 'DEC-0002');
     assert.equal(w({ ...d, title: 'Tercera', meta: { number: 'DEC-0001' } }).issues.find((i) => i.level === 'error')?.key, 'duplicate-number');
+  });
+
+  await t.test('an accepted decision keeps what it decided, keeps up with where it stands, and a new one supersedes it in one write', () => {
+    const id = 'dec:reembolso-asincrono';
+    const d = { type: 'decision' as const, id, title: 'Reembolso asíncrono', summary: 'Por cola.', fields: { context: 'c', decision: 'd', alternatives: [{ option: 'o', 'why-not': 'w' }], tradeoffs: 't' } };
+    const wrong = (r: ReturnType<typeof w>) => r.issues.filter((i) => i.level === 'error').map((i) => `${i.at}:${i.key}`);
+    const now = (x: string) => loadKnowledge(ws).byId.get(x)!;
+    // where it stands today changes: its compliance, relations and owner; the status, left out, stays
+    assert.deepEqual(wrong(w({ ...d, owner: 'pagos', relations: { relates_to: ['mod:devoluciones'] }, fields: { ...d.fields, compliance: 'Lo cumple RefundResource.' } })), []);
+    assert.deepEqual([now(id).status, now(id).fields.compliance], ['accepted', 'Lo cumple RefundResource.']);
+    assert.deepEqual(wrong(knowledgeWrite(ws, { ...d, fields: { ...d.fields, decision: ' d\n', alternatives: [{ 'why-not': 'w', option: 'o ' }] } }, g, { dryRun: true })), [], 'spacing and column order are not a change');
+    // what it decided does not change, nor does it go back
+    assert.deepEqual(wrong(w({ ...d, fields: { ...d.fields, decision: 'otra' } })), ['fields.decision:immutable']);
+    assert.deepEqual(wrong(w({ ...d, title: 'Reembolso en línea' })), ['title:immutable']);
+    assert.deepEqual(wrong(w({ ...d, status: 'proposed' })), ['status:immutable']);
+    // a section it left empty is filled, once
+    const sin = { type: 'decision' as const, in: 'mod:pagos', title: 'Cobros idempotentes', status: 'accepted', summary: 'Una clave por cobro.', fields: { context: 'c', decision: 'd', alternatives: [{ option: 'o', 'why-not': 'w' }] } };
+    assert.deepEqual(wrong(w(sin)), []);
+    assert.deepEqual(wrong(w({ ...sin, fields: { ...sin.fields, tradeoffs: 'Guardar las claves.' } })), []);
+    assert.deepEqual(wrong(w({ ...sin, fields: { ...sin.fields, tradeoffs: 'Otra cosa.' } })), ['fields.tradeoffs:immutable']);
+    // the one that supersedes it: proposed, the old one still rules; accepted, the old one is superseded, as it was
+    const nueva = { type: 'decision' as const, in: 'mod:pagos', title: 'Reembolso en línea', status: 'proposed', summary: 'Sin cola.', meta: { supersedes: id }, fields: { context: 'c2', decision: 'd2', alternatives: [{ option: 'o', 'why-not': 'w' }], tradeoffs: 't2' } };
+    assert.equal(w(nueva).superseded, undefined);
+    assert.equal(now(id).status, 'accepted');
+    const r = w({ ...nueva, status: 'accepted' });
+    assert.deepEqual([wrong(r), r.superseded], [[], [id]]);
+    assert.deepEqual([now(id).status, now(id).fields.decision, now(id).fields.compliance, now(id).meta?.number], ['superseded', 'd', 'Lo cumple RefundResource.', 'DEC-0001']);
   });
 
   await t.test('conventions are inherited and checked against the code they rule', async () => {
@@ -172,6 +200,28 @@ test('the documentation model over a real workspace', async (t) => {
     assert.equal(shape.fields.find((f) => f.name === 'steps')!.heading, 'Pasos');
     assert.match(shape.example!.markdown, /\| Tipo \|[\s\S]*\| validation \|/, 'a validation is a step of the story');
     assert.equal(shape.folder, 'flows/<slug>/flow.md');
+  });
+
+  await t.test('a contract says of each operation what it is for, takes and answers, and its write names the endpoints its services still owe', async () => {
+    const now = loadGraph(ws);
+    const op = { method: 'POST', path: '/refunds', service: 'svc:billing-api', summary: 'Pedir el reembolso de un pedido pagado', request: 'Cuerpo `RefundRequest`: `{ orderId, amount }`', response: '200 con el reembolso pendiente' };
+    const input = { type: 'contract' as const, in: 'mod:devoluciones', title: 'API de reembolsos', summary: 'Lo que llama el portal para reembolsar un pedido pagado.', fields: { purpose: 'El portal pide el reembolso de un pedido.', auth: 'El token del cliente.', operations: [op], errors: [{ status: '409', when: 'El pedido ya se reembolsó', operation: 'POST /refunds' }] } };
+    const r = knowledgeWrite(ws, input, now);
+    assert.ok(r.ok, JSON.stringify(r.issues));
+    assert.equal(r.note!.items.find((i) => i.key === 'operation-detail')?.ok, true);
+    const owed = r.issues.find((i) => i.key === 'service-endpoints-uncovered');
+    assert.deepEqual([owed?.level, owed?.params?.service, owed?.params?.endpoints], ['warning', 'svc:billing-api', 'GET /orders/{id}/payment'], 'the other endpoint of its service, still in no contract');
+    // an operation that does not say what it takes is a name, not a contract: the note says which
+    const bare = documentNote({ id: 'ctr:x', status: 'active', ...input, fields: { ...input.fields, operations: [{ ...op, request: ' ' }] } });
+    assert.deepEqual(bare.owed.filter((i) => i.key === 'operation-detail').map((i) => i.params?.operations), ['POST /refunds']);
+    // check says it per service, and the service's sheet owes it
+    const check = await checkWorkspace(ws, now);
+    const billing = check.issues.find((i) => i.key === 'endpoint-without-contract' && i.id === 'svc:billing-api');
+    assert.equal(billing?.params?.endpoints, 'GET /orders/{id}/payment');
+    assert.equal(billing?.block, 'contrast');
+    assert.ok(knowledgeWrite(ws, { type: 'service', in: 'app:comercio', id: 'svc:billing-api', title: 'billing-api', summary: 'Cobra los pedidos y devuelve el dinero de las devoluciones.', fields: { responsibility: 'Los cobros.' } }, now).ok);
+    const item = sheetNote(ws, loadKnowledge(ws), now, loadKnowledge(ws).byId.get('svc:billing-api')!).items.find((i) => i.key === 'endpoint-contracts');
+    assert.deepEqual([item?.ok, item?.params?.missing, item?.params?.endpoints], [false, 1, 2]);
   });
 });
 

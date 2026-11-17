@@ -13,7 +13,8 @@ import { tr } from '../src/lib/i18n.ts';
 
 type Node = { type: string; start: number; end: number; [k: string]: unknown };
 const src = join(import.meta.dirname, '../src');
-const files = (readdirSync(src, { recursive: true }) as string[]).filter((f) => /\.tsx?$/.test(f) && !f.startsWith('generated') && !/lib\/(en|i18n)\.ts$/.test(f));
+// techIcons.ts is data generated from the logo sets: brand names and their drawings, never a text of the interface
+const files = (readdirSync(src, { recursive: true }) as string[]).filter((f) => /\.tsx?$/.test(f) && !f.startsWith('generated') && !/lib\/(en|i18n|techIcons)\.ts$/.test(f));
 const parsed = files.map((f) => {
   const text = readFileSync(join(src, f), 'utf8');
   return { f, text, ast: parseAst(text, { lang: f.endsWith('x') ? 'tsx' : 'ts' }) as unknown as Node };

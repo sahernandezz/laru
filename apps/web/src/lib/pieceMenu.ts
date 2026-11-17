@@ -19,7 +19,7 @@ export const TYPE_ICON: Record<string, LucideIcon> = {
   agreement: Handshake, plan: CalendarRange, decision: Scale, contract: Braces, 'data-model': Table, convention: Ruler, guide: BookOpen, 'test-plan': ListChecks, flow: Route, scenario: DatabaseBackup, artifact: Archive, architecture: Network, versioning: Tag, stack: Package, infrastructure: Cloud, secrets: KeyRound, glossary: BookText,
 };
 const SECTION_ICON: Record<string, LucideIcon> = {
-  summary: FileText, arch: Network, built: Layers, modules: Layers, processes: Workflow, fronts: Monitor, flows: Route, envs: Container, gov: Scale, owed: ListChecks, doc: BookText, rel: GitFork,
+  summary: FileText, arch: Network, built: Layers, modules: Layers, processes: Workflow, fronts: Monitor, flows: Route, envs: Container, gov: Scale,doc: BookText, rel: GitFork,
   live: Radio, env: Database, scope: ListChecks, interfaces: Braces, data: Database, tests: ListChecks, vars: KeyRound, code: GitBranch,
 };
 const KIND_ICON: Record<string, LucideIcon> = { area: Layers, feature: Puzzle, story: Bookmark, subprocess: GitFork };
@@ -49,9 +49,9 @@ export const FLOW_TABS: Array<[string, string]> = [['summary', tr('Resumen')], [
 
 /** The tabs of the classes that have their own sheet (as the approved mock has them): key and label. ⌘K reaches each one. */
 export const TABS_OF: Record<string, Array<[string, string]>> = {
-  application: [['summary', tr('Resumen')], ['arch', tr('Diagramas')], ['modules', tr('Módulos')], ['processes', tr('Procesos')], ['fronts', tr('Clientes')], ['flows', tr('Escenarios y flujos')], ['envs', tr('Entornos')], ['owed', tr('Lo que debe')], ['doc', tr('Documento')]],
+  application: [['summary', tr('Resumen')], ['arch', tr('Diagramas')], ['modules', tr('Módulos')], ['processes', tr('Procesos')], ['fronts', tr('Clientes')], ['flows', tr('Escenarios y flujos')], ['envs', tr('Entornos')], ['doc', tr('Documento')]],
   flow: FLOW_TABS,
-  module: [['summary', tr('Resumen')], ['flows', tr('Escenarios y flujos')], ['owed', tr('Lo que debe')], ['doc', tr('Documento')], ['code', tr('Código')]],
+  module: [['summary', tr('Resumen')], ['flows', tr('Escenarios y flujos')], ['doc', tr('Documento')], ['code', tr('Código')]],
 };
 
 /**
@@ -74,7 +74,7 @@ export function kindsOf(k: KnowledgeData, byId: Map<string, DocPiece>, owner: Do
 const STAGES = Object.keys(STAGE);
 /** A container's sections: its own tabs, then a section per kind of piece it holds, all under «Piezas», in the order of the stage each answers to. */
 export function sectionsOf(k: KnowledgeData, byId: Map<string, DocPiece>, owner: DocPiece, keep?: string, fronts = 0): Section[] {
-  const counts: Record<string, number | undefined> = { modules: k.pieces.filter((x) => x.parent === owner.id && x.type === 'module').length, processes: k.pieces.filter((x) => x.parent === owner.id && x.type === 'process').length, flows: ownFlows(k, owner.id).length, owed: owner.sheet?.owed.length ?? 0, code: owner.anchors?.length };
+  const counts: Record<string, number | undefined> = { modules: k.pieces.filter((x) => x.parent === owner.id && x.type === 'module').length, processes: k.pieces.filter((x) => x.parent === owner.id && x.type === 'process').length, flows: ownFlows(k, owner.id).length, code: owner.anchors?.length };
   return [
     // a tab with nothing in it that the application may lack is not shown: clients nobody recognised, processes nobody wrote
     ...TABS_OF[owner.type].filter(([key]) => (key !== 'fronts' || fronts) && (key !== 'processes' || counts.processes)).map(([key, label]) => ({ key, label, n: key === 'fronts' ? fronts : counts[key], icon: SECTION_ICON[key], to: key === 'summary' ? href('docs', owner.id) : href('docs', owner.id, 't', key) })),
@@ -84,7 +84,7 @@ export function sectionsOf(k: KnowledgeData, byId: Map<string, DocPiece>, owner:
 }
 
 /**
- * The application's own menu: what is written about it (summary, diagrams, modules, flows, what is owed, the document and
+ * The application's own menu: what is written about it (summary, diagrams, modules, flows, the document and
  * every kind of living piece) is one menu with the rest of the system's, not a second one inside it. «Entornos» is
  * its own section of the main menu.
  */

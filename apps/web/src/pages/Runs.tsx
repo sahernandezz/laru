@@ -813,7 +813,7 @@ function Player({ run, slug, trace, story, flow, g, view: asked, onView, k, arch
       <div role="tabpanel" id={`${vid}-panel`} aria-labelledby={`${vid}-tab-${shown}`} className="diagram-panel">
         {journey ? <Journey trace={trace} ctx={ctx} lanes={layout.lanes} sel={selected?.id} onPick={(id) => { c.pause(); pickEx(id); }} hot={hot} time={clock} />
           : view === 'seq' ?<SeqView layout={layout} now={c.now} sel={sel} onPick={pickSeq} wrap={wrap} onStep={mode === 'step' ? stepSeq : undefined} folded={folded} />
-          : arch && lit ? <FlowMap lay={arch.lay} pieces={arch.pieces} lit={lit} sel={row?.ex.id} hot={hot} path={path} onPick={pickEdge} />
+          : arch && lit ? <FlowMap lay={arch.lay} pieces={arch.pieces} lit={lit} sel={row?.ex.id} hot={hot} path={path} onPick={pickEdge} g={g} />
           : <p className="empty flow-map">{tr('Sin mapa: pulsa «Releer el código» en')}{' '}<a className="rowlink" href={href('repos')}>{tr('Proyectos')}</a>.</p>}
       </div>
     </div>
@@ -1007,8 +1007,8 @@ export const EdgeLegend = ({ extra }: { extra?: ReactNode }) => (
 /** The most packets that run on a map at once: more than this is a swarm, not a path. */
 export const MAX_PACKETS = 24;
 
-export function FlowMap({ lay, pieces, lit, sel, hot, path, onPick, expected }: {
-  lay: Layout<MapEdge>; pieces: MapNode[]; lit: Pick<Lit, 'edges' | 'nodes' | 'quiet'>; sel?: string; hot?: Set<string>;
+export function FlowMap({ lay, pieces, lit, sel, hot, path, onPick, expected, g }: {
+  lay: Layout<MapEdge>; pieces: MapNode[]; lit: Pick<Lit, 'edges' | 'nodes' | 'quiet'>; sel?: string; hot?: Set<string>; g?: Indexed | null;
   /** «Paso a paso»: the exchanges the current hop came through */
   path?: Set<string>; onPick?: (e: FlowEdge) => void; expected?: boolean;
 }) {
@@ -1049,7 +1049,7 @@ export function FlowMap({ lay, pieces, lit, sel, hot, path, onPick, expected }: 
         ))}</g>
         {lay.nodes.map(({ node, x, y }) => {
           const on = lit.nodes.has(node.id) || node.kind === 'actor';
-          return <NodeBox key={node.id} node={node} x={x} y={y} className={on ? 'static' : 'static untouched'} sub={!on ? (expected ? tr('no lo usaría') : tr('no lo usó')) : node.kind === 'actor' ? tr('actor') : KIND[node.kind ?? ''] ?? node.kind ?? ''} />;
+          return <NodeBox key={node.id} g={g} node={node} x={x} y={y} className={on ? 'static' : 'static untouched'} sub={!on ? (expected ? tr('no lo usaría') : tr('no lo usó')) : node.kind === 'actor' ? tr('actor') : KIND[node.kind ?? ''] ?? node.kind ?? ''} />;
         })}
       </MapCanvas>
       <EdgeLegend extra={expected ? <span>{tr('«esperado»: lo dice el código; ningún run lo ha visto')}</span> : <><span><span className="err-ink">{tr('rojo y «falló»')}</span>{tr(': el salto que falló')}</span><span>{tr('atenuado y «no lo usó»: esta prueba no pasó por ahí')}</span></>} />

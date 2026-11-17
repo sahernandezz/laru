@@ -104,7 +104,7 @@ export function PieceForm({ k, piece, type, parent, presetId, done }: { k: Knowl
         </Row2>
         {shape.anchors !== 'no' && <Lines label={tr('Anclas al código')} hint={tr('Una por línea: repo:ruta/o/glob/**')} mono value={v.anchors ?? []} onChange={(l) => set({ anchors: l.length ? l : undefined })} issues={at('anchors')} />}
         {shape.meta?.map((m) => (
-          <Input key={m.name} label={m.name} hint={m.hint} mono value={Array.isArray(v.meta?.[m.name]) ? (v.meta![m.name] as string[]).join(', ') : String(v.meta?.[m.name] ?? '')}
+          <Input key={m.name} label={m.name} hint={LANG === 'es' ? m.hintEs ?? m.hint : m.hintEn ?? m.hint} mono value={Array.isArray(v.meta?.[m.name]) ? (v.meta![m.name] as string[]).join(', ') : String(v.meta?.[m.name] ?? '')}
             onChange={(t) => set({ meta: { ...v.meta, [m.name]: m.list ? t.split(',').map((s) => s.trim()).filter(Boolean) : t } })} issues={at(m.name)} />
         ))}
       </div></section>

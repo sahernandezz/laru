@@ -1,6 +1,6 @@
 /** Build, packaging and infrastructure files: pom.xml, package.json, Dockerfile, compose, nginx, SQL, env examples, OpenAPI, Prisma. */
 import { parse as parseYaml } from 'yaml';
-import type { Finding, Tech } from './types.ts';
+import type { Finding, Param, Tech } from './types.ts';
 import { lineIndex } from './text.ts';
 
 const tag = (xml: string, name: string): string | undefined => xml.match(new RegExp(`<${name}>\\s*([^<]*?)\\s*</${name}>`))?.[1];
@@ -46,8 +46,26 @@ export function detectPackageJson(src: string): Finding[] {
   return out;
 }
 
+/**
+ * The image a Dockerfile builds from: its last FROM, whose flags (`--platform`) are not the image, and a stage named
+ * before it is that stage's image. Nothing for `scratch` or an image only a build argument says.
+ */
+export function baseImage(src: string): string | undefined {
+  const stages = new Map<string, string>();
+  let last: string | undefined;
+  for (const m of src.matchAll(/^\s*FROM\s+(.+?)\s*$/gim)) {
+    const words = m[1].split(/\s+/).filter((w) => !w.startsWith('--'));
+    const image = stages.get(words[0]?.toLowerCase()) ?? words[0];
+    const as = words.findIndex((w) => w.toLowerCase() === 'as');
+    if (as > 0 && words[as + 1]) stages.set(words[as + 1].toLowerCase(), image);
+    last = image;
+  }
+  return last && last !== 'scratch' && !last.includes('$') ? last : undefined;
+}
+
 export function detectDockerfile(src: string): Finding[] {
-  const out: Finding[] = [{ kind: 'service-root', tech: 'docker', line: 1 }];
+  const base = baseImage(src);
+  const out: Finding[] = [{ kind: 'service-root', tech: 'docker', line: 1, ...(base ? { base } : {}) }];
   src.split('\n').forEach((l, i) => {
     const m = l.match(/^\s*EXPOSE\s+(.+)/i);
     if (m) for (const p of m[1].split(/\s+/)) { const n = parseInt(p, 10); if (n) out.push({ kind: 'port', port: n, line: i + 1 }); }
@@ -109,6 +127,12 @@ export function detectEnvFile(src: string): Finding[] {
   return out;
 }
 
+interface ApiSchema { $ref?: string; type?: string; items?: ApiSchema }
+interface ApiParam { name?: string; in?: string; required?: boolean; type?: string; schema?: ApiSchema }
+interface ApiOp { summary?: string; description?: string; parameters?: ApiParam[]; requestBody?: { required?: boolean; content?: Record<string, { schema?: ApiSchema }> }; responses?: Record<string, { content?: Record<string, { schema?: ApiSchema }>; schema?: ApiSchema }> }
+/** `#/components/schemas/FileInfo` → FileInfo; an array of them → FileInfo[] */
+const schemaName = (s?: ApiSchema): string | undefined => s?.$ref?.split('/').pop() ?? (s?.type === 'array' && schemaName(s.items) ? `${schemaName(s.items)}[]` : s?.type);
+
 export function detectOpenApi(path: string, src: string): Finding[] {
   let doc: { paths?: Record<string, Record<string, unknown>>; openapi?: string; swagger?: string };
   try { doc = path.endsWith('.json') ? JSON.parse(src) : parseYaml(src); } catch { return []; }
@@ -116,10 +140,22 @@ export function detectOpenApi(path: string, src: string): Finding[] {
   const lineOf = lineIndex(src);
   const out: Finding[] = [];
   for (const [p, ops] of Object.entries(doc.paths)) {
+    const shared = ((ops as { parameters?: ApiParam[] })?.parameters ?? []);
     for (const verb of Object.keys(ops ?? {})) {
       if (!/^(get|post|put|patch|delete|head|options)$/.test(verb)) continue;
       const at = src.indexOf(p);
-      out.push({ kind: 'endpoint', method: verb.toUpperCase(), path: p, line: at >= 0 ? lineOf(at) : 1, source: 'openapi' });
+      // what the file says of it: its summary, parameters, body and answers
+      const op = ((ops as Record<string, ApiOp>)[verb] ?? {}) as ApiOp;
+      const params: Param[] = [...shared, ...(op.parameters ?? [])].filter((x) => x?.name && x.in).map((x) => ({
+        in: x.in === 'formData' ? 'form' : x.in === 'body' ? 'body' : x.in as Param['in'], name: x.name!, ...(schemaName(x.schema) ?? x.type ? { type: schemaName(x.schema) ?? x.type } : {}), ...(x.required !== undefined ? { required: Boolean(x.required) } : {}),
+      }));
+      const [ct, body] = Object.entries(op.requestBody?.content ?? {})[0] ?? [];
+      if (ct) params.push({ in: /form/.test(ct) ? 'form' : 'body', name: schemaName(body?.schema) ?? ct, type: schemaName(body?.schema) ?? ct, ...(op.requestBody?.required !== undefined ? { required: Boolean(op.requestBody.required) } : {}) });
+      const statuses = Object.keys(op.responses ?? {}).filter((x) => /^\d{3}$/.test(x)).map(Number).sort((a, b) => a - b);
+      const ok = Object.entries(op.responses ?? {}).find(([x]) => /^2\d\d$/.test(x))?.[1];
+      const returns = schemaName(ok?.schema ?? Object.values(ok?.content ?? {})[0]?.schema);
+      const summary = (op.summary ?? op.description)?.split('\n')[0].trim();
+      out.push({ kind: 'endpoint', method: verb.toUpperCase(), path: p, line: at >= 0 ? lineOf(at) : 1, source: 'openapi', ...(params.length ? { params } : {}), ...(returns ? { returns } : {}), ...(statuses.length ? { statuses } : {}), ...(summary ? { summary } : {}) });
     }
   }
   return out;
