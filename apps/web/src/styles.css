@@ -54,7 +54,7 @@
   --syn-comment: #8a9fae;        /* comments, log times, [threads]: the theme's #546e7a, lifted to AA */
   --syn-punct: var(--cyan);
   --mask-bg: #1f3a55;            /* a masked value is a box of its own, never a colour of code */
-  --paper: #16181d;              /* the ground the diagrams paint themselves (@laru/diagrams PAPER), in every theme */
+  --pd-paper: var(--bg-100);     /* the ground a diagram is drawn on (@laru/diagrams reads it): in a dark theme the surface itself, so a diagram has no ground of its own */
   --k-http: var(--sky);  --k-sse: var(--cyan);  --k-ws: var(--lilac);  --k-sql: var(--violet);  --k-kafka: var(--orchid);  --k-tcp: var(--ink-2);
   --m-get: var(--sky);  --m-post: var(--violet);  --m-put: var(--cyan);  --m-patch: var(--lilac);  --m-delete: var(--orchid);
   /* shape */
@@ -93,6 +93,8 @@
   --sky-soft: rgb(25 118 210 / .10);
   --syn-comment: #4d6470;
   --shadow-float: 0 12px 32px -8px rgb(26 39 51 / .25), 0 0 0 1px var(--line-2), inset 0 1px 0 var(--lit);
+  /* a diagram's tones and ink are drawn for a dark ground: in a light theme it keeps the engine's own paper */
+  --pd-paper: #16181d;
 }
 [data-theme="surface"] { --bg-100: #f5f5f5; --bg-200: #fafafa; --sunk: #eceff1; --raised: #ffffff; --mask-bg: #b2dfdb; }
 [data-theme="abyssal-light"] { --bg-100: #eef2f5; --bg-200: #f4f7f9; --sunk: #e3eaef; --raised: #ffffff; --mask-bg: #a8d8d8; }
@@ -827,8 +829,14 @@ pre.ctx { margin: 0; padding: 12px 16px; font: 400 12px/18px var(--mono); color:
 .piece-index li { margin: 3px 0; line-height: 18px; }
 .piece-index a { color: var(--ink-2); text-decoration: none; }
 .piece-index a:hover, .piece-index a:focus-visible { color: var(--accent-ink); text-decoration: underline; }
+/* where the reader is: the section, or the heading inside it, marked on the index's own rule */
+.piece-index a[aria-current] { color: var(--accent-ink); font-weight: 500; }
+.piece-index a[aria-current]::before { content: ''; position: absolute; left: -1px; width: 2px; height: 18px; border-radius: 1px; background: var(--accent); }
+.piece-index li.in > a { color: var(--ink-1); }
 @media (max-width: 1100px) { .panel.with-index { display: block; } .piece-index { display: none; } }
-.md { font-size: var(--t-14); line-height: 22px; color: var(--ink-1); max-width: 78ch; }
+/* prose in the second ink, so what stands out (headings, bold, a piece's name, a value) is what is in the first */
+.md { font-size: var(--t-14); line-height: 22px; color: var(--ink-2); max-width: 78ch; }
+.md :is(strong, b, th) { color: var(--ink-1); }
 .md p { margin: 0 0 10px; }
 .md > :last-child { margin-bottom: 0; }
 .md ol { margin: 0 0 10px; padding-left: 22px; }
@@ -847,6 +855,9 @@ pre.ctx { margin: 0; padding: 12px 16px; font: 400 12px/18px var(--mono); color:
 .md .md-table th { text-align: left; }
 .md hr { border: 0; border-top: 1px solid var(--line-1); margin: 14px 0; }
 .md a:not(.rowlink) { color: var(--accent-ink); }
+/* a piece named in a text, by its title: it opens that piece, its id in the tooltip */
+a.pref { color: var(--accent-ink); text-decoration: underline dotted var(--line-3); text-underline-offset: 3px; }
+a.pref:hover { text-decoration-style: solid; text-decoration-color: currentColor; }
 .md input[type=checkbox] { margin-right: 6px; }
 .md ul, .field-view ul { margin: 0 0 10px; padding-left: 18px; }
 .md li, .field-view li { margin: 2px 0; }
@@ -1420,7 +1431,7 @@ p.flow-map { margin: 0; justify-content: center; }
 a.chip.ctr:hover { border-color: var(--line-3); background: var(--fill-1); }
 .ref { display: grid; gap: 16px; min-width: 0; }
 .panel > header .meta { flex-wrap: wrap; justify-content: flex-end; }
-.api-note { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; padding: 10px 16px; border-bottom: 1px solid var(--line-1); font-size: var(--t-13); }
+.api-note { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; padding: 10px 16px; border-bottom: 1px solid var(--line-1); font-size: var(--t-13); line-height: 1.5; color: var(--ink-2); }
 .api-p { margin: 0 0 8px; font-size: var(--t-13); }
 .api-path > h4 { margin: 0; padding: 10px 16px 6px; font-size: var(--t-13); font-weight: 500; color: var(--ink-2); background: var(--bg-200); border-bottom: 1px solid var(--line-1); overflow-wrap: anywhere; }
 .ops, .api-path { min-width: 0; }
@@ -1568,18 +1579,47 @@ ul.plain { margin: 0; padding: 0; list-style: none; }
 .link-card + .link-card { margin-top: 6px; }
 .link-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; font-size: var(--t-13); font-weight: 500; min-width: 0; overflow-wrap: anywhere; }
 .link-h .faint { font-weight: 400; font-size: var(--t-12); }
-.link-cols { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 4px 16px; margin-top: 6px; min-width: 0; }
-.link-cols > div { min-width: 0; }
 .src { display: inline-flex; align-items: center; gap: 4px; font-size: var(--t-12); color: var(--ink-3); margin-bottom: 2px; }
 .link-how { display: grid; gap: 2px; font-size: var(--t-13); min-width: 0; }
 .link-how li { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; min-width: 0; overflow-wrap: anywhere; }
 .real-box > h4 { color: var(--ink-2); }
-.test-path { margin: 0 0 4px; font-size: var(--t-12); overflow-wrap: anywhere; }
+/* under a group's heading, what the group is, for whoever reads it */
+.group-why { margin: -4px 0 8px; max-width: 86ch; color: var(--ink-3); font-size: var(--t-12); line-height: 1.5; }
+/* a cell that says first what a person reads and below, smaller, what the code calls it */
+.t td.two { white-space: normal; height: auto; padding-top: 8px; padding-bottom: 8px; vertical-align: top; line-height: 1.45; }
+.t td.two > .sub { display: block; margin-top: 3px; font-size: var(--t-12); color: var(--ink-3); overflow-wrap: anywhere; }
+.t td.two > .sub.mono { font-size: 11.5px; }
+.t td.two > .sub.why { display: flex; gap: 6px; align-items: baseline; color: var(--ink-2); }
+.lib-name, .var-name { display: inline-flex; align-items: center; gap: 6px; font-weight: 500; color: var(--ink-1); }
+.lib-t th:nth-child(1), .var-t th:nth-child(1) { width: 30%; }
+.lib-t th:nth-child(3), .var-t th:nth-child(3) { width: 22%; }
+.var-value { color: var(--ink-1); }
+.lib-t td:nth-child(2), .var-t td:nth-child(2) { color: var(--ink-2); }
+.linkish.inline { margin: 0 0 0 6px; font-size: var(--t-12); }
+/* a connection in a sentence, how the map deduced it, and its calls */
+.link-sum { margin: 4px 0 6px; color: var(--ink-2); font-size: var(--t-13); line-height: 1.5; }
+.link-sum svg, .link-why svg { vertical-align: -3px; }
+.link-why { margin: 0 0 8px; color: var(--ink-3); font-size: var(--t-12); line-height: 1.5; }
+.link-card .scroll-x { margin: 0 -12px; }
+.link-t td { height: 32px; }
+/* what a forwarding route reaches, each operation with its contract */
+.reach-t td { height: auto; padding-top: 6px; padding-bottom: 6px; vertical-align: top; }
+.reach-io { display: block; margin-top: 2px; font-size: var(--t-12); }
+.link-t td:last-child, .link-t td.two > .mono { white-space: nowrap; overflow-wrap: normal; }
+.link-t td.wrap { min-width: 16em; color: var(--ink-2); }
+.link-t .dot { margin-right: 6px; }
 .ev-real { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; margin-top: 6px; font-size: var(--t-13); min-width: 0; }
 .ev-real > .resp-ex { flex-basis: 100%; }
 .evs .missing { margin-top: 4px; }
+/* a topic on a service's sheet: its contract and its code beside what the runs saw, as an endpoint's */
+.evs > li.ev-card { padding: 14px 16px; }
+.ev-card > .ep-cols { margin-top: 8px; }
+.plain.type-fields { display: grid; grid-template-columns: max-content 1fr; gap: 1px 14px; margin-top: 6px; font-size: var(--t-12); }
+.type-fields li { display: contents; }
+.ev-others li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; font-size: var(--t-13); }
+.ev-others .mono { font-size: var(--t-12); }
 @media (max-width: 1100px) { .ep-cols { grid-template-columns: minmax(0, 1fr); } }
-@media (max-width: 600px) { .link-cols { grid-template-columns: minmax(0, 1fr); } .link-group { padding: 10px 12px; } .link-group > .scroll-x { margin: 0 -12px; } }
+@media (max-width: 600px) { .link-group { padding: 10px 12px; } .link-group > .scroll-x { margin: 0 -12px; } }
 @media (max-width: 600px) {
   .api-group-h { padding: 10px 12px; }
   .api-group-t > .faint { margin-left: 0; flex-basis: 100%; }
@@ -1892,7 +1932,8 @@ input::placeholder, textarea::placeholder { color: var(--ink-3); opacity: 1; } /
 .owed ul { margin: 8px 0; padding-left: 18px; color: var(--ink-2); }
 .chip.owed-chip { color: var(--run-ink); background: var(--run-soft); }
 .diagram { margin: 8px 0 12px; }
-.diagram-stage { border: 1px solid var(--line-1); border-radius: var(--r-lg); background: var(--paper); padding: 8px; overflow-x: auto; max-width: 100%; }
+/* no frame of its own: the section it sits in is one already, and in a dark theme its ground is that section's surface */
+.diagram-stage { border-radius: var(--r-lg); background: var(--pd-paper); padding: 8px; overflow-x: auto; max-width: 100%; }
 .diagram-stage svg { display: block; margin: 0 auto; max-width: 100%; height: auto; }
 .diagram details { margin-top: 6px; font-size: var(--t-12); color: var(--ink-3); }
 .diagram summary { cursor: pointer; }
@@ -1928,9 +1969,19 @@ input::placeholder, textarea::placeholder { color: var(--ink-3); opacity: 1; } /
 .owed-done { margin-top: 6px; font-size: var(--t-12); color: var(--ink-3); }
 @media (max-width: 760px) { .owed-list li { grid-template-columns: minmax(0, 1fr); } }
 
-.test-file { padding: 6px 0; border-top: 1px solid var(--line-1); font-size: var(--t-13); }
-.test-file summary { cursor: pointer; }
-.test-file ul { margin: 6px 0 0; padding-left: 22px; color: var(--ink-2); }
+/* a test file said in its own words: what it tests, then each case by its title, its method small beside it */
+.suite { padding: 10px 0 8px; border-top: 1px solid var(--line-1); font-size: var(--t-13); }
+.suite-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; min-width: 0; }
+.suite-t { font-weight: 500; color: var(--ink-1); }
+.suite-h .faint { font-size: var(--t-12); }
+.suite-file { margin-left: auto; font-size: var(--t-12); overflow-wrap: anywhere; }
+.cases { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; }
+.cases li { position: relative; display: flex; align-items: baseline; justify-content: space-between; gap: 4px 12px; padding-left: 14px; min-width: 0; line-height: 1.45; }
+.cases li::before { content: ""; position: absolute; left: 3px; top: .62em; width: 5px; height: 5px; border-radius: 50%; background: var(--ink-4); }
+.case-t { color: var(--ink-1); min-width: 0; overflow-wrap: anywhere; }
+.case-t.guessed { color: var(--ink-2); }
+.case-m { flex: none; font-size: 11.5px; }
+@media (max-width: 760px) { .cases li { flex-wrap: wrap; } .case-m { flex-basis: 100%; } .suite-file { margin-left: 0; flex-basis: 100%; } }
 
 .tree-state { height: 30px; border: 1px solid var(--line-1); border-radius: var(--r-sm); background: var(--bg-200); color: var(--ink-1); font-size: var(--t-13); padding: 0 4px; max-width: 110px; }
 
@@ -1955,7 +2006,7 @@ ul.cases { font-size: var(--t-13); color: var(--ink-2); }
 .viewer-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 16px; border-bottom: 1px solid var(--line-1); }
 .viewer-tools .grow { flex: 1; }
 .viewer-tools .btn.icon { width: 30px; padding: 0; justify-content: center; }
-.viewer-frame { position: relative; overflow: hidden; background: var(--paper); cursor: grab; touch-action: none; border-radius: 0 0 var(--r-lg) var(--r-lg); }
+.viewer-frame { position: relative; overflow: hidden; background: var(--pd-paper); cursor: grab; touch-action: none; border-radius: 0 0 var(--r-lg) var(--r-lg); }
 .viewer-frame:active { cursor: grabbing; }
 .viewer-frame:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .viewer-stage { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
@@ -2553,7 +2604,7 @@ body.dragging, body.dragging * { user-select: none; cursor: inherit; }
 .dg-why { margin: 8px 14px 0; display: flex; align-items: center; gap: 10px; }
 .dg-loading { display: grid; place-items: center; color: var(--ink-3); }
 .exc-host { display: flex; flex-direction: column; min-height: 0; }
-.exc-stage { position: relative; flex: 1; min-height: 0; }
+.exc-stage { position: relative; flex: 1; min-height: 0; background: var(--pd-paper); }
 .exc-stage .excalidraw { position: absolute; inset: 0; }
 .exc-issues { max-height: 140px; overflow: auto; padding: 8px 14px; border-bottom: 1px solid var(--line-1); background: var(--bg-100); font-size: var(--t-12); }
 .exc-issues p { display: flex; gap: 6px; margin: 2px 0; }

@@ -16,7 +16,8 @@ const WORD = { seeded: ['ok', tr('con datos')], 'no-scenario': ['idle', tr('sin 
 
 export function MountAll() {
   const envs = useApi<EnvSummary[]>('/api/envs');
-  const own = (envs.data ?? []).filter((e) => !/^f-/.test(e.env));
+  // an app by URL is not brought up nor seeded: its data are its own
+  const own = (envs.data ?? []).filter((e) => !/^f-/.test(e.env) && !e.url);
   const env = own.find((e) => e.state === 'ready')?.env ?? own[0]?.env;
   const op = own.find((e) => e.env === env)?.op;
   const busy = Boolean(op && !op.done);

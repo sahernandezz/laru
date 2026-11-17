@@ -22,7 +22,7 @@ import { href, liveHref, partsOf, queryOf, splitStop, stopIn, withStop } from '.
 import { filterRuns, filtersOf, flowsOf, NO_FILTERS, queryString, type RunFilters } from '../lib/runsFilter.ts';
 import { at as atMs, say, sayCtx } from '../lib/say.ts';
 import { CH, clock, curl, ends, failTime, fit, HEAD_H, LANE_W, labelRoom, layoutSeq, PROJECT_H, ROW_H, route, rowState, sameStop, stepAt, stepStop, stopId, stopOf, walk, type Row, type SeqLayout, type Stop } from '../lib/seq.ts';
-import { archGraph, layout as mapLayout, type FlowEdge, type Layout, type Lit, type MapEdge } from '../lib/sysmap.ts';
+import { archGraph, layout as mapLayout, NO_MAP, type FlowEdge, type Layout, type Lit, type MapEdge } from '../lib/sysmap.ts';
 import { langOf, statusClass } from '../lib/syntax.ts';
 import { actName, ChainTab, StepCard, whereOf, type Where } from './Chain.tsx';
 import { ExchangeIO, Journey, RouteStrip } from './Journey.tsx';
@@ -391,8 +391,9 @@ function FlowTraces({ run, slug, flow, g, view, onView, address, k, studio, only
   const res = useApi<{ trace: Trace | null; cases: Trace[] }>(`/api/run/trace?id=${encodeURIComponent(run.id)}&flow=${encodeURIComponent(slug)}`);
   const tests = useMemo(() => (res.data?.trace ? [res.data.trace] : []), [res.data]);
   const arch = useMemo(() => {
-    if (!g || !tests.length) return null;
-    const a = archGraph(g, tests, { onlyUsed: true });
+    if (!tests.length) return null;
+    // with no code read (an app by URL), the map is who the trace's participants talked to
+    const a = archGraph(g ?? NO_MAP, tests, { onlyUsed: true });
     return { lay: mapLayout(a.sub, a.edges, { keep: true, bands: true }), pieces: a.pieces, lits: a.lits };
   }, [g, tests]);
   // The story: a flow is one recorded test. A stop in the address («Paso a paso») is read once.

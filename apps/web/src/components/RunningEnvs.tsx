@@ -18,7 +18,8 @@ const front = (e: EnvSummary, g: Indexed | null) => {
 };
 
 export function RunningEnvs({ envs, g }: { envs?: EnvSummary[]; g: Indexed | null }) {
-  const up = (envs ?? []).filter((e) => e.state === 'ready' || e.state === 'starting').sort((a, b) => Number(/^f-/.test(a.env)) - Number(/^f-/.test(b.env)) || a.env.localeCompare(b.env));
+  // what runs on this machine: an app by URL runs where it lives
+  const up = (envs ?? []).filter((e) => !e.url && (e.state === 'ready' || e.state === 'starting')).sort((a, b) => Number(/^f-/.test(a.env)) - Number(/^f-/.test(b.env)) || a.env.localeCompare(b.env));
   if (!up.length) return null;
   return (
     <section className="panel running" aria-labelledby="running-h">

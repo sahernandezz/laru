@@ -19,10 +19,10 @@ import { fileURLToPath } from 'node:url';
 import { CLEANUP_EVERY_MS, lastCleanup, lastRunsPrune, workspacesDisk, combineScreens, flowEnvDown, flowEnvStatus, flowEnvUp, instanceOf, instancesOf, prepareInstance, diskReport, dirBytes, retainedOf, checkDocker, dockerAnswers, dockerState, dockerSizes, envLock, heldByEnvs, prune, readConfig, readRunnerFile, runnerFile, runnerFiles, snapshotRows, recentStats, docker, withLock, workspaceKey, writeConfig, type PruneWhat } from '@laru/runtime';
 import { mail, sqs, vaultServices, recordingOf, blobOf, browseRecorded, readKey, READS, STATE_LIMITS, WITHHELD, type Recording, envFor, envProjects, flowDir, flowProjects, runDir, proposeJoint, maskJson, mockContracts, sweepOrphans, readRules, saveFaults, setFaults, setMockMode, kafka, storage, mongo, rabbit, redis, custom, cancelRun, compareRuns, failedFlows, markSession, openSessionBrowser, screenOf, sessionToFlow, sessionToScenario, approveBehavior, behaviorIn, readApproved, fidelity, applyScenario, provisionScenario, appliedOn, listScenarios, scenarioState, ScenarioConfirm, shown, sessionBrowser, sessionTrace, startSession, stopSession, listFlows, listRuns, readRun, readTrace, runsDir, startRun, connection, query as dbQuery, reset as dbReset, rows as dbRows, schema as dbSchema, snapshot as dbSnapshot, storeOf, stores as dbStores, storePassword, updateRow, updateSql, type Browse, type RowUpdate, down, envDir, envMasker, missingVars, listEnvs, loadEnvSpec, logs, revealVar, varValues, mountAll, mountedOf, rebuildText, setVar, status, unsetVar, up, varTable, importEnvFile, type Level } from '@laru/runtime';
 import { endpointMatcher, flowLast, seenIn, type EndpointMatch, type FlowLast, type Seen, type Trace, type TrafficRecord } from '@laru/trace';
-import { affected, doctorChecks, runEnv, screenFindings, writeJoint } from './env-cli.ts';
+import { affected, doctorChecks, runEnv, screenFindings, writeJoint, writeUrlEnv } from './env-cli.ts';
 import { agreementText, appHome, byCwd, envOf, loadAgreement, idOf, initWorkspace, isWorkspace, laruHome, loadRegistry, realRoot, register, resolveId, stateDir, touch, unregister } from '@laru/core';
 import { drawModel } from '@laru/diagrams';
-import { acceptFinding, withEvidence, shareEvidence, addRepo, queueContracts, CONTAINERS, coverage, DEFAULT_IGNORE, docsLang, documentNote, endpointIn, deriveDiagram, derivedList, evaluateConventions, freshness, liveOf, serviceTests, sheetNote, git, gitOf, isContainer, knowledgeShape, knowledgeWrite, deletePiece, linkRepo, loadExtraction, loadGraph, loadKnowledge, loadWorkspace, PIECE_TYPES, refreshMap, repoStatus, syncRepos, verifyPiece, writeAgentFiles, WorkspaceError, type RepoRole, type Workspace, type WriteInput } from '@laru/core';
+import { acceptFinding, withEvidence, shareEvidence, addRepo, queueContracts, CONTAINERS, coverage, DEFAULT_IGNORE, docsLang, documentNote, endpointIn, deriveDiagram, derivedList, evaluateConventions, freshness, liveOf, serviceShapes, serviceTests, sheetNote, git, gitOf, isContainer, knowledgeShape, knowledgeWrite, deletePiece, linkRepo, loadExtraction, loadGraph, loadKnowledge, loadWorkspace, PIECE_TYPES, refreshMap, repoStatus, syncRepos, verifyPiece, writeAgentFiles, WorkspaceError, type RepoRole, type Workspace, type WriteInput } from '@laru/core';
 
 const WEB_DIST = fileURLToPath(new URL('../../web/dist/', import.meta.url));
 const TYPES: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.json': 'application/json', '.png': 'image/png', '.ttf': 'font/ttf', '.webmanifest': 'application/manifest+json' };
@@ -41,7 +41,7 @@ export function traceViewerDir(): string | null {
   } catch { viewerDir = null; }
   return viewerDir;
 }
-export const VERSION = '0.1.0-beta.20';
+export const VERSION = '0.1.0-beta.21';
 
 
 export interface Daemon { url: string; port: number; token: string | null; close: () => Promise<void> }
@@ -209,7 +209,7 @@ export function makeApi(root: Workspace['root']): { api: Record<string, Handler>
   const maskerFor = (w: Workspace, env: string) => envMasker(w, env);
   // What the screens show of an env with several projects: which ones it runs, what it joins and shares.
   const envShape = (w: Workspace, env: string) => {
-    try { const sp = loadEnvSpec(w, env); return { projects: envProjects(w, env), ...(sp.join ? { join: sp.join, share: sp.share } : {}) }; } catch { return {}; }
+    try { const sp = loadEnvSpec(w, env); return { projects: envProjects(w, env), ...(sp.join ? { join: sp.join, share: sp.share } : {}), ...(sp.url ? { url: sp.url } : {}) }; } catch { return {}; }
   };
   const envForOne = (w: Workspace, g: ReturnType<typeof graph>, f: { id: string; needs: string[] }, ready: Set<string>) => envFor(w, g, [f], ready);
 
@@ -494,6 +494,8 @@ export function makeApi(root: Workspace['root']): { api: Record<string, Handler>
     }); },
     'GET /api/live': async (_req, url) => { const w = ws(), k = loadKnowledge(w), p = k.byId.get(url.searchParams.get('id') ?? ''); if (!p) throw new WorkspaceError('no such piece', 'id'); return liveOf(w, k, graph(w), p); },
     'GET /api/service-tests': async (_req, url) => { const g = graph(ws()); return g ? serviceTests(ws(), g, url.searchParams.get('id') ?? '') : []; },
+    // its code's data classes by name: what its messages and bodies carry, field by field
+    'GET /api/service-shapes': async (_req, url) => { const g = graph(ws()); return g ? serviceShapes(ws(), g, url.searchParams.get('id') ?? '') : {}; },
     // Derived diagrams: read from the map and the documentation, placed and painted here, so the page only shows them.
     'GET /api/diagrams': async () => { const w = ws(); return derivedList(w, graph(w), loadKnowledge(w), await envMembers(w)); },
     'GET /api/diagram': async (_req, url) => {
@@ -534,8 +536,9 @@ export function makeApi(root: Workspace['root']): { api: Record<string, Handler>
       const composeOf = Object.fromEntries(w.repos.map((r) => [r.name, Object.entries(loadExtraction(w, r.name)?.files ?? {}).find(([, f]) => f.findings.some((x) => x.kind === 'compose-service'))?.[0]]));
       return proposeJoint({ name: url.searchParams.get('name') || 'all', picked: (url.searchParams.get('members') ?? '').split(',').filter(Boolean), envs, map: g.map, composeOf, repos: w.repos.map((r) => r.name) });
     },
-    'POST /api/env/create': async (_req, _url, b: { name: string; join: string[]; share?: Record<string, string>; create?: Array<{ env: string; from: string }> }) => {
-      try { return { ok: true, written: writeJoint(ws(), b.name, b.join, b.share, b.create) }; }
+    // a joint env (`join`), or an env by URL (`url`): the app already running at that address
+    'POST /api/env/create': async (_req, _url, b: { name: string; join?: string[]; share?: Record<string, string>; create?: Array<{ env: string; from: string }>; url?: string }) => {
+      try { return { ok: true, written: b.url !== undefined ? [writeUrlEnv(ws(), b.name, b.url)] : writeJoint(ws(), b.name, b.join ?? [], b.share, b.create) }; }
       catch (e) { if (e instanceof WorkspaceError) throw new HttpError(400, e.message, { field: e.at }); throw e; }
     },
     // `worktree`: «Recargar desde mi copia», the env built from the working copies; images are keyed by each service's

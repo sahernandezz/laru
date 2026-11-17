@@ -10,13 +10,13 @@ const rows = (p: DocPiece, f: string) => ((p.fields[f] ?? []) as Row[]);
 
 /** An operation as its contract documents it: what it is for (`summary`), what it takes (`request`) and what it answers (`response`). */
 export interface Op { contract: DocPiece; method: string; path: string; service: string; summary?: string; request?: string; response?: string }
-export interface Ev { contract: DocPiece; topic: string; direction: string; service: string; payload?: string }
+export interface Ev { contract: DocPiece; topic: string; direction: string; service: string; summary?: string; payload?: string; key?: string }
 export interface Entity { model: DocPiece; entity: string; table?: string; owner?: string; notes?: string }
 
 export const opsOf = (pieces: DocPiece[]): Op[] => pieces.filter((p) => p.type === 'contract').flatMap((c) => rows(c, 'operations').filter((r) => r.method && r.path)
   .map((r) => ({ contract: c, method: r.method.toUpperCase(), path: r.path, service: r.service ?? '', summary: r.summary, request: r.request, response: r.response })));
 export const eventsOf = (pieces: DocPiece[]): Ev[] => pieces.filter((p) => p.type === 'contract').flatMap((c) => rows(c, 'events').filter((r) => r.topic)
-  .map((r) => ({ contract: c, topic: r.topic, direction: r.direction ?? '', service: r.service ?? '', payload: r.payload })));
+  .map((r) => ({ contract: c, topic: r.topic, direction: r.direction ?? '', service: r.service ?? '', summary: r.summary, payload: r.payload, key: r.key })));
 /**
  * A contract's errors. For one operation, the rows that give it to that one (their `operation`, or a `when` that names it)
  * and the rows that name no operation, which any of them may answer.
@@ -34,6 +34,18 @@ export const opKey = (o: { method: string; path: string }) => `${o.method} ${o.p
 
 /** `{x}`, `:x` and `${x}` as one placeholder, so a contract's path and the code's compare. */
 export const norm = (p: string) => ('/' + p).replace(/\/+/g, '/').replace(/\$\{[^}]*\}|\{[^}]*\}|:[A-Za-z_]\w*/g, '{}').replace(/(.)\/$/, '$1');
+
+/** A fact's note cut into its parts, at the commas the map joins them with, never inside a type (`Map<String, Object>`). */
+export function noteParts(note: string): string[] {
+  const parts: string[] = [];
+  let depth = 0, from = 0;
+  for (let i = 0; i < note.length; i++) {
+    if (note[i] === '<') depth++;
+    else if (note[i] === '>') depth = Math.max(0, depth - 1);
+    else if (!depth && note.startsWith(', ', i)) { parts.push(note.slice(from, i)); from = i + 2; }
+  }
+  return [...parts, note.slice(from)];
+}
 /** The operations a text names (`GET /api/files/{fileId}`), each as its method and normalized path. */
 export const namedOps = (text: string) => [...text.matchAll(/\b(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+`?(\/[^\s`,;)|]*)/g)].map((m) => `${m[1]} ${norm(m[2])}`);
 

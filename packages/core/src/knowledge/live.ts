@@ -14,7 +14,7 @@ import type { Row } from './piece.ts';
 import { childrenOf, type Knowledge, type Loaded } from './store.ts';
 
 export interface LiveEndpoint { id: string; method: string; path: string; handler?: string; file: string; line?: number; declared: boolean }
-export interface LiveTest { file: string; level: string; cases: Array<{ name: string; line: number }>; count: number }
+export interface LiveTest { file: string; level: string; cases: Array<{ name: string; line: number; title?: string }>; count: number; /** what the file says it tests: its class's @DisplayName or Javadoc, its first `describe` */ title?: string }
 export interface LiveData {
   endpoints: LiveEndpoint[];
   /** operations a contract declares that the code does not have */
@@ -55,7 +55,22 @@ export function serviceTests(ws: Workspace, g: Graph, id: string): LiveTest[] {
   const out: LiveTest[] = [];
   for (const [path, ff] of Object.entries(ex?.files ?? {})) {
     if (dir && !path.startsWith(`${dir}/`)) continue;
-    for (const f of ff.findings) if (f.kind === 'tests') out.push({ file: `${n.repo}:${path}`, level: f.level, count: f.count, cases: f.cases ?? [] });
+    for (const f of ff.findings) if (f.kind === 'tests') out.push({ file: `${n.repo}:${path}`, level: f.level, count: f.count, cases: f.cases ?? [], ...(f.title ? { title: f.title } : {}) });
+  }
+  return out;
+}
+
+/** A data class of a service's code, by its type's name: what a message it sends or takes, or a body it answers, carries. */
+export interface LiveShape { fields: Array<{ name: string; type: string }>; file: string; line: number }
+/** The data classes under a service's folder (records, and classes that hold data), by name; the first of a name wins. */
+export function serviceShapes(ws: Workspace, g: Graph, id: string): Record<string, LiveShape> {
+  const n = g.nodes.get(id);
+  if (!n?.repo) return {};
+  const dir = String(n.attrs?.dir ?? '').replace(/^\.$/, '');
+  const out: Record<string, LiveShape> = {};
+  for (const [path, ff] of Object.entries(loadExtraction(ws, n.repo)?.files ?? {})) {
+    if (dir && !path.startsWith(`${dir}/`)) continue;
+    for (const f of ff.findings) if (f.kind === 'shape' && !out[f.name]) out[f.name] = { fields: f.fields, file: `${n.repo}:${path}`, line: f.line };
   }
   return out;
 }

@@ -28,7 +28,7 @@ export function createServer(root: Workspace['root'], o: { outside?: boolean; la
   const guide = (!o.outside && (existsSync(join(w0.root, 'CLAUDE.md')) || existsSync(join(w0.root, 'AGENTS.md')))
     ? 'Laru: this workspace\'s guide (the loop, how the documentation is written, how flows are tested) is in CLAUDE.md and AGENTS.md at its root; follow it. Start with `context` on what you will change, and `impact` after it.'
     : agentGuide(w0)) + (agr ? `\n\n${agreementText(agr)}` : '') + (o.outside ? `\n\n${outsideNote(w0, o)}` : '');
-  const server = new McpServer({ name: 'laru', version: '0.1.0-beta.20' }, { instructions: guide });
+  const server = new McpServer({ name: 'laru', version: '0.1.0-beta.21' }, { instructions: guide });
   // Every tool is kept by name, so the ones for stores this application does not have can be left out of the list.
   const tools = new Map<string, ReturnType<McpServer['registerTool']>>();
   const register = server.registerTool.bind(server);
@@ -113,7 +113,7 @@ export function createServer(root: Workspace['root'], o: { outside?: boolean; la
   // ---------- environments ----------
   const masker = (w: Workspace, env: string) => envMasker(w, env);
   const cap = (t: string, n = 8000) => (t.length > n ? `…${t.slice(-n)}` : t);
-  const brief = (s: EnvStatus & { projects?: string[]; join?: string[]; share?: Record<string, string> }) => [`${s.env}: ${s.state}${s.source ? ` from ${s.sources?.join(' · ') ?? s.source}` : ''}${s.projects && ws().repos.length > 1 ? ` — projects ${s.projects.join(' · ')}` : ''}${s.join ? `, joins ${s.join.join(' + ')}` : ''}${s.share && Object.keys(s.share).length ? `, shares ${Object.entries(s.share).map(([a, b]) => `${a}→${b}`).join(', ')}` : ''}`,
+  const brief = (s: EnvStatus & { projects?: string[]; join?: string[]; share?: Record<string, string>; url?: string }) => [`${s.env}: ${s.url ? `the app at ${s.url} (an env by URL: Laru opens it, never runs it), ${s.state === 'ready' ? 'answers' : 'does not answer'}` : s.state}${s.source ? ` from ${s.sources?.join(' · ') ?? s.source}` : ''}${s.projects && ws().repos.length > 1 ? ` — projects ${s.projects.join(' · ')}` : ''}${s.join ? `, joins ${s.join.join(' + ')}` : ''}${s.share && Object.keys(s.share).length ? `, shares ${Object.entries(s.share).map(([a, b]) => `${a}→${b}`).join(', ')}` : ''}`,
     ...s.services.map((x) => `  ${x.service} ${x.health} (${x.mode}${x.built ? `, ${x.built}` : ''})${x.note && x.health !== 'healthy' ? ` ${x.note.split('\n').pop()}` : ''}`),
     ...s.addresses.map((a) => `  ${a.service} → ${a.url}`)].join('\n');
   const pending = new Map<string, Promise<unknown>>();
@@ -124,10 +124,10 @@ export function createServer(root: Workspace['root'], o: { outside?: boolean; la
       const w = ws();
       const rows = await Promise.all(listEnvs(w).map(async (e) => {
         let extra = {};
-        try { const sp = loadEnvSpec(w, e); extra = { projects: envProjects(w, e), join: sp.join, share: sp.share }; } catch { /* a broken env file still lists */ }
+        try { const sp = loadEnvSpec(w, e); extra = { projects: envProjects(w, e), join: sp.join, share: sp.share, url: sp.url }; } catch { /* a broken env file still lists */ }
         return { ...(await status(w, e)), ...extra };
       }));
-      return text(rows.map(brief).join('\n\n') || 'No envs: laru env init local --from <repo>:<compose file>[,<file>…]');
+      return text(rows.map(brief).join('\n\n') || 'No envs: laru env init local --from <repo>:<compose file>[,<file>…], or laru env init <name> --url <address> for an app already running elsewhere');
     });
 
   server.registerTool('env_status', { description: 'Every service of an env: health, image origin, CPU, memory and addresses.', inputSchema: { env: envArg }, annotations: { readOnlyHint: true } },

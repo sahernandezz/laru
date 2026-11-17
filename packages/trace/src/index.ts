@@ -9,3 +9,4 @@ export * from './behavior.ts';
 export { classify, codesOf, PROVIDER_HOSTS, smsSegments, textLinks, tokensOf, type Link, type LinkClass, type Segments } from './messages.ts';
 export { addresses, decodeWords, htmlLinks, parseMime, remoteResources, type Parsed } from './mime.ts';
 export * from './runner-defaults.ts';
+export * from './hits.ts';

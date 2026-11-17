@@ -14,7 +14,7 @@ import { closure, composeFiles, importCompose, interpolations, leftOut, renderCo
 import { readConfig } from './config.ts';
 import { cleanDockerDetached, prune } from './disk.ts';
 import { BUILDER, BUILDER_REACH, destroyByLabel, docker, laruBuilder, dockerAnswers, DockerError, dockerStream, envLock, hold, inspectEnv, LABEL, machineLock, recentStats, stats, withLock, workspaceKey, type ContainerState, type DestroyReport } from './docker.ts';
-import { checkShare, ENV_KEYS, envDir, envKeys, envMasker, forgetValues, isInstance, jointSpec, loadEnvSpec, projectName, readState, translateSpec, writeState, type EnvState } from './env.ts';
+import { checkShare, ENV_KEYS, envDir, envKeys, envMasker, envUrl, forgetValues, isInstance, jointSpec, loadEnvSpec, projectName, readState, translateSpec, writeState, type EnvState } from './env.ts';
 import { joinComposes, jointRouting } from './join.ts';
 import { nameOf, provisional } from './names.ts';
 import { caDir, ensureTruststore, leafFor } from './tls.ts';
@@ -331,6 +331,8 @@ export function addressesOf(app: string, cfg: { routes: Array<{ svc: string; por
 }
 
 export async function up(ws: Workspace, opts: UpOptions): Promise<UpResult> {
+  const url = envUrl(ws, opts.env);
+  if (url) throw new EnvError(`${opts.env} is the app at ${url}: it runs on its own and Laru only opens it, so there is nothing to bring up${(await urlStatus(opts.env, projectName(ws, opts.env), url)).state === 'ready' ? '' : '; it does not answer now, start it where it lives'}`);
   const t0 = Date.now();
   const emit = eventSink(ws, opts.env, opts.onEvent, opts.run);
   const timings: Record<string, number> = {};
@@ -785,6 +787,8 @@ export interface EnvStatus {
 
 /** What is running, from the last render and one inspect; CPU and memory from one `docker stats`. */
 export async function status(ws: Workspace, env: string, opts: { stats?: boolean } = {}): Promise<EnvStatus> {
+  const url = envUrl(ws, env);
+  if (url) return urlStatus(env, projectName(ws, env), url);
   const dir = envDir(ws, env);
   const state = readState(ws, env);
   const composePath = join(dir, 'compose.yml');
@@ -815,6 +819,16 @@ export async function status(ws: Workspace, env: string, opts: { stats?: boolean
   return { env, project, state: overall, source: state.source, ...(state.sources ? { sources: state.sources } : {}), ...(state.subnets ? { subnets: state.subnets } : {}), lastReadyAt: state.lastReadyAt, services, addresses: [...addressesOf(ws.app, routes, state), ...stores] };
 }
 
+/**
+ * An env by URL is ready while the app answers there: any HTTP answer counts (a redirect to its sign-in, a 404 at the
+ * root, a certificate only this Mac trusts, as a company's QA has), and silence or a refused connection is `failed`.
+ */
+export async function urlStatus(env: string, project: string, url: string): Promise<EnvStatus> {
+  const answers = await fetch(url, { method: 'HEAD', redirect: 'manual', signal: AbortSignal.timeout(4000) })
+    .then(() => true, (e: Error & { cause?: { code?: string } }) => /CERT|SELF_SIGNED|UNABLE_TO_VERIFY|ERR_TLS/.test(String(e.cause?.code ?? '')));
+  return { env, project, state: answers ? 'ready' : 'failed', services: [], addresses: [{ service: new URL(url).host, kind: 'http', url }] };
+}
+
 /** Lines of one service (or every one, prefixed), optionally followed until `signal` aborts. */
 export async function logs(ws: Workspace, env: string, opts: { service?: string; tail?: number; follow?: boolean; signal?: AbortSignal }, onLine: (service: string, line: string) => void): Promise<void> {
   const cs = (await inspectEnv(ws, env)).filter((c) => !c.labels[LABEL.run] && (!opts.service || c.service === opts.service));
@@ -835,6 +849,8 @@ export async function execIn(ws: Workspace, env: string, service: string, comman
 
 /** Removes everything with this env's labels (caches only when asked), and the values the tap was given. */
 export async function down(ws: Workspace, env: string, opts: { caches?: boolean; dryRun?: boolean } = {}): Promise<DestroyReport> {
+  // an env by URL has nothing of Laru's running: what it recorded stays with its runs
+  if (envUrl(ws, env)) return { containers: 0, networks: 0, volumes: 0, left: [] };
   return withLock(`down ${ws.app}/${env}`, async () => {
     const report = await destroyByLabel(ws, { env, caches: opts.caches, dryRun: opts.dryRun });
     if (!opts.dryRun) {

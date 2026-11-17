@@ -8,7 +8,7 @@
  * and dark one decision instead of two.
  */
 import { describe, expect, it } from './vitest.ts';
-import { renderBoxes, paintsBoxes, type DiagramModel } from '../src/index.ts';
+import { fromMermaid, renderBoxes, renderTyped, paintsBoxes, type DiagramModel, type Rendered } from '../src/index.ts';
 import { REGISTERS } from '../src/render/sheet.ts';
 import { DIAGRAM_STANDARDS } from '../src/standards.ts';
 
@@ -206,4 +206,82 @@ describe('every C4 level paints', () => {
       }
     });
   }
+});
+
+describe('the relations of a data model', () => {
+  // VaultFlow's glossary: an owner over a column of three tables, one of them related to itself, and a table to the side two of them reach
+  const code = `erDiagram
+    USUARIO ||--o{ FICHERO : "es dueño de"
+    USUARIO ||--o{ CARPETA : "es dueño de"
+    CARPETA |o--o{ CARPETA : "contiene"
+    CARPETA |o--o{ FICHERO : "contiene"
+    FICHERO ||--o{ COMPARTIDO : "se comparte con"
+    USUARIO ||--o{ COMPARTIDO : "recibe"
+    USUARIO |o--o{ INFORME : "aparece en"
+    USUARIO {
+        uuid id PK
+        string username
+        string role "USER o ROOT"
+        boolean enabled
+    }
+    FICHERO {
+        uuid id PK
+        uuid owner_id FK
+        uuid folder_id FK
+        string scan_status "PENDING, CLEAN o INFECTED"
+        string bucket "quarantine o files"
+        boolean deleted "en la papelera"
+        string threat_detail "la amenaza"
+    }
+    CARPETA {
+        uuid id PK
+        uuid parent_id FK
+        uuid owner_id FK
+    }
+    COMPARTIDO {
+        uuid id PK
+        uuid file_id FK
+        uuid shared_with_id FK
+        string permission "VIEW o DOWNLOAD"
+    }
+    INFORME {
+        uuid id PK
+        uuid owner_id FK
+        string report_path
+    }`;
+  const drawn = renderTyped(fromMermaid(code, 'data-model')!.model) as Rendered;
+  const tables = drawn.boxes.filter((b) => b.kind === 'node');
+  const inside = (p: { x: number; y: number }, b: { x: number; y: number; w: number; h: number }) => p.x > b.x + 1 && p.x < b.x + b.w - 1 && p.y > b.y + 1 && p.y < b.y + b.h - 1;
+  const segments = (points: Array<{ x: number; y: number }>) => points.slice(1).map((q, i) => ({ a: points[i], b: q }));
+
+  it('never runs two relations along one stretch, where they read as one line', () => {
+    const shared: string[] = [];
+    for (const [i, one] of drawn.lines.entries()) for (const other of drawn.lines.slice(i + 1)) {
+      for (const s of segments(one.points)) for (const t of segments(other.points)) {
+        const vertical = s.a.x === s.b.x && t.a.x === t.b.x && s.a.x === t.a.x, flat = s.a.y === s.b.y && t.a.y === t.b.y && s.a.y === t.a.y;
+        const [lo1, hi1, lo2, hi2] = vertical ? [Math.min(s.a.y, s.b.y), Math.max(s.a.y, s.b.y), Math.min(t.a.y, t.b.y), Math.max(t.a.y, t.b.y)] : [Math.min(s.a.x, s.b.x), Math.max(s.a.x, s.b.x), Math.min(t.a.x, t.b.x), Math.max(t.a.x, t.b.x)];
+        if ((vertical || flat) && Math.min(hi1, hi2) - Math.max(lo1, lo2) > 0) shared.push(`${one.id} ${other.id}`);
+      }
+    }
+    expect(shared).toEqual([]);
+  });
+
+  it('draws a relation of a table with itself as a loop outside it', () => {
+    const carpeta = tables.find((b) => b.id === 'carpeta')!;
+    const own = drawn.lines.find((l) => drawn.svg.includes(`data-id="${l.id}" data-ends="carpeta carpeta"`))!;
+    expect(own.points.length).toBeGreaterThan(2);
+    expect(own.points.filter((p) => inside(p, carpeta))).toEqual([]);
+    expect(own.points.slice(1, -1).every((p) => p.x > carpeta.x + carpeta.w)).toBe(true);
+  });
+
+  it('writes every cardinality outside the tables, where it can be read', () => {
+    const marks = [...drawn.svg.matchAll(/<text class="pd-card[^"]*" x="(-?[\d.]+)" y="(-?[\d.]+)"/g)].map((m) => ({ x: Number(m[1]), y: Number(m[2]) - 4 }));
+    expect(marks.length).toBe(14);
+    expect(marks.filter((m) => tables.some((b) => inside(m, b)))).toEqual([]);
+  });
+
+  it('keeps the keyline of a table quieter than its relations, so a relation beside it is not a second border', () => {
+    expect(drawn.svg).toContain('class="pd-table"');
+    expect(drawn.svg).toMatch(/\.pd-node > \.pd-table \{ stroke-opacity: 0\.4; \}/);
+  });
 });

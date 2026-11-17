@@ -79,7 +79,8 @@ export default function ExcalidrawCanvas({ model, kind, kinds, onChangeKind, iss
           excalidrawAPI={(a: unknown) => setApi(a as never)}
           theme={isLight() ? 'light' : 'dark'}
           langCode="es-ES"
-          initialData={{ elements: scene.elements as never, appState: { currentItemFontFamily: 5, openSidebar: { name: 'default', tab: 'library' } } as never, scrollToContent: true }}
+          // no canvas colour of its own: it shows the stage's, the ground every diagram of Laru is drawn on (--pd-paper)
+          initialData={{ elements: scene.elements as never, appState: { currentItemFontFamily: 5, viewBackgroundColor: 'transparent', openSidebar: { name: 'default', tab: 'library' } } as never, scrollToContent: true }}
           onChange={(elements: readonly unknown[]) => {
             // Excalidraw fires for a hover or a scroll too: only a change of the drawing goes on
             const before = held.current, from = compiled.current;

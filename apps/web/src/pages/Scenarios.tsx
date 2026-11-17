@@ -17,7 +17,8 @@ const KIND: Record<string, string> = { data: tr('Dato'), identity: tr('Identidad
 
 export function Scenarios({ embedded }: { embedded?: boolean }) {
   const envs = useApi<EnvSummary[]>('/api/envs');
-  const ready = (envs.data ?? []).filter((e) => e.state === 'ready' && !/^f-/.test(e.env));
+  // a scenario is put into stores Laru runs: an app by URL keeps its data where it lives
+  const ready = (envs.data ?? []).filter((e) => e.state === 'ready' && !/^f-/.test(e.env) && !e.url);
   const [env, setEnv] = useState<string>();
   const pick = env && ready.some((e) => e.env === env) ? env : ready[0]?.env;
   const data = useApi<ScenariosData>(pick ? `/api/scenarios?env=${encodeURIComponent(pick)}` : null);

@@ -181,7 +181,7 @@ export const GROUP_PAD = 26;
  */
 export function sizeOf(n: DiagramNode): { w: number; h: number } {
   if (isGroupShape(n.shape)) return { w: n.w ?? 460, h: n.h ?? 300 };
-  if (n.shape === 'entity') return { w: NODE_W + 30, h: NODE_H + 16 * Math.max(0, (n.attributes ?? []).length - 1) };
+  if (n.shape === 'entity') return { w: entityWidth(n), h: NODE_H + 16 * Math.max(0, (n.attributes ?? []).length - 1) };
   if (n.shape === 'terminal') return { w: 96, h: 52 };
   const w = widthOf(n);
   /*
@@ -225,6 +225,34 @@ export function widthOf(n: DiagramNode): number {
 const FONT_PX = 15;
 const TITLE_PX = FONT_PX * 1.15;
 const SUB_PX = FONT_PX * 0.78;
+/** A field's type, as the renderer writes it: label size, 600, tracked 0.04em. */
+const TYPE_PX = FONT_PX * 0.72, TYPE_ADVANCE = ADVANCE.label + 0.04;
+
+/**
+ * A field of an entity as it is written (`string scan_status "PENDING o CLEAN"`, `uuid id PK`): its type first, its
+ * key last, its name (and the comment after it) between. The renderer draws them in two columns, name left and type right.
+ */
+export function fieldParts(attribute: string): { name: string; right: string } {
+  const parts = attribute.trim().split(/\s+/);
+  const key = parts.length > 2 && /^(PK|FK|UK)$/i.test(parts[parts.length - 1]) ? parts.pop()! : '';
+  const type = parts.length > 1 ? parts.shift()! : '';
+  return { name: parts.join(' '), right: [type, key].filter(Boolean).join(' ') };
+}
+/** Room a field's two columns need: the pad on each side and the gap between them. */
+export const FIELD_PAD = 12, FIELD_GAP = 16;
+/** The widest an entity grows for a long field; past it the renderer cuts the name with «…». */
+export const ENTITY_W_MAX = 460;
+/** A field's name and type, measured as the renderer writes them. */
+export const fieldWidths = (attribute: string) => { const f = fieldParts(attribute); return { name: textWidth(f.name, SUB_PX, ADVANCE.body), right: textWidth(f.right, TYPE_PX, TYPE_ADVANCE) }; };
+
+/**
+ * An entity is as wide as its longest field, so the name on the left and the type on the right never meet. It was 220
+ * whatever its fields said, and a field with a comment (`scan_status "PENDING, CLEAN o INFECTED"`) ran over its type.
+ */
+function entityWidth(n: DiagramNode): number {
+  const need = Math.max(0, ...(n.attributes ?? []).slice(0, 12).map((a) => { const w = fieldWidths(a); return w.name + w.right + 2 * FIELD_PAD + (w.right ? FIELD_GAP : 0); }));
+  return Math.round(Math.min(ENTITY_W_MAX, Math.max(NODE_W + 30, need)));
+}
 
 /** How tall the writing inside a piece ends up being, wrapped the way the renderer wraps it. */
 /**

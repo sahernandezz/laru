@@ -3,7 +3,7 @@
  * repository (`gitGraph`) and the classes of a piece of code (`classDiagram`). They are read and drawn here, in the same
  * ground, tones and face as every other sheet, so none of them falls back to a code block.
  */
-import { FONT, PAPER, TITLE_INK, TONES } from './sheet.ts';
+import { FONT, GROUND, TITLE_INK, TONES } from './sheet.ts';
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const INK2 = '#C1C4CB', LINE = '#3A3E46';
@@ -15,7 +15,7 @@ function titleOf(code: string): string {
 const body = (code: string) => code.replace(/^---[\s\S]*?---\s*\n/, '').split('\n');
 const wrap = (w: number, h: number, inner: string, title: string, id: string) =>
   `<svg xmlns="http://www.w3.org/2000/svg" role="img" width="${Math.round(w)}" height="${Math.round(h)}" viewBox="0 0 ${Math.round(w)} ${Math.round(h)}" class="pd-diagram" font-family="${esc(FONT)}">`
-  + `<title>${esc(title || id)}</title><rect width="${Math.round(w)}" height="${Math.round(h)}" fill="${PAPER}"/>`
+  + `<title>${esc(title || id)}</title><rect width="${Math.round(w)}" height="${Math.round(h)}" style="fill: ${GROUND}"/>`
   + (title ? `<text x="28" y="40" font-size="24" font-weight="600" fill="${TITLE_INK}">${esc(title)}</text>` : '') + inner + '</svg>';
 
 /** Which of the three a text is, from its first line. */
@@ -185,7 +185,7 @@ export function drawClasses(code: string, idPrefix = 'pd'): string {
     return { x: cxk + dx * s, y: cyk + dy * s };
   };
   const centre = (k: string) => ({ x: boxes.get(k)!.x + bw / 2, y: boxes.get(k)!.y + boxes.get(k)!.h / 2 });
-  let out = `<defs><marker id="${idPrefix}-tri" viewBox="0 0 12 10" refX="11" refY="5" markerWidth="12" markerHeight="10" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0 0 L12 5 L0 10 z" fill="${PAPER}" stroke="${INK2}"/></marker><marker id="${idPrefix}-arr" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="10" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0 0 L10 4 L0 8" fill="none" stroke="${INK2}" stroke-width="1.6"/></marker><marker id="${idPrefix}-dia" viewBox="0 0 14 10" refX="13" refY="5" markerWidth="14" markerHeight="10" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0 5 L7 0 L14 5 L7 10 z" fill="${INK2}" stroke="${INK2}"/></marker></defs>`;
+  let out = `<defs><marker id="${idPrefix}-tri" viewBox="0 0 12 10" refX="11" refY="5" markerWidth="12" markerHeight="10" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0 0 L12 5 L0 10 z" style="fill: ${GROUND}" stroke="${INK2}"/></marker><marker id="${idPrefix}-arr" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="10" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0 0 L10 4 L0 8" fill="none" stroke="${INK2}" stroke-width="1.6"/></marker><marker id="${idPrefix}-dia" viewBox="0 0 14 10" refX="13" refY="5" markerWidth="14" markerHeight="10" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0 5 L7 0 L14 5 L7 10 z" fill="${INK2}" stroke="${INK2}"/></marker></defs>`;
   for (const r of rels) {
     const p = edge(r.a, centre(r.b)), q = edge(r.b, centre(r.a));
     const end = /[|]>$|<[|]/.test(r.arrow) ? 'tri' : /[*o]$|^[*o]/.test(r.arrow) ? 'dia' : 'arr';

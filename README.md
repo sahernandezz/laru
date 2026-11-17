@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Versión" src="https://img.shields.io/badge/versi%C3%B3n-0.1.0--beta.20-22D3EE">
+  <img alt="Versión" src="https://img.shields.io/badge/versi%C3%B3n-0.1.0--beta.21-22D3EE">
   <img alt="Licencia" src="https://img.shields.io/badge/licencia-FSL--1.1--ALv2-0E3B45">
   <img alt="Node" src="https://img.shields.io/badge/node-%E2%89%A5%2024-3c873a">
   <img alt="Local" src="https://img.shields.io/badge/todo%20corre-en%20tu%20m%C3%A1quina-444">
@@ -69,6 +69,8 @@ Cada línea del mapa dice de dónde sale: si está en el código, si se observó
 Cada servicio, almacén y externo lleva el logo de su tecnología, como en Docker Desktop.
 
 La ficha de un servicio da el contrato de cada endpoint: para qué sirve, qué recibe y qué responde.
+Y el de cada evento que publica o consume: para qué es, qué lleva y por qué clave va, con lo que dice su código.
+También explica el resto: qué comprueba cada prueba, para qué es cada librería y cada variable, y con quién habla.
 Aparte, en «Datos reales», está lo que vieron los runs y en qué se aparta del contrato.
 
 <img src="docs/images/mapa.png" alt="El mapa del sistema: frontend, gateway, servicios, almacenes y las llamadas entre ellos">
@@ -137,6 +139,14 @@ Marcas lo que vas haciendo con `M`, y cada acción aparece con todo lo que provo
 Al terminar, la sesión se guarda como un run y se convierte en el borrador de un flujo o de un escenario.
 
 <img src="docs/images/en-vivo.png" alt="Una sesión en vivo: el recorrido de la petición de login con su cuerpo y su respuesta">
+
+### Una aplicación que ya corre, por su URL
+
+Si el aplicativo no se levanta en Laru (el tuyo en `localhost`, un QA desplegado o un sitio público), créale un entorno
+con su dirección: «Nuevo entorno por URL» en Entornos o `laru env init qa --url https://qa.miapp.com`.
+Laru no lo levanta ni lo cambia: lo abre en su navegador, y lo que ve ese navegador es la traza.
+Queda cada petición de la página, con su cuerpo y su respuesta, y lo que la página dice en su consola.
+Se graba en vivo, se convierte en flujo y sus pruebas corren contra esa dirección. Lo que pasa detrás, en sus servicios y sus bases, no se ve.
 
 ### Compartido con tu equipo por git
 

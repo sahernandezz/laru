@@ -28,6 +28,8 @@ const mem = (b: number) => (b < 2 ** 30 ? `${Math.round(b / 2 ** 20)} MB` : `${n
 
 function envState(e: EnvSummary): [DotState, string] {
   if (e.op && !e.op.done) return ['run', e.op.kind === 'up' ? tr('Levantando') : tr('Destruyendo')];
+  // an env by URL: the app answers there or not; Laru neither starts nor stops it
+  if (e.url) return e.state === 'ready' ? ['ok', tr('Responde')] : ['err', tr('No responde')];
   return [STATE_DOT[e.state], ENV_STATE[e.state]];
 }
 
@@ -38,14 +40,18 @@ export function Envs({ selected, g }: { selected?: string; g?: Indexed | null })
   const auto = useRef<string>(undefined);
   const name = list.find((e) => e.env === selected)?.env ?? (auto.current ??= list.find((e) => e.state === 'ready')?.env ?? list[0]?.env);
   const [joining, setJoining] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const added = (n: string) => { envs.reload(); location.hash = href('envs', n).replace(/^#?/, '#'); };
+  const addUrl = adding && <NewUrlEnv envs={list} onClose={() => setAdding(false)} onDone={added} />;
   if (envs.error) return <div className="page"><div className="notice" role="alert"><CircleX />{envs.error}</div></div>;
   if (!envs.data) return <div className="page wide"><div className="envs"><Skeleton lines={3} /><Skeleton lines={6} /></div></div>;
-  if (!name) return <NoEnvs />;
-  // With several projects: each project's own envs, then the joint ones («Conjuntos» only when there is one).
+  if (!name) return <><NoEnvs onUrl={() => setAdding(true)} />{addUrl}</>;
+  // With several projects: each project's own envs, then the joint ones («Conjuntos» only when there is one); the apps by URL apart.
   const several = new Set(list.flatMap((e) => e.projects ?? [])).size > 1;
-  const own = list.filter((e) => !/^f-/.test(e.env)), ofFlows = list.filter((e) => /^f-/.test(e.env));
+  const byUrl = list.filter((e) => e.url), own = list.filter((e) => !/^f-/.test(e.env) && !e.url), ofFlows = list.filter((e) => /^f-/.test(e.env));
   const groups: Array<[string | null, EnvSummary[]]> = [
-    ...(several ? [[tr('Por proyecto'), own.filter((e) => !e.join)], [tr('Conjuntos'), own.filter((e) => e.join)]] as Array<[string | null, EnvSummary[]]> : [[ofFlows.length ? tr('Del proyecto') : null, own] as [string | null, EnvSummary[]]]),
+    ...(several ? [[tr('Por proyecto'), own.filter((e) => !e.join)], [tr('Conjuntos'), own.filter((e) => e.join)]] as Array<[string | null, EnvSummary[]]> : [[ofFlows.length || byUrl.length ? tr('Del proyecto') : null, own] as [string | null, EnvSummary[]]]),
+    ...(byUrl.length ? [[tr('Por URL'), byUrl] as [string | null, EnvSummary[]]] : []),
     ...(ofFlows.length ? [[tr('De los flujos'), ofFlows] as [string | null, EnvSummary[]]] : []),
   ];
   return (
@@ -58,15 +64,17 @@ export function Envs({ selected, g }: { selected?: string; g?: Indexed | null })
               {title && <h2 className="env-group-h">{title}</h2>}
               {es.map((e) => {
                 const [dot, label] = envState(e);
-                return <a key={e.env} href={href('envs', e.env)} aria-current={e.env === name ? 'page' : undefined}><Dot state={dot} /><b className="mono">{e.env}</b><span>{label}{several && e.projects ? `. ${e.projects.join(' · ')}` : e.source ? `. ${e.source}` : ''}</span></a>;
+                return <a key={e.env} href={href('envs', e.env)} aria-current={e.env === name ? 'page' : undefined}><Dot state={dot} /><b className="mono">{e.env}</b><span>{label}{e.url ? `. ${new URL(e.url).host}` : several && e.projects ? `. ${e.projects.join(' · ')}` : e.source ? `. ${e.source}` : ''}</span></a>;
               })}
             </div>
           ))}
           {several ? <button className="btn sm" onClick={() => setJoining(true)}><Plus />{tr('Nuevo entorno conjunto')}</button> : <p className="faint" style={{ margin: 0, fontSize: 'var(--t-12)' }}>{tr('Un entorno conjunto junta varios proyectos.')}{' '}<a href={href('repos')}>{tr('Añade otro proyecto')}</a>{' '}{tr('para crearlo.')}</p>}
+          <button className="btn sm" onClick={() => setAdding(true)} title={tr('Una aplicación que ya corre: en tu máquina, un QA o un sitio público')}><Globe />{tr('Nuevo entorno por URL')}</button>
         </nav>
         <EnvView key={name} name={name} onChange={envs.reload} g={g} />
       </div>
-      {joining && <NewJoint envs={list} onClose={() => setJoining(false)} onDone={(n) => { envs.reload(); location.hash = href('envs', n).replace(/^#?/, '#'); }} />}
+      {joining && <NewJoint envs={list} onClose={() => setJoining(false)} onDone={added} />}
+      {addUrl}
     </div>
   );
 }
@@ -102,7 +110,7 @@ function NewJoint({ envs, onClose, onDone }: { envs: EnvSummary[]; onClose: () =
     <Dialog title={tr('Nuevo entorno conjunto')} onClose={onClose} wide>
       <form onSubmit={submit}>
         <div className="dlg-body form">
-          <label className="fld"><span className="l">{tr('Nombre')}</span><input className="mono" data-autofocus required value={name} onChange={(e) => setName(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-'))} pattern="[a-z0-9][a-z0-9-]*" autoComplete="off" spellCheck={false} /></label>
+          <label className="fld"><span className="l">{tr('Nombre')}</span><input className="mono" data-autofocus required value={name} onChange={(e) => setName(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-'))} pattern="[a-z0-9][a-z0-9\-]*" autoComplete="off" spellCheck={false} /></label>
           <fieldset className="fld"><legend className="l">{tr('Proyectos')}</legend>
             {projects.map((r) => {
               const m = p?.members.find((x) => x.repo === r);
@@ -143,7 +151,7 @@ function NewJoint({ envs, onClose, onDone }: { envs: EnvSummary[]; onClose: () =
   );
 }
 
-const NoEnvs = () => (
+const NoEnvs = ({ onUrl }: { onUrl: () => void }) => (
   <div className="page">
     <div className="head"><div><h1>{tr('Entornos')}</h1><p>{tr('Producción en local a partir del compose de cada proyecto: las mismas imágenes, direcciones estables y datos que se pueden tirar.')}</p></div></div>
     <section className="panel">
@@ -151,10 +159,91 @@ const NoEnvs = () => (
         <span>{tr('Todavía no hay entornos. Crea el primero a partir del compose de un proyecto:')}</span>
         <span className="cmd"><code>{INIT}</code><CopyButton value={INIT} label={tr('Copiar el comando')} /></span>
         <span>{tr('Después levántalo aquí con «Levantar» o con')}{' '}<code>laru up local</code>.</span>
+        <span>{tr('O apunta a una aplicación que ya corre, en tu máquina, un QA o un sitio público:')}</span>
+        <button className="btn sm" onClick={onUrl}><Globe />{tr('Nuevo entorno por URL')}</button>
       </div>
     </section>
   </div>
 );
+
+/**
+ * «Nuevo entorno por URL»: the app already running at an address — yours on localhost, a QA, a public site. Laru never
+ * runs or changes it: its browser is the trace. The name is guessed from the host until the person writes one.
+ */
+function NewUrlEnv({ envs, onClose, onDone }: { envs: EnvSummary[]; onClose: () => void; onDone: (name: string) => void }) {
+  const [url, setUrl] = useState('');
+  const [named, setName] = useState<string>();
+  const guess = (() => {
+    try {
+      const n = (new URL(url).hostname.split('.').find((x) => x !== 'www') ?? '').toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/^-+|-+$/g, '');
+      return !n ? '' : envs.some((e) => e.env === n) ? `${n}-web` : n;
+    } catch { return ''; }
+  })();
+  const name = named ?? guess;
+  const [error, setError] = useState(''), [busy, setBusy] = useState(false);
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true); setError('');
+    try {
+      await api('/api/env/create', { method: 'POST', body: { name, url } });
+      toast(tr('envs/{name}.yaml escrito: ábrelo en el estudio para grabar un flujo', { name }));
+      onDone(name); onClose();
+    } catch (err) { setError((err as Error).message); setBusy(false); }
+  };
+  return (
+    <Dialog title={tr('Nuevo entorno por URL')} onClose={onClose}>
+      <form onSubmit={submit}>
+        <div className="dlg-body form">
+          <label className="fld"><span className="l">{tr('Dirección de la aplicación')}</span><input type="url" className="mono" data-autofocus required value={url} onChange={(e) => setUrl(e.target.value.trim())} placeholder="https://qa.example.com" autoComplete="off" spellCheck={false} /></label>
+          <p className="h">{tr('La que abres en el navegador: en tu máquina (http://localhost:4200), un QA o un sitio público. Sin usuario ni contraseña: entras en la propia página.')}</p>
+          <label className="fld"><span className="l">{tr('Nombre')}</span><input className="mono" required value={name} onChange={(e) => setName(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-'))} pattern="[a-z0-9][a-z0-9\-]*" autoComplete="off" spellCheck={false} /></label>
+          <p className="h">{tr('Laru no la levanta ni la cambia: la abre en su navegador y graba cada petición que hace la página y lo que dice en su consola. Esa es la traza de sus flujos.')}</p>
+          {error && <p className="form-err" role="alert">{error}</p>}
+        </div>
+        <footer>
+          <button type="button" className="btn" onClick={onClose}>{tr('Cancelar')}</button>
+          <button className="btn primary" disabled={busy || !url || !name}>{tr('Crear entorno')}</button>
+        </footer>
+      </form>
+    </Dialog>
+  );
+}
+
+/**
+ * An env by URL: the app at an address, which Laru neither starts nor stops. It is opened in the studio (the session's
+ * browser keeps each request and what the page says) and its flows run against it; there are no containers to show.
+ */
+function UrlEnvView({ name, d }: { name: string; d: EnvDetail }) {
+  const [dot, label] = envState(d);
+  const ready = d.state === 'ready';
+  const why = ready ? undefined : tr('{url} no responde: arranca la aplicación donde vive', { url: d.url });
+  return (
+    <div style={{ minWidth: 0 }}>
+      <div className="head">
+        <div style={{ minWidth: 0 }}>
+          <div className="status env-state"><Dot state={dot} />{label}</div>
+          <h1 className="mono env-name">{name}</h1>
+          <p>{tr('La aplicación en')}{' '}<a className="rowlink mono" href={d.url} target="_blank" rel="noreferrer">{d.url}</a>{tr('. Laru no la levanta ni la cambia: la abre en su navegador y graba lo que este pide y lo que dice la página.')}</p>
+          <p className="run-dir"><span className="faint">{tr('Carpeta del entorno')}</span> <PathChip path={d.dir} reveal={{ what: 'env', id: name }} /></p>
+        </div>
+        <div className="actions">
+          <ActionButton icon={AppWindow} primary disabled={!ready} title={why ?? tr('Usa la aplicación en el estudio y mira cada petición del navegador y su consola mientras lo haces; al parar, conviértelo en flujo')} run={() => openStudio(name)}>{tr('Abrir en el estudio')}</ActionButton>
+          <ActionButton icon={FlaskConical} disabled={!ready} title={why ?? tr('Ejecuta los flujos contra esta dirección')}
+            run={() => askFirst((confirm) => api<{ id: string }>('/api/runs/start', { method: 'POST', body: { env: name, confirm } }).then((r) => { location.hash = href('runs', r.id); }), tr('Ejecutar'))}>{tr('Probar aquí')}</ActionButton>
+        </div>
+      </div>
+      {!ready && <div className="notice warn" role="status"><CircleX /><div>{why}</div></div>}
+      <section className="panel block"><header><h3>{tr('Qué se graba')}</h3><div className="meta">{tr('Lo que da el navegador')}</div></header>
+        <ul className="body plain">
+          <li>{tr('Cada petición de la página: método, dirección, estado, cabeceras, el cuerpo cuando es texto y cuánto tardó.')}</li>
+          <li>{tr('Lo que dice en su consola y los errores que lanza, como el log del navegador.')}</li>
+          <li>{tr('El vídeo y tus acciones, como en cualquier sesión.')}</li>
+          <li className="faint">{tr('Lo que pasa detrás de la aplicación (sus servicios, bases y colas) no se ve: no corre en Laru.')}</li>
+        </ul>
+      </section>
+    </div>
+  );
+}
 
 /** The events of the env's last up. The service replays the file from the start on every connection. */
 function useEnvEvents(env: string) {
@@ -200,6 +289,7 @@ function EnvView({ name, onChange, g }: { name: string; onChange: () => void; g?
 
   if (detail.error) return <div className="notice" role="alert"><CircleX />{detail.error}</div>;
   if (!d) return <div style={{ minWidth: 0 }}><Skeleton lines={2} /><div style={{ height: 16 }} /><Skeleton lines={6} /></div>;
+  if (d.url) return <UrlEnvView name={name} d={d} />;
 
   const terminal = events.findLast((e) => e.kind === 'ready' || e.kind === 'error');
   const failure = terminal?.kind === 'error' ? terminal : null;

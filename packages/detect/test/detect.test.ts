@@ -137,9 +137,51 @@ test('relevance skips build output and dependencies', () => {
 
 test('a test file lists its cases by name and line', () => {
   const j = detectFile('api/src/test/java/acme/RefundTest.java', 'class T {\n @Test\n void refundsOnce() {}\n\n @ParameterizedTest @ValueSource(ints=1)\n @DisplayName("x")\n public void twice(int i) {}\n}');
-  assert.deepEqual(j, [{ kind: 'tests', count: 2, level: 'unit', cases: [{ name: 'refundsOnce', line: 2 }, { name: 'twice', line: 5 }] }]);
+  assert.deepEqual(j, [{ kind: 'tests', count: 2, level: 'unit', cases: [{ name: 'refundsOnce', line: 2 }, { name: 'twice', line: 5, title: 'x' }] }]);
   const n = detectFile('web/src/a.test.ts', "describe('x', () => {\n it('does a thing', () => {});\n test(\"other\", () => {});\n});");
   assert.deepEqual((n[0] as { cases: unknown }).cases, [{ name: 'does a thing', line: 2 }, { name: 'other', line: 3 }]);
+  assert.equal((n[0] as { title?: string }).title, 'x', 'the file says what it tests by its first describe');
+});
+
+test('a case says what it checks in its own words, and its class what it tests', () => {
+  const src = [
+    'import org.junit.jupiter.api.Test;',
+    '/**',
+    ' * Pruebas del filtro que lee el JWT de cada petición. Usa un {@code MockFilterChain}.',
+    ' * @author ana',
+    ' */',
+    'class JwtFilterTest {',
+    '    @Test',
+    '    @DisplayName("Token válido en header Authorization establece autenticación")',
+    '    void validBearerToken_setsAuthentication() {}',
+    '    @DisplayName("Sin token no establece \\"autenticación\\"")',
+    '    @Test',
+    '    void noToken() {}',
+    '    @Test',
+    '    void plain() {}',
+    '}',
+  ].join('\n');
+  const [t] = detectFile('gw/src/test/java/acme/JwtFilterTest.java', src) as Array<{ cases: Array<{ name: string; title?: string }>; title?: string }>;
+  assert.deepEqual(t.cases.map((c) => [c.name, c.title]), [['validBearerToken_setsAuthentication', 'Token válido en header Authorization establece autenticación'], ['noToken', 'Sin token no establece "autenticación"'], ['plain', undefined]]);
+  assert.equal(t.title, 'Pruebas del filtro que lee el JWT de cada petición.', 'the first sentence of its Javadoc');
+  const [d] = detectFile('gw/src/test/java/acme/AuthIT.java', '@DisplayName("El inicio de sesión")\n@SpringBootTest\nclass AuthIT {\n @Test void a() {}\n}') as Array<{ title?: string }>;
+  assert.equal(d.title, 'El inicio de sesión', 'its own @DisplayName first');
+});
+
+test('a Maven version is the property it names, and with none the parent or BOM that fixes it', () => {
+  const pom = (deps: string, extra = '') => `<project><parent><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-parent</artifactId><version>3.4.1</version></parent>${extra}
+    <artifactId>gw</artifactId><properties><java.version>21</java.version><jjwt.version>0.12.6</jjwt.version></properties><dependencies>${deps}</dependencies></project>`;
+  const dep = (g: string, a: string, v?: string) => `<dependency><groupId>${g}</groupId><artifactId>${a}</artifactId>${v ? `<version>${v}</version>` : ''}</dependency>`;
+  const deps = (src: string) => detectFile('gw/pom.xml', src).filter((f) => f.kind === 'dependency').map((f) => { const d = f as { name: string; version?: string; property?: string; managedBy?: string }; return [d.name, d.version, d.property, d.managedBy]; });
+  assert.deepEqual(deps(pom(dep('org.springframework.boot', 'spring-boot-starter-web') + dep('io.jsonwebtoken', 'jjwt-api', '${jjwt.version}') + dep('x', 'y', '${nope}') + dep('x', 'z', '1.2'))), [
+    ['org.springframework.boot:spring-boot-starter-web', undefined, undefined, 'spring-boot-starter-parent 3.4.1'],
+    ['io.jsonwebtoken:jjwt-api', '0.12.6', 'jjwt.version', undefined],
+    ['x:y', '${nope}', undefined, undefined],
+    ['x:z', '1.2', undefined, undefined],
+  ]);
+  const quarkus = `<dependencyManagement><dependencies><dependency><groupId>\${quarkus.platform.group-id}</groupId><artifactId>\${quarkus.platform.artifact-id}</artifactId><version>\${quarkus.platform.version}</version><type>pom</type><scope>import</scope></dependency></dependencies></dependencyManagement>`;
+  const q = `<project><artifactId>orders</artifactId><properties><quarkus.platform.artifact-id>quarkus-bom</quarkus.platform.artifact-id><quarkus.platform.version>3.15.1</quarkus.platform.version></properties>${quarkus}<dependencies>${dep('io.quarkus', 'quarkus-rest')}</dependencies></project>`;
+  assert.deepEqual(deps(q), [['io.quarkus:quarkus-rest', undefined, undefined, 'quarkus-bom 3.15.1']], 'an imported BOM, its name and version from the properties');
 });
 
 test('a topic a service creates says its partitions, by literal or by constant', () => {
@@ -264,4 +306,20 @@ test('a Dockerfile says the image it builds from: its last stage, past its flags
   // what only a build argument says, or an empty image, is not known
   assert.equal(base('ARG IMAGE=nginx\nFROM ${IMAGE}'), undefined);
   assert.equal(base('FROM golang:1.23 AS b\nFROM scratch\nCOPY --from=b /app /app'), undefined);
+});
+
+test('a topic says what its code sends or takes: the message\'s type, its key, the consumer\'s group; a data class says its fields', () => {
+  const topics = (path: string, src: string) => detectFile(path, src).filter((f) => f.kind === 'topic').map((f) => { const t = f as { name: string; op: string; payload?: string; key?: string; group?: string }; return [t.op, t.name, t.payload, t.key, t.group]; });
+  const typed = 'class P {\n  private final KafkaTemplate<String, FileEvent> kafkaTemplate;\n  void s(FileEvent e) { kafkaTemplate.send(FILE_UPLOADED, e.getFileId().toString(), e); }\n}';
+  assert.deepEqual(topics('svc/src/main/java/a/P.java', typed), [['publishes', 'const:FILE_UPLOADED', 'FileEvent', 'String', undefined]], 'the template says the type');
+  const untyped = 'class Q {\n  KafkaTemplate<String, Object> t;\n  void s() {\n    ScanResultEvent r = build();\n    t.send("file.clean", "k", r);\n    t.send("file.infected", new ScanResultEvent(1));\n  }\n}';
+  assert.deepEqual(topics('svc/src/main/java/a/Q.java', untyped), [['publishes', 'file.clean', 'ScanResultEvent', 'String', undefined], ['publishes', 'file.infected', 'ScanResultEvent', undefined, undefined]], 'an Object template: the type of what the send is given; no key when the send passes none');
+  const listener = 'class C {\n  @KafkaListener(topics = "file.uploaded", groupId = "antivirus-group")\n  public void on(@Payload FileEvent event, @Header(KafkaHeaders.RECEIVED_KEY) String key) {}\n  @KafkaListener(topics = {"file.clean"}, groupId = "g2")\n  public void rec(ConsumerRecord<String, ScanResultEvent> record, Acknowledgment ack) {}\n}';
+  assert.deepEqual(topics('svc/src/main/java/a/C.java', listener), [['consumes', 'file.uploaded', 'FileEvent', undefined, 'antivirus-group'], ['consumes', 'file.clean', 'ScanResultEvent', 'String', 'g2']]);
+  const shapes = (src: string) => detectFile('svc/src/main/java/a/S.java', src).filter((f) => f.kind === 'shape').map((f) => { const x = f as { name: string; fields: Array<{ name: string; type: string }> }; return [x.name, x.fields.map((y) => `${y.name}:${y.type}`).join(' ')]; });
+  assert.deepEqual(shapes('public record ScanResultEvent(UUID fileId, @NotNull String status, Map<String, List<String>> detail) {}'), [['ScanResultEvent', 'fileId:UUID status:String detail:Map<String, List<String>>']]);
+  assert.deepEqual(shapes('@Data\n@Builder\npublic class FileEvent implements Serializable {\n    private UUID fileId;\n    private String storedName;\n    private long sizeBytes;\n    private static final long serialVersionUID = 1L;\n}'), [['FileEvent', 'fileId:UUID storedName:String sizeBytes:long']], 'every field, none static');
+  assert.deepEqual(shapes('@Service\npublic class FileStorageService {\n  private final FileRepository repo;\n}'), [], 'a service is no data class');
+  const quarkus = '@Path("/r")\npublic class R {\n  @Inject @Channel("refunds-out") Emitter<Refund> emitter;\n  @Incoming("payments-in")\n  public void onPayment(PaymentEvent p) {}\n  @Outgoing("audit-out")\n  public Multi<AuditEntry> audit() { return null; }\n}';
+  assert.deepEqual(detectFile('svc/src/main/java/a/R.java', quarkus).filter((f) => f.kind === 'channel').map((f) => { const c = f as { name: string; dir: string; payload?: string }; return [c.dir, c.name, c.payload]; }), [['out', 'refunds-out', 'Refund'], ['in', 'payments-in', 'PaymentEvent'], ['out', 'audit-out', 'AuditEntry']], 'Quarkus channels: an emitter\'s type, an @Incoming\'s parameter, an @Outgoing\'s stream');
 });

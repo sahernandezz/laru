@@ -66,7 +66,7 @@ export function clear(points: Point[], obstacles: Obstacle[], ends: [string, str
 }
 
 /** How many boxes a path goes through, which is what decides the least bad way round. */
-function crossings(points: Point[], obstacles: Obstacle[], ends: [string, string]): number {
+export function crossings(points: Point[], obstacles: Obstacle[], ends: [string, string]): number {
   const others = obstacles.filter((o) => o.id !== ends[0] && o.id !== ends[1]).map((o) => grow(o, CLEARANCE));
   let n = 0;
   for (let i = 0; i + 1 < points.length; i++) {
@@ -117,16 +117,23 @@ export function route(
   ends: [string, string],
   taken: Point[][] = [],
   sides?: { a: Side; b: Side },
+  reach: { a: number; b: number } = { a: 0, b: 0 },
 ): Point[] {
   /*
    * Leave and arrive perpendicular to the side, always. The router is told which side each
    * end sits on, walks out of both by a stub, routes between the stub ends, and puts the two
    * ports back on. Everything below then works on a pair of points in open space, which is
-   * the problem it was written for.
+   * the problem it was written for. `reach` lengthens a stub: the arrows sharing a side turn
+   * at different distances from it, so two of them never run along it on one line.
    */
   if (sides) {
-    const from = out(a, sides.a);
-    const to = out(b, sides.b);
+    // a lane that would take the stub into the box beside shortens to the longest that stays clear of it
+    const stub = (p: Point, side: Side, extra: number) => {
+      for (let by = STUB + extra; by > STUB; by -= 2) { const far = out(p, side, by); if (clear([p, far], obstacles, ends)) return far; }
+      return out(p, side);
+    };
+    const from = stub(a, sides.a, reach.a);
+    const to = stub(b, sides.b, reach.b);
     const middle = route(from, to, obstacles, ends, taken);
     const path = [a, ...middle, b];
     // Three points in a line are two segments pretending to be one; drop the middle.
@@ -187,6 +194,16 @@ export function route(
   const candidates = a.x === b.x || a.y === b.y ? [straight, ...corners, ...detours] : [...corners, ...detours];
   return candidates.reduce((best, path) =>
     crossings(path, obstacles, ends) < crossings(best, obstacles, ends) ? path : best);
+}
+
+/**
+ * A relation of a box with itself: out of its right side and back into it, outside the box, where a person draws one.
+ * Routed like any other, its two ends were the same box and so no obstacle, and the line went through the box and out
+ * along the edges the other arrows arrive by. The right side, because a drawing read from the top down arrives at the
+ * top of a box and leaves from its bottom.
+ */
+export function loop(a: Point, b: Point, by: number): Point[] {
+  return [a, { x: a.x + by, y: a.y }, { x: a.x + by, y: b.y }, b];
 }
 
 /** The middle of the longest stretch: where a label has the most room. */

@@ -3,9 +3,9 @@
  * each step shows its caption on the video and leaves a screenshot when it fails. Runs inside the runner image,
  * where `@laru/flow` resolves here and `@playwright/test` to the image's own copy.
  */
-import { existsSync, mkdirSync, openSync, readFileSync, readSync, closeSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, openSync, readFileSync, readSync, closeSync, statSync, writeFileSync } from 'node:fs';
 import { networkInterfaces } from 'node:os';
-import { test as base, expect, type APIRequestContext, type BrowserContext, type Page, type TestInfo } from '@playwright/test';
+import { test as base, expect, type APIRequestContext, type BrowserContext, type Page, type Request, type TestInfo } from '@playwright/test';
 
 export { expect };
 
@@ -75,6 +75,52 @@ export interface Sms {
 
 /** The env's tap directory, mounted read-only: traffic.jsonl and the peers in rules.json. */
 const TAP = '/ks/tap';
+
+/**
+ * An env by URL (KS_RECORD): no tap stands between the browser and the app, so the browser keeps what it asks, a line
+ * per request, and the service turns each into a record of the env's journal. The same as hits.ts `hitOf` (a test keeps
+ * them equal): this file cannot import a sibling module (see SCREENS).
+ */
+const RECORD = process.env.KS_RECORD;
+const KEEP = 64 * 1024 + 4096, READ = /^text\/(?!css|javascript)|json|xml|x-www-form-urlencoded/i;
+export async function hitOf(q: Pick<Request, 'url' | 'method' | 'timing' | 'allHeaders' | 'postDataBuffer' | 'response' | 'failure'>, o: { screen?: string } = {}) {
+  const url = q.url();
+  if (!/^https?:/i.test(url)) return undefined;
+  const t = q.timing();
+  const res = await q.response().catch(() => null);
+  const reqHeaders = await q.allHeaders().catch(() => ({} as Record<string, string>));
+  const resHeaders = res ? await res.allHeaders().catch(() => ({} as Record<string, string>)) : undefined;
+  const post = q.postDataBuffer();
+  const body = res && READ.test(resHeaders?.['content-type'] ?? '') ? await res.body().catch(() => undefined) : undefined;
+  const failure = q.failure()?.errorText;
+  return {
+    t0: Math.round(t.startTime), t1: Math.round(t.responseEnd >= 0 ? t.startTime + t.responseEnd : Date.now()), method: q.method(), url,
+    ...(res ? { status: res.status() } : {}), reqHeaders, ...(resHeaders ? { resHeaders } : {}),
+    reqBytes: post?.length ?? 0, ...(post && READ.test(reqHeaders['content-type'] ?? '') ? { req: post.subarray(0, KEEP).toString('base64') } : {}),
+    ...(res ? { resBytes: body?.length ?? (Number(resHeaders?.['content-length']) || 0) } : {}), ...(body ? { res: body.subarray(0, KEEP).toString('base64') } : {}),
+    ...(o.screen ? { screen: o.screen } : {}), ...(failure ? { error: failure } : {}),
+  };
+}
+/** The level of a console message or of an error of the page; the same as hits.ts `consoleLevel`. */
+const consoleLevel = (type: string) => (type === 'error' || type === 'pageerror' ? 'error' : type === 'warning' ? 'warn' : type === 'debug' || type === 'trace' ? 'debug' : 'info');
+/**
+ * Keeps what a context's pages ask, and what they say in their console and the errors they throw (an env by URL only,
+ * to KS_RECORD and KS_CONSOLE); the answer waits for the lines still being read, before the context closes.
+ */
+function recording(c: BrowserContext, screen?: string): () => Promise<unknown> {
+  if (!RECORD) return async () => undefined;
+  const pending = new Set<Promise<void>>();
+  const keep = (q: Request) => {
+    const p: Promise<void> = hitOf(q, { screen }).then((h) => { if (h) appendFileSync(RECORD, JSON.stringify(h) + '\n'); }, () => undefined).finally(() => pending.delete(p));
+    pending.add(p);
+  };
+  c.on('requestfinished', keep);
+  c.on('requestfailed', keep);
+  const said = (type: string, line: string) => { if (process.env.KS_CONSOLE) appendFileSync(process.env.KS_CONSOLE, JSON.stringify({ t0: Date.now(), service: screen ? `browser:${screen}` : 'browser', line, level: consoleLevel(type) }) + '\n'); };
+  c.on('console', (msg) => said(msg.type(), msg.text()));
+  c.on('weberror', (e) => said('pageerror', e.error().message));
+  return () => Promise.all([...pending]);
+}
 /** The mailbox's journal read as the observer reads traffic: only what was appended, folded into messages with their latest state. */
 function mailbox(since: number) {
   const file = `${TAP}/messages.jsonl`;
@@ -130,7 +176,8 @@ function mailbox(since: number) {
 }
 
 function observer(): Observed {
-  const file = `${TAP}/traffic.jsonl`;
+  // an env by URL: what this runner's browser asked, as the tap would have seen it, from the runner
+  const file = RECORD ?? `${TAP}/traffic.jsonl`;
   let at = existsSync(file) ? statSync(file).size : 0;
   const seen: Seen[] = [];
   const peers = (): Record<string, string> => { try { return JSON.parse(readFileSync(`${TAP}/rules.json`, 'utf8')).peers ?? {}; } catch { return {}; } };
@@ -152,6 +199,7 @@ function observer(): Observed {
     for (const l of text.slice(0, end).split('\n').filter(Boolean)) {
       try {
         const r = JSON.parse(l);
+        if (RECORD) { const u = new URL(r.url); seen.push({ from: 'runner', to: u.host, kind: 'http', method: r.method, path: u.pathname, status: r.status, t0: r.t0, ms: r.t1 - r.t0 }); continue; }
         seen.push({ from: ip[r.from] ?? r.from, to: r.svc, kind: r.kind, method: r.method, path: r.path, status: r.status, t0: r.t0, ms: r.t1 === undefined ? undefined : r.t1 - r.t0, mock: r.mock, fault: r.fault });
       } catch { /* a line cut by rotation */ }
     }
@@ -245,7 +293,9 @@ export const test = base.extend<Fixtures>({
     const context = await browser.newContext(story ? { recordVideo: { dir: info.outputPath('screen-main'), ...(viewport ? { size: viewport } : {}) } } : {});
     const pages: Page[] = [];
     context.on('page', (p) => pages.push(p));
+    const flush = recording(context);
     await use(context);
+    await flush();
     await context.close();
     let n = 0;
     for (const v of pages.map((p) => p.video()).filter((v) => v !== null)) {
@@ -265,7 +315,7 @@ export const test = base.extend<Fixtures>({
     current = { n: 0 };
   },
   otherScreen: async ({ browser, baseURL, viewport }, use, info) => {
-    const made: Array<{ name: string; page: Page; context: BrowserContext; t0: number; marker?: number }> = [];
+    const made: Array<{ name: string; page: Page; context: BrowserContext; t0: number; marker?: number; flush: () => Promise<unknown> }> = [];
     await use(async (name, kind = 'pc') => {
       if (!/^[\w-]{1,32}$/.test(name)) throw new Error(`a screen's name is letters, digits, _ and - (up to 32): ${name}`);
       const size = kind === 'pc' ? viewport ?? undefined : typeof kind === 'string' ? SCREENS[kind] : kind;
@@ -275,14 +325,14 @@ export const test = base.extend<Fixtures>({
       const story = info.project.name === 'story';
       const context = await browser.newContext({ baseURL, locale: 'es-ES', timezoneId: 'Europe/Madrid', viewport: size, ...(story ? { recordVideo: { dir: info.outputPath(`screen-${name}`), size } } : {}) });
       // The token that names the screen goes on the app's own requests only: on another origin it would turn each request into a preflight.
-      // The tap reads it off and never forwards it.
+      // The tap reads it off and never forwards it. An env by URL has no tap to take it off: its browser says whose screen each request is.
       const own = baseURL ? new URL(baseURL).origin : '';
-      await context.route('**/*', (route) => {
+      if (!RECORD) await context.route('**/*', (route) => {
         const r = route.request();
         return own && new URL(r.url()).origin === own ? route.continue({ headers: { ...r.headers(), 'x-laru-screen': name } }) : route.continue();
       });
       const page = await context.newPage();
-      const m: (typeof made)[number] = { name, page, context, t0: Date.now() };
+      const m: (typeof made)[number] = { name, page, context, t0: Date.now(), flush: recording(context, name) };
       if (story) m.marker = await drawMarker(page);
       await page.addInitScript(`(${drawCaption.toString()})(); document.addEventListener('DOMContentLoaded', () => (${drawCaption.toString()})());`);
       made.push(m);
@@ -290,6 +340,7 @@ export const test = base.extend<Fixtures>({
     });
     for (const m of made) {
       const video = m.page.video();
+      await m.flush();
       await m.context.close();
       const path = await video?.path().catch(() => undefined);
       info.annotations.push({ type: 'screen', description: JSON.stringify({ name: m.name, t0: m.t0, marker: m.marker }) });

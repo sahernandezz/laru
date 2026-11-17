@@ -15,10 +15,18 @@ export function detectPom(src: string): Finding[] {
     const tech: Tech | undefined = /quarkus-maven-plugin/.test(own) ? 'quarkus' : /spring-boot-maven-plugin/.test(own) ? 'spring' : undefined;
     if (tech) out.push({ kind: 'service-root', tech, name, line: 1 });
   }
+  // A version written as a property (`${jjwt.version}`) is the property's; none at all is fixed by an imported BOM or the
+  // parent (`spring-boot-starter-parent 3.4.1`), said by name and version.
+  const props: Record<string, string> = Object.fromEntries([...(block(own, 'properties')[0] ?? '').matchAll(/<([\w.-]+)>\s*([^<]*?)\s*<\/\1>/g)].map((m) => [m[1], m[2]]));
+  const resolve = (v?: string) => v?.replace(/\$\{([\w.-]+)\}/g, (all, k: string) => props[k] ?? all);
+  const parent = src.match(/<parent>([\s\S]*?)<\/parent>/)?.[1];
+  const boms = block(src.match(/<dependencyManagement>([\s\S]*?)<\/dependencyManagement>/)?.[1] ?? '', 'dependency').filter((d) => tag(d, 'scope') === 'import');
+  const managedBy = [...boms.map((d) => `${resolve(tag(d, 'artifactId'))} ${resolve(tag(d, 'version')) ?? ''}`.trim()), ...(parent ? [`${tag(parent, 'artifactId')} ${resolve(tag(parent, 'version')) ?? ''}`.trim()] : [])][0];
   for (const deps of block(own.replace(/<build>[\s\S]*<\/build>/, ''), 'dependencies')) {
     for (const d of block(deps, 'dependency')) {
-      const g = tag(d, 'groupId'), a = tag(d, 'artifactId');
-      if (g && a) out.push({ kind: 'dependency', ecosystem: 'maven', name: `${g}:${a}`, version: tag(d, 'version'), scope: tag(d, 'scope') });
+      const g = tag(d, 'groupId'), a = tag(d, 'artifactId'), v = tag(d, 'version'), version = resolve(v);
+      const property = v && version !== v ? v.match(/^\$\{([\w.-]+)\}$/)?.[1] : undefined;
+      if (g && a) out.push({ kind: 'dependency', ecosystem: 'maven', name: `${g}:${a}`, version, scope: tag(d, 'scope'), ...(property ? { property } : {}), ...(!v && managedBy ? { managedBy } : {}) });
     }
   }
   return out;

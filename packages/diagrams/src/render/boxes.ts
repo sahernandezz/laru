@@ -13,11 +13,11 @@
  * font or asset resolves, so a drawing styled from outside came out as black rectangles in
  * every PNG while looking right on screen.
  */
-import { childrenOf, groupOf, roomIn, sizeOf, type DiagramEdge, type DiagramModel, type DiagramNode } from '../model.ts';
+import { childrenOf, FIELD_GAP, FIELD_PAD, fieldParts, fieldWidths, groupOf, roomIn, sizeOf, type DiagramEdge, type DiagramModel, type DiagramNode } from '../model.ts';
 import type { DiagramSkin, SkinEdge, SkinRole } from '../kinds.ts';
 import { ADVANCE, esc, textWidth, wrap } from './text.ts';
 import { INK, inkPath, inked } from './hand.ts';
-import { clear, labelAt, labelSpots, path as toPath, route, type Point, type Side } from './route.ts';
+import { clear, crossings, labelAt, labelSpots, loop, path as toPath, route, type Point, type Side } from './route.ts';
 import {
   SIZE, hatchTile, registerOf, styleBlock,
   scopeOf,
@@ -206,7 +206,7 @@ function outline(form: SkinRole['form'], x: number, y: number, w: number, h: num
     case 'entity':
     case 'class':
       // A table: the name on a filled band of its own, the fields listed under it.
-      return `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="2" />`
+      return `<rect class="pd-table" x="${x}" y="${y}" width="${w}" height="${h}" rx="2" />`
         + `<path class="pd-band" d="M${x + 2} ${y} h${w - 4} a2 2 0 0 1 2 2 v28 H${x} V${y + 2} a2 2 0 0 1 2 -2 Z" />`;
     case 'boundary':
       return `<rect class="pd-neat" x="${x}" y="${y}" width="${w}" height="${h}" rx="10" />`;
@@ -257,6 +257,9 @@ function chooseSides(from: Box, to: Box, obstacles: Array<Box & { id: string }>,
   }
   return best!.sides;
 }
+
+/** How much further out than the last one each arrow on a side turns. */
+const LANE = 14;
 
 /**
  * Where on that side the arrow leaves, given how many others leave from it.
@@ -440,94 +443,171 @@ export function renderBoxes(model: DiagramModel, skin?: DiagramSkin, opts: Rende
     const from = model.nodes.find((n) => n.id === edge.from);
     const to = model.nodes.find((n) => n.id === edge.to);
     if (!from || !to) return undefined;
-    return { edge, from, to, ...chooseSides(rect(from), rect(to), obstacles, [from.id, to.id]) };
+    // a relation of a box with itself loops out of its right side and back into it
+    return { edge, from, to, ...(from.id === to.id ? { a: 'right' as Side, b: 'right' as Side } : chooseSides(rect(from), rect(to), obstacles, [from.id, to.id])) };
   });
-  const seats = new Map<string, string[]>();
+  type Seat = { index: number; total: number; lane: number };
+  const onSide = new Map<string, { node: DiagramNode; side: Side; ends: string[] }>();
   for (const r of routed) {
     if (!r) continue;
-    for (const [node, side] of [[r.from.id, r.a], [r.to.id, r.b]] as const) {
-      const key = `${node}/${side}`;
-      if (!seats.has(key)) seats.set(key, []);
-      seats.get(key)!.push(r.edge.id);
+    for (const [end, node, side] of [['a', r.from, r.a], ['b', r.to, r.b]] as const) {
+      const key = `${node.id}/${side}`;
+      (onSide.get(key) ?? onSide.set(key, { node, side, ends: [] }).get(key)!).ends.push(`${r.edge.id}/${end}`);
     }
   }
-  const seat = (nodeId: string, side: Side, edgeId: string) => {
-    const list = seats.get(`${nodeId}/${side}`) ?? [edgeId];
-    return { index: Math.max(0, list.indexOf(edgeId)), total: list.length };
+  /*
+   * Every arrow's path, from where each end sits on its side. Looking for a free lane compares an arrow with every one
+   * already drawn, so on a drawing with dozens of them it is the whole cost of the render — and on a drawing with
+   * dozens of them there are no free lanes left to find.
+   *
+   * A route the author pinned is drawn as it was pinned; everything else is routed again. That asymmetry is the whole
+   * rule: dragging a box is «this goes here», not «and the arrows go exactly like this», so the router keeps its say
+   * over obstacles and lanes. Only a corner somebody fixed on purpose survives, because that is a decision and the
+   * positions alone do not contain it. The ends are re-seated either way: the ports belong to the engine, which shares
+   * out the arrows leaving one side.
+   */
+  const plan = (seats: Map<string, Seat>) => {
+    const paths = new Map<string, Point[]>();
+    for (const r of routed) {
+      if (!r) continue;
+      const { edge, from, to } = r;
+      const fs = seats.get(`${edge.id}/a`)!, ts = seats.get(`${edge.id}/b`)!;
+      const a = port(rect(from), r.a, fs.index, fs.total), b = port(rect(to), r.b, ts.index, ts.total);
+      const pinned = edge.points;
+      paths.set(edge.id, pinned && pinned.length >= 2
+        ? [a, ...pinned.slice(1, -1).map((pt) => ({ x: pt.x, y: pt.y })), b]
+        : from.id === to.id ? loop(a, b, 30 + Math.max(fs.lane, ts.lane) * LANE)
+        : route(a, b, obstacles, [from.id, to.id], model.edges.length <= 30 ? [...paths.values()] : [], { a: r.a, b: r.b }, { a: fs.lane * LANE, b: ts.lane * LANE }));
+    }
+    return paths;
   };
-
-  for (const r of routed) {
-    if (!r) continue;
-    const { edge, from, to } = r;
-    const fs = seat(from.id, r.a, edge.id);
-    const ts = seat(to.id, r.b, edge.id);
-    const a = port(rect(from), r.a, fs.index, fs.total);
-    const b = port(rect(to), r.b, ts.index, ts.total);
-    /*
-     * Looking for a free lane compares this arrow with every one already drawn, so on a
-     * drawing with dozens of them it is the whole cost of the render — and on a drawing with
-     * dozens of them there are no free lanes left to find.
-     */
-    /*
-     * A route the author pinned is drawn as it was pinned; everything else is routed again.
-     *
-     * That asymmetry is the whole rule: dragging a box is «this goes here», not «and the
-     * arrows go exactly like this», so the router keeps its say over obstacles and lanes. Only
-     * a corner somebody fixed on purpose survives, because that is a decision and the
-     * positions alone do not contain it. The ends are re-seated either way: the ports belong
-     * to the engine, which shares out the arrows leaving one side.
-     */
-    const pinned = edge.points;
-    const points = pinned && pinned.length >= 2
-      ? [a, ...pinned.slice(1, -1).map((pt) => ({ x: pt.x, y: pt.y })), b]
-      : route(a, b, obstacles, [from.id, to.id], model.edges.length <= 30 ? lines.map((l) => l.points) : [], { a: r.a, b: r.b });
-    lines.push({ id: edge.id, points });
-    /*
-     * How this class draws a relation, taken from the skin rather than assumed: a data
-     * model joins two tables with a plain line and says the cardinality at each end, and an
-     * arrowhead there would be saying something the notation does not.
-     */
-    const stroke: SkinEdge | undefined = skin?.edges[0];
-    const dashed = stroke?.stroke === 'dashed';
-    const head = stroke?.head !== 'none';
-    // A road that matters is drawn heavier. The model already says so at the ends, and a
-    // sibling selector cannot reach from a node's group to an edge's, so it is decided here.
-    const primary = from.emphasis || to.emphasis;
-    const cls = ['pd-edge', dashed && 'pd-dashed', primary && 'pd-primary'].filter(Boolean).join(' ');
-    out.push(`<g class="${cls}" data-id="${esc(edge.id)}" data-ends="${esc(from.id)} ${esc(to.id)}">`);
-    /*
-     * The casing is paper, laid under the line on the same geometry. It is what makes one
-     * route crossing another readable without a bridge symbol, and what lifts the line work
-     * off the keylines — before this a node's border and an edge were the same darkness at
-     * the same weight, and a busy drawing read as one flat wire mesh.
-     */
-    /*
-     * One ink for both. The casing is the same geometry laid underneath in paper, so if the
-     * two were drawn by hand separately the white would show along the edge of the line —
-     * the very effect the casing exists to avoid. The seed is the pair of ends rather than
-     * `edge.id`, which is minted from a position in a list and moves when a list changes.
-     */
-    const d = ink(toPath(points), `${from.id}>${to.id}`);
-    out.push(`<path class="pd-casing" d="${d}" />`);
-    out.push(`<path class="pd-line" d="${d}"${head ? ` marker-end="url(#${arrow})"` : ''} />`);
-    if (edge.fromCard || edge.toCard) {
-      const size = font * LABEL_SIZE;
-      const near = (p: Point, q: Point) => ({ x: p.x + (q.x - p.x) * 0.12, y: p.y + (q.y - p.y) * 0.12 - 6 });
-      const first = near(points[0], points[1]);
-      const last = near(points[points.length - 1], points[points.length - 2]);
-      if (edge.fromCard) out.push(`<text class="pd-card pd-halo" x="${Math.round(first.x)}" y="${Math.round(first.y)}" font-size="${size}" text-anchor="middle">${esc(edge.fromCard)}</text>`);
-      if (edge.toCard) out.push(`<text class="pd-card pd-halo" x="${Math.round(last.x)}" y="${Math.round(last.y)}" font-size="${size}" text-anchor="middle">${esc(edge.toCard)}</text>`);
-    }
-    const text = [edge.label, edge.technology && `[${edge.technology}]`].filter(Boolean).join(' ');
-    if (text) {
-      const size = font * LABEL_SIZE;
-      const w = textWidth(text, size);
-      const { at, lift } = labelPlace(points, w, size, obstacles, boxes);
-      out.push(`<text class="pd-edge-label pd-halo" x="${Math.round(at.x)}" y="${Math.round(at.y + lift)}" font-size="${size}" text-anchor="middle">${esc(text)}</text>`);
-      boxes.push({ id: edge.id, kind: 'label', form: 'label', x: at.x - w / 2, y: at.y + lift - size, w, h: size * 1.3, fontSize: size });
-    }
-    out.push('</g>');
+  // first in the order of the model
+  const first = plan(new Map([...onSide.values()].flatMap((s) => s.ends.map((e, index) => [e, { index, total: s.ends.length, lane: 0 }] as const))));
+  /*
+   * Then the seats of a side go in the order those paths head once out of it: one turning left leaves from the left of
+   * one going straight on, which leaves from the left of one turning right. In the order of the model they crossed on
+   * their way out, and two of them ran along the same stretch under the box, one line with two meanings. And the arrows
+   * turning one way turn at different distances from the side, the outer one first, so that no two of them run along it
+   * on one line either — two arrows arriving at one side from above and from below met on the same rail beside it.
+   */
+  const heading = (e: string, side: Side) => {
+    const [id, end] = [e.slice(0, e.lastIndexOf('/')), e.slice(e.lastIndexOf('/') + 1)];
+    const path = end === 'a' ? first.get(id)! : [...first.get(id)!].reverse(), at = path[2] ?? path[path.length - 1];
+    return side === 'top' || side === 'bottom' ? at.x : at.y;
+  };
+  const seats = new Map<string, Seat>();
+  for (const s of onSide.values()) {
+    const ends = [...s.ends].sort((x, y) => heading(x, s.side) - heading(y, s.side));
+    const along = (i: number) => { const p = port(rect(s.node), s.side, i, ends.length); return s.side === 'top' || s.side === 'bottom' ? p.x : p.y; };
+    const turn = ends.map((e, i) => Math.sign(Math.round(heading(e, s.side) - along(i))));
+    const back = turn.filter((t) => t < 0).length;
+    ends.forEach((e, i) => seats.set(e, {
+      index: i, total: ends.length,
+      lane: turn[i] < 0 ? turn.slice(0, i).filter((t) => t < 0).length : turn[i] > 0 ? back + turn.slice(i + 1).filter((t) => t > 0).length : 0,
+    }));
   }
+  /*
+   * The second drawing is kept unless it is worse than the first: a box gone through costs most, then two arrows on one
+   * stretch, then one arrow across another. Seats moved for one arrow can leave another without a clear way round.
+   */
+  const segments = (pts: Point[]) => pts.slice(1).map((q, i) => [pts[i], q] as const);
+  const meet = (p: Point[], q: Point[]) => {
+    let n = 0;
+    for (const [a, b] of segments(p)) for (const [c, d] of segments(q)) {
+      const v = a.x === b.x, w = c.x === d.x;
+      if (v === w && (v ? a.x === c.x : a.y === c.y)) {
+        const k = v ? 'y' : 'x';
+        if (Math.min(Math.max(a[k], b[k]), Math.max(c[k], d[k])) > Math.max(Math.min(a[k], b[k]), Math.min(c[k], d[k]))) n += 10;
+      } else if (v !== w) {
+        const [up, flat] = v ? [[a, b], [c, d]] : [[c, d], [a, b]];
+        const x = up[0].x, y = flat[0].y;
+        if (x > Math.min(flat[0].x, flat[1].x) && x < Math.max(flat[0].x, flat[1].x) && y > Math.min(up[0].y, up[1].y) && y < Math.max(up[0].y, up[1].y)) n += 1;
+      }
+    }
+    return n;
+  };
+  const cost = (drawn: Map<string, Point[]>) => {
+    const all = routed.filter((r) => r !== undefined).map((r) => ({ ends: [r.from.id, r.to.id] as [string, string], p: drawn.get(r.edge.id)! }));
+    return all.reduce((n, x, i) => n + 100 * crossings(x.p, obstacles, x.ends) + all.slice(i + 1).reduce((m, y) => m + meet(x.p, y.p), 0), 0);
+  };
+  // on a drawing of dozens of arrows there are no free lanes to find, and drawing it twice is all the cost
+  const second = model.edges.length <= 30 ? plan(seats) : undefined;
+  /*
+   * Each drawing is laid out whole, labels and all, before one is kept: the seats that free a stretch can leave a label
+   * no room but on top of another, and only the placed labels say so.
+   */
+  const draw = (drawn: Map<string, Point[]>) => {
+    const svg: string[] = [], placed: Rendered['boxes'] = [], laid: Rendered['lines'] = [];
+    for (const r of routed) {
+      if (!r) continue;
+      const { edge, from, to } = r;
+      const points = drawn.get(edge.id)!;
+      laid.push({ id: edge.id, points });
+      /*
+       * How this class draws a relation, taken from the skin rather than assumed: a data
+       * model joins two tables with a plain line and says the cardinality at each end, and an
+       * arrowhead there would be saying something the notation does not.
+       */
+      const stroke: SkinEdge | undefined = skin?.edges[0];
+      const dashed = stroke?.stroke === 'dashed';
+      const head = stroke?.head !== 'none';
+      // A road that matters is drawn heavier. The model already says so at the ends, and a
+      // sibling selector cannot reach from a node's group to an edge's, so it is decided here.
+      const primary = from.emphasis || to.emphasis;
+      const cls = ['pd-edge', dashed && 'pd-dashed', primary && 'pd-primary'].filter(Boolean).join(' ');
+      svg.push(`<g class="${cls}" data-id="${esc(edge.id)}" data-ends="${esc(from.id)} ${esc(to.id)}">`);
+      /*
+       * The casing is paper, laid under the line on the same geometry. It is what makes one
+       * route crossing another readable without a bridge symbol, and what lifts the line work
+       * off the keylines — before this a node's border and an edge were the same darkness at
+       * the same weight, and a busy drawing read as one flat wire mesh.
+       */
+      /*
+       * One ink for both. The casing is the same geometry laid underneath in paper, so if the
+       * two were drawn by hand separately the white would show along the edge of the line —
+       * the very effect the casing exists to avoid. The seed is the pair of ends rather than
+       * `edge.id`, which is minted from a position in a list and moves when a list changes.
+       */
+      const d = ink(toPath(points), `${from.id}>${to.id}`);
+      svg.push(`<path class="pd-casing" d="${d}" />`);
+      svg.push(`<path class="pd-line" d="${d}"${head ? ` marker-end="url(#${arrow})"` : ''} />`);
+      if (edge.fromCard || edge.toCard) {
+        const size = font * LABEL_SIZE;
+        /*
+         * Just off the box it belongs to, outside it: over a line that leaves a side, past the edge on one that leaves the
+         * top or the bottom. Lifted over the line in every case, the mark of a line leaving a bottom went back into its
+         * box, where nobody could read it.
+         */
+        const near = (p: Point, q: Point) => {
+          const along = Math.abs(q.y - p.y) > Math.abs(q.x - p.x), dir = along ? Math.sign(q.y - p.y) : Math.sign(q.x - p.x);
+          return along ? { x: p.x, y: p.y + dir * 9 + (dir > 0 ? size * 0.8 : 0) } : { x: p.x + dir * 12, y: p.y - 5 };
+        };
+        const start = near(points[0], points[1]);
+        const last = near(points[points.length - 1], points[points.length - 2]);
+        if (edge.fromCard) svg.push(`<text class="pd-card pd-halo" x="${Math.round(start.x)}" y="${Math.round(start.y)}" font-size="${size}" text-anchor="middle">${esc(edge.fromCard)}</text>`);
+        if (edge.toCard) svg.push(`<text class="pd-card pd-halo" x="${Math.round(last.x)}" y="${Math.round(last.y)}" font-size="${size}" text-anchor="middle">${esc(edge.toCard)}</text>`);
+      }
+      const text = [edge.label, edge.technology && `[${edge.technology}]`].filter(Boolean).join(' ');
+      if (text) {
+        const size = font * LABEL_SIZE;
+        const w = textWidth(text, size);
+        // a loop's label goes beside it, outside: centred on its line, a long one ran back over its own box
+        const { at, lift } = from.id === to.id
+          ? { at: { x: points[1].x + 8 + w / 2, y: (points[1].y + points[2].y) / 2 + size * 0.35 }, lift: 0 }
+          : labelPlace(points, w, size, obstacles, [...boxes, ...placed]);
+        svg.push(`<text class="pd-edge-label pd-halo" x="${Math.round(at.x)}" y="${Math.round(at.y + lift)}" font-size="${size}" text-anchor="middle">${esc(text)}</text>`);
+        placed.push({ id: edge.id, kind: 'label', form: 'label', x: at.x - w / 2, y: at.y + lift - size, w, h: size * 1.3, fontSize: size });
+      }
+      svg.push('</g>');
+    }
+    return { svg, placed, laid };
+  };
+  const clashes = (placed: Rendered['boxes']) => placed.reduce((n, l, i) => n + placed.slice(i + 1).filter((m) => overlaps(l, m, 0)).length + obstacles.filter((o) => overlaps(l, o, 0)).length, 0);
+  const one = draw(first), two = second && draw(second);
+  const kept = two && cost(second!) + 20 * clashes(two.placed) <= cost(first) + 20 * clashes(one.placed) ? two : one;
+  out.push(...kept.svg);
+  boxes.push(...kept.placed);
+  lines.push(...kept.laid);
 
   for (const n of pieces) {
     const r = rect(n);
@@ -562,13 +642,13 @@ export function renderBoxes(model: DiagramModel, skin?: DiagramSkin, opts: Rende
        */
       (n.attributes ?? []).slice(0, 12).forEach((attribute, i) => {
         const y = r.y + 48 + i * font * 1.2;
-        const parts = attribute.trim().split(/\s+/);
-        const key = parts.length > 2 && /^(PK|FK|UK)$/i.test(parts[parts.length - 1]) ? parts.pop()! : '';
-        const type = parts.length > 1 ? parts.shift()! : '';
-        const name = parts.join(' ');
-        out.push(`<text class="pd-field" x="${r.x + 12}" y="${y}" font-size="${font * SUB_SIZE}">${esc(name)}</text>`);
-        const right = [type, key].filter(Boolean).join(' ');
-        if (right) out.push(`<text class="pd-type" x="${r.x + r.w - 12}" y="${y}" font-size="${font * LABEL_SIZE}" text-anchor="end">${esc(right)}</text>`);
+        const { name, right } = fieldParts(attribute);
+        // The box is as wide as its longest field (model.ts), up to a cap: past it the name is cut where it would
+        // reach the type, and said whole in its tooltip, so the two columns never run over each other.
+        const w = fieldWidths(attribute), room = r.w - 2 * FIELD_PAD - (right ? w.right + FIELD_GAP : 0);
+        const cut = w.name > room ? `${name.slice(0, Math.max(1, Math.floor((name.length * room) / w.name) - 1))}…` : name;
+        out.push(`<text class="pd-field" x="${r.x + FIELD_PAD}" y="${y}" font-size="${font * SUB_SIZE}">${cut === name ? '' : `<title>${esc(name)}</title>`}${esc(cut)}</text>`);
+        if (right) out.push(`<text class="pd-type" x="${r.x + r.w - FIELD_PAD}" y="${y}" font-size="${font * LABEL_SIZE}" text-anchor="end">${esc(right)}</text>`);
       });
       out.push('</g>');
       boxes.push({ id: n.id, kind: 'node', form: role.form, ...r, fontSize: font * SUB_SIZE });

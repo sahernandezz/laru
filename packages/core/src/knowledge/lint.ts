@@ -65,6 +65,10 @@ export function documentNote(p: Piece, ctx: { endpoint?: (method: string, path: 
   const ops = p.type === 'contract' && Array.isArray(p.fields.operations) ? (p.fields.operations as Array<Record<string, string>>) : [];
   const bare = ops.filter((o) => !['summary', 'request', 'response'].every((c) => String(o[c] ?? '').trim())).map((o) => `${o.method ?? ''} ${o.path ?? ''}`.trim());
   if (ops.length) items.push({ key: 'operation-detail', at: 'fields.operations', weight: 2, ok: !bare.length, ...(bare.length ? { params: { operations: bare.join(', '), count: bare.length } } : {}) });
+  // and of each event, what it is for and what it carries
+  const evs = p.type === 'contract' && Array.isArray(p.fields.events) ? (p.fields.events as Array<Record<string, string>>) : [];
+  const mute = [...new Set(evs.filter((e) => !['summary', 'payload'].every((c) => String(e[c] ?? '').trim())).map((e) => String(e.topic ?? '')))];
+  if (evs.length) items.push({ key: 'event-detail', at: 'fields.events', weight: 2, ok: !mute.length, ...(mute.length ? { params: { events: mute.join(', '), count: mute.length } } : {}) });
   if (texts(p).some(hasDiagram)) items.push({ key: 'illustrated', at: 'fields', weight: 1, ok: true });
   const total = items.reduce((n, i) => n + i.weight, 0);
   const got = items.reduce((n, i) => n + (i.ok ? i.weight : 0), 0);

@@ -83,8 +83,19 @@ export function detectJava(path: string, raw: string): Finding[] {
 
   if (/\/src\/test\//.test('/' + path)) {
     const count = (src.match(/@(Test|ParameterizedTest|RepeatedTest)\b/g) ?? []).length;
-    const cases = [...src.matchAll(/@(?:Test|ParameterizedTest|RepeatedTest)\b[^{;]*?\bvoid\s+(\w+)\s*\(/g)].map((m) => ({ name: m[1], line: lineOf(m.index) }));
-    if (count) out.push({ kind: 'tests', count, level: INTEGRATION.test(src) ? 'integration' : 'unit', cases });
+    // What a case says it checks, in its own words: its @DisplayName, before @Test or after it, among the annotations
+    // between the previous member and its name.
+    const said = (from: number, to: number) => src.slice(from, to).match(/@DisplayName\s*\(\s*"((?:[^"\\]|\\.)*)"\s*\)/)?.[1]?.replace(/\\(.)/g, '$1').trim() || undefined;
+    const cases = [...src.matchAll(/@(?:Test|ParameterizedTest|RepeatedTest)\b[^{;]*?\bvoid\s+(\w+)\s*\(/g)].map((m) => {
+      const title = said(Math.max(src.lastIndexOf('}', m.index), src.lastIndexOf(';', m.index)) + 1, m.index + m[0].length);
+      return { name: m[1], line: lineOf(m.index), ...(title ? { title } : {}) };
+    });
+    // the class says what it tests: its own @DisplayName, else the first sentence of its Javadoc
+    const at = src.search(/\bclass\s+\w+/), rawAt = raw.search(/\bclass\s+\w+/);
+    const doc = rawAt < 0 ? undefined : raw.slice(raw.lastIndexOf(';', rawAt) + 1, rawAt).match(/\/\*\*([\s\S]*?)\*\//)?.[1];
+    const sentence = doc?.split('\n').map((l) => l.replace(/^\s*\*\s?/, '').trim()).filter((l) => l && !l.startsWith('@')).join(' ').replace(/<[^>]+>|\{@\w+\s+([^}]*)\}/g, '$1').match(/^(.*?[.!?])(\s|$)/)?.[1];
+    const title = (at < 0 ? undefined : said(src.lastIndexOf(';', at) + 1, at)) ?? sentence;
+    if (count) out.push({ kind: 'tests', count, level: INTEGRATION.test(src) ? 'integration' : 'unit', cases, ...(title ? { title } : {}) });
     return out;
   }
 
@@ -125,15 +136,21 @@ export function detectJava(path: string, raw: string): Finding[] {
         else if (type?.jaxrs || type?.controller) out.push({ kind: 'endpoint', method, path: p, line: at(anchor), symbol: sym, source: 'code', ...shape });
       }
     }
+    // what a listener takes is its message: the type of its first parameter that is no header nor acknowledgement
+    // (`FileEvent event`, `ConsumerRecord<String, FileEvent> record`, `Message<FileEvent> m`); what an @Outgoing gives, its return type
+    const taken = () => listenerPayload(enclosed(src, open).inner);
     for (const a of pending) {
       if (a.name === 'Incoming' || a.name === 'Outgoing') {
         const ch = annotationValue(a.args, 'value');
-        if (ch) out.push({ kind: 'channel', name: ch, dir: a.name === 'Incoming' ? 'in' : 'out', line: at(a), symbol: sym });
+        const payload = a.name === 'Incoming' ? taken().payload : bodyType(src.slice(annEnd, nameAt).replace(/\b(public|protected|private|static|final|synchronized|abstract|default)\b/g, '').replace(/^\s*<[^>]*>/, ''))?.replace(/^(?:Multi|Uni|Flowable|Publisher|Message|CompletionStage)<(.+)>$/, '$1');
+        if (ch) out.push({ kind: 'channel', name: ch, dir: a.name === 'Incoming' ? 'in' : 'out', line: at(a), symbol: sym, ...(payload && payload !== 'void' ? { payload } : {}) });
       }
       if (a.name === 'KafkaListener') {
         const topicsArg = (a.args ?? '').match(/\btopics\s*=\s*(\{[^}]*\}|"[^"]*"|[\w.]+)/)?.[1] ?? '';
-        for (const t of strings(topicsArg)) out.push({ kind: 'topic', name: t, op: 'consumes', line: at(a), symbol: sym });
-        for (const c of topicsArg.matchAll(/(?:\w+\.)?\b([A-Z][A-Z0-9_]+)\b/g)) out.push({ kind: 'topic', name: `const:${c[1]}`, op: 'consumes', line: at(a), symbol: sym });
+        const { payload, key } = taken(), group = annotationValue(a.args, 'groupId', 'id');
+        const said = { ...(payload ? { payload } : {}), ...(key ? { key } : {}), ...(group ? { group } : {}) };
+        for (const t of strings(topicsArg)) out.push({ kind: 'topic', name: t, op: 'consumes', line: at(a), symbol: sym, ...said });
+        for (const c of topicsArg.matchAll(/(?:\w+\.)?\b([A-Z][A-Z0-9_]+)\b/g)) out.push({ kind: 'topic', name: `const:${c[1]}`, op: 'consumes', line: at(a), symbol: sym, ...said });
       }
     }
     pending = [];
@@ -174,8 +191,10 @@ export function detectJava(path: string, raw: string): Finding[] {
           out.push({ kind: 'env-var', name: upper ? ph[1] : envName(ph[1]), via: upper ? 'placeholder' : 'config-mapping', configKey: upper ? undefined : ph[1], hasDefault: ph[2] !== undefined, line: lineOf(m.index) });
         }
       } else if (ann === 'Channel') {
+        // an emitter of a channel (`@Channel("uploads") Emitter<FileEvent> e`) sends that type on it
         const ch = annotationValue(args, 'value');
-        if (ch) out.push({ kind: 'channel', name: ch, dir: 'out', line: lineOf(m.index) });
+        const payload = src.slice(m.index + m[0].length).match(/^\s*(?:@\w+\s*)*(?:MutinyEmitter|Emitter)\s*<\s*([\w.]+(?:<[^<>]*>)?)\s*>/)?.[1];
+        if (ch) out.push({ kind: 'channel', name: ch, dir: 'out', line: lineOf(m.index), ...(payload ? { payload } : {}) });
       } else if (METHOD_LEVEL.has(ann) || CLASS_LEVEL.has(ann)) pending.push(a);
       continue;
     }
@@ -191,18 +210,59 @@ export function detectJava(path: string, raw: string): Finding[] {
     else if (/(?:^|\.)[A-Z][A-Z0-9_]+$/.test(arg)) out.push({ kind: 'topic', name: `const:${arg.split('.').pop()}`, op: 'defines', partitions: Number(t[2]), line });
   }
 
-  // Kafka producers: `template.send("topic", …)`, a constant, or a local variable holding literals.
-  const templates = [...src.matchAll(/KafkaTemplate\s*<[^>]*>\s+(\w+)/g)].map((x) => x[1]);
+  // Kafka producers: `template.send("topic", …)`, a constant, or a local variable holding literals. What it sends is the
+  // template's value type (`KafkaTemplate<String, FileEvent>`), or, when that says nothing (`Object`), the type of the
+  // value the send is given; its key, the template's key type when the send passes one.
+  const templates = [...src.matchAll(/KafkaTemplate\s*<\s*([^,<>]+(?:<[^<>]*>)?)\s*,\s*([^<>]+(?:<[^<>]*>)?)\s*>\s+(\w+)/g)].map((x) => ({ key: x[1].trim(), value: x[2].trim(), name: x[3] }));
+  for (const m of src.matchAll(/KafkaTemplate\s*<[^>]*>\s+(\w+)|KafkaTemplate\s+(\w+)/g)) if (!templates.some((t) => t.name === (m[1] ?? m[2]))) templates.push({ key: '', value: '', name: m[1] ?? m[2] });
   for (const t of templates) {
-    for (const s of src.matchAll(new RegExp(`\\b${t}\\.send\\(\\s*([^,)]+)`, 'g'))) {
-      const arg = s[1].trim(), line = lineOf(s.index);
-      if (/^["']/.test(arg)) out.push({ kind: 'topic', name: strings(arg)[0], op: 'publishes', line });
-      else if (/(?:^|\.)[A-Z][A-Z0-9_]+$/.test(arg)) out.push({ kind: 'topic', name: `const:${arg.split('.').pop()}`, op: 'publishes', line });
+    for (const s of src.matchAll(new RegExp(`\\b${t.name}\\.send\\(`, 'g'))) {
+      const args = topLevel(enclosed(src, s.index + s[0].length - 1).inner).map((x) => x.trim());
+      const arg = args[0] ?? '', line = lineOf(s.index);
+      const value = args.length >= 3 ? args[2] : args[1];
+      const payload = (t.value && !/^(Object|\?|String|byte\[\])$/.test(t.value) ? t.value : undefined) ?? (value ? typeOf(src, value, s.index) : undefined);
+      const said = { ...(payload ? { payload } : {}), ...(args.length >= 3 && t.key ? { key: t.key } : {}) };
+      if (/^["']/.test(arg)) out.push({ kind: 'topic', name: strings(arg)[0], op: 'publishes', line, ...said });
+      else if (/(?:^|\.)[A-Z][A-Z0-9_]+$/.test(arg)) out.push({ kind: 'topic', name: `const:${arg.split('.').pop()}`, op: 'publishes', line, ...said });
       else {
         const local = src.match(new RegExp(`\\bString\\s+${arg}\\s*=([^;]+);`));
-        for (const lit of strings(local?.[1] ?? '')) out.push({ kind: 'topic', name: lit, op: 'publishes', line });
+        for (const lit of strings(local?.[1] ?? '')) out.push({ kind: 'topic', name: lit, op: 'publishes', line, ...said });
       }
     }
   }
+
+  // The shape of a data class: a record's components, or the fields of a class that holds data (Lombok's @Data, @Value,
+  // @Getter or @Builder, or a name that says so: …Event, …Request, …Response, …Dto, …Message, …Command, …Payload).
+  for (const m of src.matchAll(/\brecord\s+(\w+)\s*(?:<[^>]*>)?\s*\(/g)) {
+    const fields = topLevel(enclosed(src, m.index + m[0].length - 1).inner).flatMap((p) => { const x = p.replace(ANNOTATION, ' ').trim().match(/^([\s\S]+?)\s+(\w+)$/); return x ? [{ name: x[2], type: x[1].replace(/\s+/g, ' ') }] : []; });
+    if (fields.length) out.push({ kind: 'shape', name: m[1], fields: fields.slice(0, 40), line: lineOf(m.index) });
+  }
+  for (const m of src.matchAll(/((?:@\w+(?:\([^)]*\))?\s*)*)(?:public\s+|protected\s+|final\s+|abstract\s+|static\s+)*class\s+(\w+)[^{]*\{/g)) {
+    if (!/@(?:Data|Value|Getter|Builder)\b/.test(m[1]) && !/(?:Event|Request|Response|Dto|DTO|Message|Command|Payload)$/.test(m[2])) continue;
+    const body = enclosed(src, m.index + m[0].length - 1).inner;
+    const fields = [...body.matchAll(/(?<=^|[;{}])\s*(?:@\w+(?:\([^)]*\))?\s*)*(?:private|protected|public)\s+(?!static\b)(?:final\s+)?([\w.]+(?:<[^;=(){}]*>)?(?:\[\])?)\s+(\w+)\s*(?:=[^;]*)?;/g)].map((f) => ({ name: f[2], type: f[1].replace(/\s+/g, ' ') }));
+    if (fields.length) out.push({ kind: 'shape', name: m[2], fields: fields.slice(0, 40), line: lineOf(m.index + m[1].length) });
+  }
   return out;
+}
+
+/** The message a listener takes: the type of its first parameter that is no header nor acknowledgement, unwrapped from a record or a message, with that record's key. */
+function listenerPayload(list: string): { payload?: string; key?: string } {
+  for (const p of topLevel(list)) {
+    if (/@Header\b/.test(p)) continue;
+    const t = p.replace(ANNOTATION, ' ').replace(/\bfinal\b/g, ' ').trim().match(/^([\s\S]+?)\s+\w+$/)?.[1].replace(/\s+/g, ' ');
+    if (!t || /^(?:Acknowledgment|Consumer|MessageHeaders|Headers)\b/.test(t)) continue;
+    const rec = t.match(/^(?:ConsumerRecord|Message|Record)<\s*(?:([\w.]+)\s*,\s*)?([\w.]+(?:<[^<>]*>)?)\s*>$/);
+    return rec ? { payload: rec[2], ...(rec[1] ? { key: rec[1] } : {}) } : { payload: t };
+  }
+  return {};
+}
+
+/** The type of what a call is given: `new FileEvent(…)`, or a variable declared before it (`FileEvent event = …`, a parameter `FileEvent event`). */
+function typeOf(src: string, expr: string, before: number): string | undefined {
+  const made = expr.match(/^new\s+([\w.]+(?:<[^<>]*>)?)\s*\(/)?.[1];
+  if (made) return made.replace(/<>$/, '');
+  if (!/^\w+$/.test(expr)) return undefined;
+  const decl = [...src.slice(0, before).matchAll(new RegExp(`([\\w.]+(?:<[^<>;=()]*>)?)\\s+${expr}\\s*[=;,)]`, 'g'))].at(-1)?.[1];
+  return decl && !/^(?:return|var|new|else|final)$/.test(decl) ? decl : undefined;
 }

@@ -31,7 +31,7 @@ const NAME = 256;
 export const BACKLOG = 8 * 1024 * 1024;
 /** Multipart parts listed in a record; the rest are counted. */
 export const PARTS = 100;
-const TEXTUAL = /^text\/(?!css|javascript)|^application\/(?:[\w.-]+\+)?(?:json|xml|x-www-form-urlencoded|x-ndjson|x-amz-json-[\d.]+)(?:[\s;]|$)/i;
+export const TEXTUAL = /^text\/(?!css|javascript)|^application\/(?:[\w.-]+\+)?(?:json|xml|x-www-form-urlencoded|x-ndjson|x-amz-json-[\d.]+)(?:[\s;]|$)/i;
 const EVENTS = /^text\/event-stream/i;
 /** How each applied fault is written on its exchange, as the plan words it. */
 const FAULT = {

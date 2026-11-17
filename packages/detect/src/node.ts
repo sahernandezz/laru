@@ -61,7 +61,9 @@ export function detectJs(path: string, raw: string): Finding[] {
   if (TEST_FILE.test(path)) {
     const count = (src.match(/\b(?:it|test)(?:\.each\([^)]*\))?\s*\(\s*['"`]/g) ?? []).length;
     const cases = [...src.matchAll(/\b(?:it|test)(?:\.each\([^)]*\))?\s*\(\s*(['"`])((?:(?!\1).)*)\1/g)].map((m) => ({ name: m[2], line: lineOf(m.index) }));
-    if (count) out.push({ kind: 'tests', count, cases, level: /@playwright\/test|cypress|\.e2e\./.test(raw + path) ? 'e2e' : /supertest|testcontainers/.test(raw) ? 'integration' : 'unit' });
+    // the file says what it tests by its first suite (`describe('el carrito', …)`)
+    const suite = src.match(/\bdescribe(?:\.\w+)?\s*\(\s*(['"`])((?:(?!\1).)+)\1/)?.[2];
+    if (count) out.push({ kind: 'tests', count, cases, level: /@playwright\/test|cypress|\.e2e\./.test(raw + path) ? 'e2e' : /supertest|testcontainers/.test(raw) ? 'integration' : 'unit', ...(suite ? { title: suite } : {}) });
     return out;
   }
 

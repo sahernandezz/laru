@@ -5,6 +5,7 @@ import { indexMap, recordedFlow, useApi, useRecorded, type EnvSummary, type Flow
 import { NAV, Shell, type Jump } from './components/Shell.tsx';
 import { Skeleton } from './components/ui.tsx';
 import { FINDING, pieceLabel } from './lib/es.ts';
+import { knowPieces } from './lib/titles.ts';
 import { addRouteFix, HOME, href, pageOf, splitStop, useRoute } from './lib/route.ts';
 import { EXPLORERS, menuOf, type Menu } from './lib/menu.ts';
 import { FromFlow } from './components/FromFlow.tsx';
@@ -60,6 +61,8 @@ export function App() {
   const ws = useApi<WorkspaceInfo>('/api/workspace');
   const map = useApi<SystemMap | null>('/api/map');
   const pieces = useApi<KnowledgeData>('/api/knowledge');
+  // a piece's id in any text of the documentation reads as its title (lib/md.tsx), before the page under it draws
+  if (pieces.data) knowPieces(pieces.data.pieces);
   const g = useMemo(() => (map.data ? indexMap(map.data) : null), [map.data]);
   // The browser tab, from the specific to the general: «invoices · public · postgres · local · Bases · Comercio — Laru».
   const screenName = NAV.flatMap(([, items]) => items).find((i) => i.route === screen)?.label ?? ({ flows: tr('Flujos'), scenarios: tr('Escenarios'), envs: tr('Entornos'), data: tr('Bases de datos'), queues: tr('Colas'), storage: tr('Almacenamiento'), live: tr('En vivo'), studio: tr('Estudio'), flowdata: tr('Datos del último run') } as Record<string, string>)[screen] ?? screen;
@@ -151,7 +154,8 @@ function useMenu(route: string[], g: Indexed | null, k: KnowledgeData | undefine
   const flows = useApi<FlowInfo[]>(thing && (screen === 'docs' || screen === 'map' || screen === 'flowdata' || EXPLORERS.includes(screen)) ? '/api/flows' : null);
   // a data screen on a run's recording keeps its flow's menu (the address says which flow)
   const recording = useRecorded() ? recordedFlow() ?? undefined : undefined;
-  const envs = useApi<EnvSummary[]>(thing && (screen === 'envs' || EXPLORERS.includes(screen)) ? '/api/envs' : null);
+  // a session's menu is its env's, which says whether it is an app by URL (no data screens to open)
+  const envs = useApi<EnvSummary[]>(thing && (screen === 'envs' || screen === 'live' || EXPLORERS.includes(screen)) ? '/api/envs' : null);
   const runs = useApi<RunInfo[]>(thing && (screen === 'envs' || screen === 'live' || EXPLORERS.includes(screen)) ? '/api/runs' : null);
   const std = useApi<StandardData>(thing && screen === 'standard' ? '/api/standard' : null);
   const session = useApi<{ id: string; env: string }>(thing && screen === 'live' ? `/api/run?id=${encodeURIComponent(a)}` : null);

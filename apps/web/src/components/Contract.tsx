@@ -10,7 +10,7 @@ import type { EndpointMatch } from '@laru/trace/assemble';
 import { endpointOf } from '@laru/trace/summarize';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { DocPiece, Exchange, Fact, Indexed, KnowledgeData, MapNode, MockOperation, Sample, Seen, SeenEndpoint } from '../api.ts';
-import { detailOf, entitiesOf, errorsOf, eventsOf, listed, opKey, opOfCall, opOfEndpoint, opsOf, unlisted, type ApiRow, type Diff, type Ev, type Op } from '../lib/contracts.ts';
+import { detailOf, entitiesOf, errorsOf, eventsOf, listed, noteParts, opKey, opOfCall, opOfEndpoint, opsOf, unlisted, type ApiRow, type Diff, type Ev, type Op } from '../lib/contracts.ts';
 import { plural, STATUS } from '../lib/es.ts';
 import { Inline, Markdown } from '../lib/md.tsx';
 import { href } from '../lib/route.ts';
@@ -222,7 +222,7 @@ const Diffs = ({ list }: { list: Diff[] }) => <ul className="ep-diffs">{list.map
  * it answers, its errors) with what its code says under it; on the other, apart, what the runs saw of it and where that
  * strays from the contract. What is not known yet says what brings it. `write`: where its contract gets written.
  */
-export function EndpointBody({ r, seen, diffs, write, reaches }: { r: ApiRow; seen: Loaded<Seen>; diffs: Diff[]; write: string; reaches?: Array<{ ep: MapNode; service?: MapNode }> }) {
+export function EndpointBody({ r, seen, diffs, write, reaches, to, shapes }: { r: ApiRow; seen: Loaded<Seen>; diffs: Diff[]; write: string; reaches?: Array<{ ep: MapNode; service?: MapNode; op?: Op }>; to?: string[]; shapes?: Record<string, Shape> }) {
   const s = r.ep ? seen.data?.endpoints[r.ep.id] : undefined;
   const op = r.op, a = r.ep?.attrs ?? {};
   const params = (a.params ?? []) as CodeParam[], returns = a.returns as string | undefined, statuses = (a.statuses ?? []) as number[];
@@ -230,16 +230,30 @@ export function EndpointBody({ r, seen, diffs, write, reaches }: { r: ApiRow; se
   const detail = op ? detailOf(op.contract, op) : '';
   const byCode = (d: Diff) => d.key === 'code-status-unlisted' || (d.key === 'success-differs' && d.from === 'code') || (d.key === 'unnamed' && d.side === 'code');
   const fill = op && <>{tr('Lo completa el agente al documentar el servicio, o tú:')}{' '}<a className="rowlink" href={href('docs', op.contract.id, 'edit')}>{tr('Editar «{title}»', { title: op.contract.title })}</a></>;
-  const takes = r.ep && (params.length ? <Code><CodeParams params={params} /></Code> : a.handler ? <Code><span className="faint">{tr('no lee parámetros de la petición')}</span></Code> : null);
-  const gives = r.ep && (returns || statuses.length) ? <Code>{returns ? trx('devuelve {returns}', { returns: <code>{returns}</code> }) : null}{returns && statuses.length ? ' · ' : ''}{statuses.length ? trx('responde {statuses}', { statuses: statusList(statuses) }) : null}</Code> : null;
+  // a body or an answer of a named type says its fields, when the code declares them
+  const bodyType = params.find((x) => x.in === 'body')?.type;
+  const takes = r.ep && (params.length ? <Code><CodeParams params={params} />{bodyType && <TypeFields type={bodyType} shapes={shapes} />}</Code> : a.handler ? <Code><span className="faint">{tr('no lee parámetros de la petición')}</span></Code> : null);
+  const gives = r.ep && (returns || statuses.length) ? <Code>{returns ? trx('devuelve {returns}', { returns: <code>{returns}</code> }) : null}{returns && statuses.length ? ' · ' : ''}{statuses.length ? trx('responde {statuses}', { statuses: statusList(statuses) }) : null}{returns && <TypeFields type={returns} shapes={shapes} />}</Code> : null;
   return (
     <div className="ep-cols">
       <section className="ep-col" aria-label={tr('Contrato')}>
         <h5><Origin of="declared" label={false} />{tr('Contrato')}{op && <ContractChip op={op} />}</h5>
         {r.forward ? (
           <>
-            <p className="ep-p">{tr('Solo reenvía: lo que recibe y responde lo dicen los contratos de lo que alcanza.')}</p>
-            {reaches?.length ? <ul className="plain reaches">{reaches.map(({ ep, service }) => <li key={ep.id}><Method m={String(ep.attrs?.method)} /><span className="mono">{String(ep.attrs?.path)}</span>{service && <a className="rowlink" href={href('map', service.id)}>{service.name}</a>}</li>)}</ul> : null}
+            <p className="ep-p">{tr('Solo reenvía: lo que recibe y responde es lo que dice el contrato de cada operación que alcanza.')}</p>
+            {reaches?.length ? <div className="scroll-x"><table className="t reach-t">
+              <thead><tr><th>{tr('Alcanza')}</th><th>{tr('Para qué')}</th><th>{tr('Contrato')}</th></tr></thead>
+              <tbody>{reaches.map(({ ep, service, op: o }) => (
+                <tr key={ep.id}>
+                  <td className="two"><span className="mono"><Method m={String(ep.attrs?.method)} /> {String(ep.attrs?.path)}</span>{service && <span className="sub"><a className="rowlink" href={href('map', service.id, 't', 'endpoints')}>{service.name}</a></span>}</td>
+                  <td className="wrap">{o?.summary ? <Inline text={o.summary} /> : <span className="faint">{tr('ningún contrato lo documenta')}</span>}{o?.request && <span className="faint reach-io"><b>{tr('Recibe:')}</b> <Inline text={o.request} /></span>}{o?.response && <span className="faint reach-io"><b>{tr('Responde:')}</b> <Inline text={o.response} /></span>}</td>
+                  <td>{o ? <a className="chip ctr" href={href('docs', o.contract.id)}><Braces />{o.contract.title}</a> : <Drift>{tr('Sin contrato')}</Drift>}</td>
+                </tr>
+              ))}</tbody>
+            </table></div> : <p className="ep-p faint">{to?.length && String(a.path).endsWith('/**')
+              // a prefix that reaches nothing of its method: the gateway lets it through and nothing the code declares answers it
+              ? tr('En el mapa, {services} no tiene ninguna operación {method} bajo {prefix}: lo que pase por aquí no lo atiende nada que su código declare.', { services: to.join(', '), method: r.method, prefix: String(a.path).slice(0, -2) })
+              : tr('El mapa no ve a qué operaciones llega.')}</p>}
           </>
         ) : !op ? (
           <>
@@ -376,34 +390,82 @@ function Events({ evs, g, seen }: { evs: Ev[]; g: Indexed | null; seen?: Seen })
  * sheet (`self`) it names its contract instead of the service; one the code does and no contract declares is `unlisted`.
  * `apart`: what the runs saw goes in a block of its own, and what the contract does not say says what brings it.
  */
-export function EventRow({ e, g, seen, self, unlisted: off, apart }: { e: Omit<Ev, 'contract'> & { contract?: DocPiece }; g: Indexed | null; seen?: Seen; self?: boolean; unlisted?: boolean; apart?: boolean }) {
+/** A data class of a service's code, by name (/api/service-shapes): what a message or a body carries, field by field. */
+export interface Shape { fields: Array<{ name: string; type: string }>; file: string; line: number }
+/** What a fact's note says its code sends or takes on a topic: `payload FileEvent, key String, group g`. */
+const noteSays = (note?: string) => {
+  const parts = noteParts(note ?? ''), says = (k: string) => parts.find((p) => p.startsWith(`${k} `))?.slice(k.length + 1);
+  return { payload: says('payload'), key: says('key'), group: says('group') };
+};
+/** A type's fields, when its code declares them; a type with none Laru reads says how it is read. */
+export function TypeFields({ type, shapes }: { type: string; shapes?: Record<string, Shape> }) {
+  const sh = shapes?.[type.replace(/^.*\./, '').replace(/<.*$/, '')] ?? shapes?.[type.match(/<\s*(?:[\w.]+\s*,\s*)?([\w.]+)\s*>$/)?.[1] ?? ''];
+  if (sh) return <ul className="plain type-fields">{sh.fields.map((f) => <li key={f.name}><span className="mono">{f.name}</span><span className="mono faint">{f.type}</span></li>)}</ul>;
+  if (/^(?:Map|HashMap|JsonNode|Object|String|byte\[\])\b/.test(type)) return <p className="ep-p faint">{tr('Su código lo lee sin un tipo propio: lo que trae solo lo dice el contrato.')}</p>;
+  return null;
+}
+
+/**
+ * A topic a service publishes or consumes. In a contract's page, one line (the topic, who, what it carries). Apart, on a
+ * service's sheet, its contract the way an endpoint's is: what it is for, what it carries and its key, with what the code
+ * sends or takes under each (the message's type and fields, its key, the consumer's group), who else publishes or
+ * consumes it, and, beside it, what the runs saw.
+ */
+export function EventRow({ e, g, seen, self, unlisted: off, apart, shapes }: { e: Omit<Ev, 'contract'> & { contract?: DocPiece }; g: Indexed | null; seen?: Seen; self?: boolean; unlisted?: boolean; apart?: boolean; shapes?: Record<string, Shape> }) {
   const svc = g?.nodes.get(e.service);
-  const inCode = g?.out(e.service).some((f) => f.p === e.direction && f.o === `topic:${e.topic}`);
+  const fact = g?.out(e.service).find((f) => f.p === e.direction && f.o === `topic:${e.topic}`);
+  const inCode = Boolean(fact);
   const t = seen?.topics[e.topic];
   const saw = t && (e.direction === 'publishes' ? t.publishers : t.consumers).includes(svc?.name ?? e.service.replace(/^svc:/, ''));
   const real = t && (saw ? (e.direction === 'publishes' ? tr('{n}, el último en el run {run}', { n: plural(t.count, tr('mensaje'), tr('mensajes')), run: t.run }) : tr('lo consumió en el run {run}', { run: t.run })) : tr('los runs vieron el tema, pero no a este servicio en él'));
   const sample = t?.sample?.req?.text && e.direction === 'publishes' && saw && (
     <details className="resp-ex"><summary>{tr('Mensaje real del run')}{' '}{t.sample!.run}</summary><CodeBlock text={t.sample!.req!.text!} lang={langOf(t.sample!.req!.text!)} format label={tr('Mensaje de {topic}', { topic: e.topic })} /></details>
   );
+  const head = (
+    <div className="ev-h">
+      {!apart && <span className={`dir ${e.direction}`}>{DIRECTION[e.direction] ?? e.direction}</span>}
+      <a className="mono rowlink k-kafka-ink" href={href('map', `topic:${e.topic}`)}>{e.topic}</a>
+      {!self && <span className="faint">{svc ? <a className="rowlink" href={href('map', svc.id)}>{svc.name}</a> : e.service}</span>}
+      <span className="op-tags">
+        {self && e.contract && <a className="chip ctr" href={href('docs', e.contract.id)}><Braces />{e.contract.title}</a>}
+        {off && <Drift>{tr('Sin contrato')}</Drift>}
+        {g && e.contract && !inCode && <Drift>{tr('No está en el código')}</Drift>}
+        {t && !apart && <span className="faint num" title={tr('Visto en el run {run}', { run: t.run })}><Origin of="observed" label={false} />{saw ? (e.direction === 'publishes' ? plural(t.count, tr('mensaje'), tr('mensajes')) : tr('consumido en los runs')) : tr('no visto en este servicio')}</span>}
+      </span>
+    </div>
+  );
+  if (!apart) return <li>{head}{e.payload && <p className="ev-payload"><span className="faint">{tr('Contenido:')}</span> <Inline text={e.payload} /></p>}{sample}</li>;
+
+  const code = noteSays(fact?.note);
+  const fill = e.contract ? <>{tr('Lo completa el agente al documentar el servicio, o tú:')}{' '}<a className="rowlink" href={href('docs', e.contract.id, 'edit')}>{tr('Editar «{title}»', { title: e.contract.title })}</a></> : tr('Lo escribe el agente al documentar el servicio: en «Eventos» de un contrato, una fila por tema.');
+  const where = fact?.anchor ? `${fact.anchor.path.split('/').pop()}${fact.anchor.line ? `:${fact.anchor.line}` : ''}` : '';
+  // the other end: who else publishes it when this one consumes, who consumes it when this one publishes, each with how
+  const others = g ? g.in(`topic:${e.topic}`).filter((f) => f.p === (e.direction === 'publishes' ? 'consumes' : 'publishes') && f.s !== e.service) : [];
   return (
-    <li>
-      <div className="ev-h">
-        {!apart && <span className={`dir ${e.direction}`}>{DIRECTION[e.direction] ?? e.direction}</span>}
-        <a className="mono rowlink k-kafka-ink" href={href('map', `topic:${e.topic}`)}>{e.topic}</a>
-        {!self && <span className="faint">{svc ? <a className="rowlink" href={href('map', svc.id)}>{svc.name}</a> : e.service}</span>}
-        <span className="op-tags">
-          {self && e.contract && <a className="chip ctr" href={href('docs', e.contract.id)}><Braces />{e.contract.title}</a>}
-          {off && <Drift>{tr('Sin contrato')}</Drift>}
-          {g && e.contract && inCode === false && <Drift>{tr('No está en el código')}</Drift>}
-          {t && !apart && <span className="faint num" title={tr('Visto en el run {run}', { run: t.run })}><Origin of="observed" label={false} />{saw ? (e.direction === 'publishes' ? plural(t.count, tr('mensaje'), tr('mensajes')) : tr('consumido en los runs')) : tr('no visto en este servicio')}</span>}
-        </span>
+    <li className="ev-card">
+      {head}
+      <div className="ep-cols">
+        <section className="ep-col" aria-label={tr('Contrato')}>
+          <h5><Origin of="declared" label={false} />{tr('Contrato')}</h5>
+          {!e.contract && <Missing how={fill}>{tr('Ningún contrato declara este evento.')}</Missing>}
+          {e.contract && <Part label={tr('Para qué')}>{e.summary ? <p className="ep-p"><Inline text={e.summary} /></p> : <Missing how={fill}>{tr('El contrato no dice para qué es.')}</Missing>}</Part>}
+          {(e.contract || code.payload) && <Part label={tr('Contenido')}>
+            {e.payload ? <p className="ep-p"><Inline text={e.payload} /></p> : e.contract ? <Missing how={fill}>{tr('El contrato no dice qué lleva.')}</Missing> : null}
+            {code.payload && <Code>{e.direction === 'publishes' ? trx('envía {type}', { type: <code>{code.payload}</code> }) : trx('recibe {type}', { type: <code>{code.payload}</code> })}{where && <span className="faint"> · {where}</span>}<TypeFields type={code.payload} shapes={shapes} /></Code>}
+          </Part>}
+          <Part label={tr('Clave')}>
+            {e.key ? <p className="ep-p"><Inline text={e.key} /></p> : !code.key && <p className="ep-p faint">{tr('Ni el contrato ni el código dicen por qué clave va: sin ella, los mensajes no guardan orden entre sí.')}</p>}
+            {code.key && <Code>{trx('clave de tipo {type}', { type: <code>{code.key}</code> })}</Code>}
+          </Part>
+          {(code.group || e.direction === 'consumes') && <Part label={tr('Grupo')}>{code.group ? <Code><code>{code.group}</code>{' '}<span className="faint">{tr('cada grupo recibe cada mensaje una vez')}</span></Code> : <p className="ep-p faint">{tr('Su código no dice en qué grupo consume.')}</p>}</Part>}
+          <Part label={e.direction === 'publishes' ? tr('Lo consumen') : tr('Lo publica')}>{others.length ? <ul className="plain ev-others">{others.map((f) => { const o = noteSays(f.note), n = g!.nodes.get(f.s); return <li key={f.s}><a className="rowlink" href={href('map', f.s, 't', 'events')}>{n?.name ?? f.s}</a>{o.payload && <span className="mono faint">{o.payload}</span>}{o.group && <span className="faint">{tr('grupo {g}', { g: o.group })}</span>}</li>; })}</ul> : <p className="ep-p faint">{e.direction === 'publishes' ? tr('Nadie en el mapa lo consume.') : tr('Nadie en el mapa lo publica.')}</p>}</Part>
+        </section>
+        <section className="ep-col real" aria-label={tr('Datos reales')}>
+          <h5><Origin of="observed" label={false} />{tr('Datos reales')}<span className="sub">{tr('lo que vieron los runs')}</span></h5>
+          {real ? <p className="ep-p">{real}</p> : <Missing how={tr('Lo trae el primer run de un flujo que lo provoque.')}>{tr('Ningún run lo ha visto todavía.')}</Missing>}
+          {sample}
+        </section>
       </div>
-      {e.payload ? <p className="ev-payload"><span className="faint">{tr('Contenido:')}</span> <Inline text={e.payload} /></p>
-        : apart && (e.contract ? <Missing how={<>{tr('Lo completa el agente al documentar el servicio, o tú:')}{' '}<a className="rowlink" href={href('docs', e.contract.id, 'edit')}>{tr('Editar «{title}»', { title: e.contract.title })}</a></>}>{tr('El contrato no dice qué lleva.')}</Missing>
-          : <Missing how={tr('Lo escribe el agente al documentar el servicio: en «Eventos» de un contrato, con su contenido.')}>{tr('Ningún contrato declara este evento.')}</Missing>)}
-      {apart ? (
-        <div className="ev-real"><span className="src"><Origin of="observed" label={false} />{tr('Datos reales')}</span>{real ?? <span className="faint">{tr('Ningún run lo ha visto todavía: lo trae el primer run de un flujo que lo provoque.')}</span>}{sample}</div>
-      ) : sample}
     </li>
   );
 }

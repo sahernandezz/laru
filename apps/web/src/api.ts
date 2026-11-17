@@ -46,7 +46,7 @@ export interface WorkspaceProbe { ok: boolean; reason?: 'empty' | 'missing' | 'n
 /** An up or down the service runs detached; `done` once it settles, with `error` when it failed. */
 export interface EnvOp { kind: 'up' | 'down'; startedAt: string; error?: string; done?: boolean }
 /** With several projects: which ones an env runs, and a joint env's members and shares. */
-export interface EnvShape { projects?: string[]; join?: string[]; share?: Record<string, string> }
+export interface EnvShape { projects?: string[]; join?: string[]; share?: Record<string, string>; /** an env by URL: the app already running at this address, which Laru opens and never runs */ url?: string }
 export type EnvSummary = EnvStatus & EnvShape & { op: EnvOp | null };
 export type EnvDetail = EnvSummary & { spec: EnvSpec | null; specError: string | null; dir: string };
 /** A run with where it lives on this machine and how much it weighs. */

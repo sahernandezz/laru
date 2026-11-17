@@ -41,6 +41,7 @@ const HELP = `laru — a workspace around your application's repositories
   laru docs scaffold [--dry-run]       create the pieces the application lacks (architecture, stack, versioning, infrastructure, secrets, operating guides), started from the code
   laru docs note [id] [--json]         how complete each piece is (0–100) and what it still owes
   laru env init <name> --from <repo>:<compose file>[,<file>…] | --join <env>,<env> [--share <svc>=<svc>]   a joint env runs several projects together
+  laru env init <name> --url <address>   an env by URL: the app already running there (localhost, a QA, a public site); Laru opens it, records what the browser asks, the page's console and errors, and never runs or changes it
   laru env list | env status [env] [--json]
   laru up [env] [--hybrid a,b] [--services a,b] [--worktree] [--rebuild a,b|all [--yes]] [--force] [-v]   build what changed, start, wait until ready (--rebuild: those images again without the cache, only when a dependency fetched at build time changed; --force: skip the memory check)
   laru down [env] [--dry-run] [--caches]   remove the env's containers, network and volumes (by label)
@@ -104,7 +105,7 @@ export async function run(argv: string[], io: Out = stdio, cwd = process.cwd()):
       flow: { type: 'string' }, last: { type: 'string' }, step: { type: 'string' }, exchange: { type: 'string' }, affected: { type: 'boolean' }, failed: { type: 'boolean' }, workers: { type: 'string' }, runs: { type: 'string' }, key: { type: 'string' }, recursive: { type: 'boolean' }, latency: { type: 'string' }, abort: { type: 'boolean' }, timeout: { type: 'boolean' }, bandwidth: { type: 'string' }, 'slow-after': { type: 'string' }, p: { type: 'string' }, path: { type: 'string' }, method: { type: 'string' }, 'no-cache': { type: 'boolean' }, reason: { type: 'string' }, until: { type: 'string' }, reorder: { type: 'boolean' },
       filter: { type: 'string' }, sort: { type: 'string' }, projection: { type: 'string' }, skip: { type: 'string' }, broker: { type: 'string' },
       kind: { type: 'string' }, q: { type: 'string' }, part: { type: 'string' }, to: { type: 'string' }, as: { type: 'string' }, code: { type: 'string' }, within: { type: 'string' }, join: { type: 'string' }, share: { type: 'string' }, ignore: { type: 'string' },
-      for: { type: 'string' }, since: { type: 'string' }, browser: { type: 'boolean' }, in: { type: 'string' }, scenario: { type: 'string' }, ws: { type: 'string' }, force: { type: 'boolean' }, stop: { type: 'boolean' }, quiet: { type: 'boolean' }, token: { type: 'boolean' }, yes: { type: 'boolean' },
+      for: { type: 'string' }, since: { type: 'string' }, url: { type: 'string' }, browser: { type: 'boolean' }, in: { type: 'string' }, scenario: { type: 'string' }, ws: { type: 'string' }, force: { type: 'boolean' }, stop: { type: 'boolean' }, quiet: { type: 'boolean' }, token: { type: 'boolean' }, yes: { type: 'boolean' },
     },
   });
   const rootOf = () => resolveRoot({ dir: o.workspace ? String(o.workspace) : undefined, ws: o.ws as string | undefined, env: envOf('WORKSPACE'), cwd });

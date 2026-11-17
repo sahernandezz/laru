@@ -14,6 +14,8 @@ export interface EnvSpec {
   from?: { repo: string; path: string };
   /** a joint env: the project envs it runs together, as one compose project with a network per project */
   join?: string[];
+  /** an env by URL: the app already running at this address (yours on localhost, a QA, a public site); Laru never runs or changes it, it opens it and records what the browser asks */
+  url?: string;
   /** joint envs: a service that is not started → the one whoever used it uses instead (`audit-kafka: kafka`) */
   share: Record<string, string>;
   extends?: string;

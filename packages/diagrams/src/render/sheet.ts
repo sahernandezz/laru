@@ -89,6 +89,12 @@ export type ToneName = keyof typeof TONES;
 
 /** The ground of every sheet: the app's own surface, so a drawing sits in the interface and not on a page pasted onto it. */
 export const PAPER = '#16181D';
+/**
+ * The paper as a sheet paints it: what the page it sits in calls `--pd-paper` (Laru's interface sets its own surface
+ * there in a dark theme, so a drawing has no ground of its own and its casings knock lines out against that surface),
+ * else PAPER, which is what an exported drawing keeps.
+ */
+export const GROUND = `var(--pd-paper, ${PAPER})`;
 /** The graticule ruled on it: texture at 1.16:1, which is under the threshold of content. */
 export const GRATICULE = '#23262C';
 /** The furniture — neatline, corner ticks, the rule under the title. */
@@ -287,7 +293,7 @@ export function styleBlock(reg: Register, fontSrc?: string): string {
   const rules: Array<[string, string]> = [
     ['&', `font-family: ${FONT}`],
     ['.pd-icon', 'pointer-events: none'],
-    ['.pd-ground', `fill: ${PAPER}; stroke: none`],
+    ['.pd-ground', `fill: ${GROUND}; stroke: none`],
     // No `fill` here: a declaration beats the `fill="url(#…)"` attribute that carries the
     // pattern, and the ruling vanished with nothing to show for it.
 
@@ -295,9 +301,13 @@ export function styleBlock(reg: Register, fontSrc?: string): string {
     // the cheapest tell there is that somebody drew this rather than generated it.
     ['.pd-node > rect, & .pd-node > path, & .pd-node > circle, & .pd-node > ellipse', 'stroke-width: 1.75; stroke-linejoin: round'],
     ['.pd-node > .pd-index, & .pd-node > .pd-band', 'stroke: none'],
+    // A table is told by its band, and its keyline stays quiet: in the ink of the routes, a relation running beside an
+    // entity read as a second border round it, and a data model as a mesh of frames.
+    ['.pd-node > .pd-table', 'stroke-opacity: 0.4'],
     ['.pd-lid', 'fill: none; stroke-width: 1.2; opacity: 0.55'],
     ['.pd-external > rect, & .pd-external > path', 'stroke-dasharray: 5 3'],
     ['.pd-emphasis > rect, & .pd-emphasis > path, & .pd-emphasis > circle', `stroke: ${TITLE_INK}; stroke-width: 2.75`],
+    ['.pd-emphasis > .pd-table', 'stroke-opacity: 1'],
 
     // A region is ground: a flat tint, the register's texture over it, then the keyline.
     // A frame is not a territory and gets none of it — only a broken rule saying «together».
@@ -308,7 +318,7 @@ export function styleBlock(reg: Register, fontSrc?: string): string {
     // Routes, with casings. The paper under the line is what makes one route crossing
     // another readable without a bridge symbol, and what lifts the line work off the
     // keylines — at the same weight and the same darkness they read as one flat wire mesh.
-    ['.pd-casing', `fill: none; stroke: ${PAPER}; stroke-width: 4.5; stroke-linecap: round; stroke-linejoin: round`],
+    ['.pd-casing', `fill: none; stroke: ${GROUND}; stroke-width: 4.5; stroke-linecap: round; stroke-linejoin: round`],
     ['.pd-line', `fill: none; stroke: ${route}; stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round`],
     ['.pd-primary .pd-casing', 'stroke-width: 6.5'],
     ['.pd-primary .pd-line', 'stroke-width: 2.75'],
@@ -317,7 +327,7 @@ export function styleBlock(reg: Register, fontSrc?: string): string {
 
     // Anything that crosses line work is knocked out of it. `paint-order` is a presentation
     // property of the same document, so it survives the `data:` URI an export goes through.
-    ['.pd-halo', `paint-order: stroke fill; stroke: ${PAPER}; stroke-width: 3.5; stroke-linejoin: round`],
+    ['.pd-halo', `paint-order: stroke fill; stroke: ${GROUND}; stroke-width: 3.5; stroke-linejoin: round`],
 
     ['.pd-edge-label', `fill: ${route}; font-weight: 600; letter-spacing: 0.015em`],
     ['.pd-boundary-label', 'font-weight: 600; letter-spacing: 0.12em'],

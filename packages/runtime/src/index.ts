@@ -15,6 +15,7 @@ export * from './db.ts';
 export * from './runs.ts';
 export * from './runner-file.ts';
 export * from './sessions.ts';
+export * from './urlenv.ts';
 export * from './video.ts';
 export * from './scenarios.ts';
 export * from './behavior.ts';

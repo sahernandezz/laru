@@ -342,12 +342,14 @@ export function buildSystemMap(ws: Workspace, extractions: RepoExtraction[]): Sy
         if (!name) continue;
         if (f.kind === 'topic' && f.op === 'defines') { b.node({ id: `topic:${name}`, type: 'topic', name, attrs: { partitions: f.partitions } }); if (stores.queue) b.fact(stores.queue, 'contains', `topic:${name}`, 'derived'); continue; }
         b.node({ id: `topic:${name}`, type: 'topic', name });
-        b.fact(s.id, op as 'publishes' | 'consumes', `topic:${name}`, 'extracted', at);
+        // what its code sends or takes on it, its key and its group, for the agent and the sheet (`payload FileEvent, key String`)
+        const how = [f.payload && `payload ${f.payload}`, f.kind === 'topic' && f.key && `key ${f.key}`, f.kind === 'topic' && f.group && `group ${f.group}`].filter(Boolean).join(', ');
+        b.fact(s.id, op as 'publishes' | 'consumes', `topic:${name}`, 'extracted', at, how || undefined);
         if (stores.queue) b.fact(stores.queue, 'contains', `topic:${name}`, 'derived');
       }
       if (f.kind === 'dependency') {
         const id = `dep:${f.ecosystem}:${f.name}`;
-        b.node({ id, type: 'dependency', name: f.name, kind: f.ecosystem, attrs: { version: f.version, scope: f.scope } });
+        b.node({ id, type: 'dependency', name: f.name, kind: f.ecosystem, attrs: { version: f.version, scope: f.scope, ...(f.property ? { property: f.property } : {}), ...(f.managedBy ? { managedBy: f.managedBy } : {}) } });
         b.fact(s.id, 'depends-on', id, 'extracted', at);
       }
       if (f.kind === 'outbound') {

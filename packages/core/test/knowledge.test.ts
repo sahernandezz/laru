@@ -214,6 +214,9 @@ test('the documentation model over a real workspace', async (t) => {
     // an operation that does not say what it takes is a name, not a contract: the note says which
     const bare = documentNote({ id: 'ctr:x', status: 'active', ...input, fields: { ...input.fields, operations: [{ ...op, request: ' ' }] } });
     assert.deepEqual(bare.owed.filter((i) => i.key === 'operation-detail').map((i) => i.params?.operations), ['POST /refunds']);
+    // nor is an event that does not say what it is for
+    const mute = documentNote({ id: 'ctr:x', status: 'active', ...input, fields: { ...input.fields, events: [{ topic: 'refunds', direction: 'publishes', service: 'svc:billing-api', payload: '`RefundIssued`' }] } });
+    assert.deepEqual(mute.owed.filter((i) => i.key === 'event-detail').map((i) => i.params?.events), ['refunds']);
     // check says it per service, and the service's sheet owes it
     const check = await checkWorkspace(ws, now);
     const billing = check.issues.find((i) => i.key === 'endpoint-without-contract' && i.id === 'svc:billing-api');

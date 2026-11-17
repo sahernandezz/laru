@@ -188,7 +188,9 @@ export function FlowStart({ k, p, flow, envs }: { k: KnowledgeData; p: DocPiece;
   const busy = d?.op && !d.op.done;
   // while it starts or stops, ask again
   useEffect(() => { if (!busy) return; const t = setInterval(() => fe.reload(), 2500); return () => clearInterval(t); }, [busy]); // eslint-disable-line react-hooks/exhaustive-deps
-  const bases = (envs ?? []).filter((e) => !/^f-/.test(e.env)).map((e) => e.env);
+  // a flow's own env is an instance of a project env: an app by URL is not one to copy (it runs on its own)
+  const bases = (envs ?? []).filter((e) => !/^f-/.test(e.env) && !e.url).map((e) => e.env);
+  const urls = (envs ?? []).filter((e) => e.url);
   const [from, setFrom] = useState<string>();
   const base = from ?? d?.base ?? bases[0];
   const state = d?.status?.state;
@@ -202,7 +204,9 @@ export function FlowStart({ k, p, flow, envs }: { k: KnowledgeData; p: DocPiece;
       {row(tr('Necesita'), needs.length ? <span className="chips-inline">{needs.map((n) => <a key={n} className="chip" href={href('map', n)}>{n}</a>)}</span> : tr('nada declarado'))}
       {row(tr('Límite de tiempo'), flow?.timeoutMs ? `${Math.round(flow.timeoutMs / 1000)} s` : tr('el de siempre'))}
       <div className="estado-acts">
-        {!d?.exists || state === 'absent' ? <>
+        {urls.map((u) => <ActionButton key={u.env} icon={Play} primary={!bases.length} disabled={u.state !== 'ready'} title={u.state === 'ready' ? tr('Juega sus pruebas contra {url}', { url: u.url }) : tr('{url} no responde: arranca la aplicación donde vive', { url: u.url })}
+          run={() => askFirst((confirm) => api<{ id: string }>('/api/runs/start', { method: 'POST', body: { env: u.env, flows: [slug], confirm, pwTrace: true } }).then((r) => { location.hash = href('runs', r.id); }), tr('Ejecutar'))}>{tr('Ejecutar en {env}', { env: u.env })}</ActionButton>)}
+        {!bases.length ? null : !d?.exists || state === 'absent' ? <>
           {bases.length > 1 && <label className="faint">{tr('Derivarlo de')}{' '}<select value={base} onChange={(e) => setFrom(e.target.value)}>{bases.map((b) => <option key={b}>{b}</option>)}</select></label>}
           <ActionButton icon={Play} primary run={() => post('/api/flow-env/up', { flow: slug, from: base })} done={() => tr('Levantando el entorno de este flujo')}>{tr('Aprovisionar su entorno')}</ActionButton>
         </> : <>
@@ -215,7 +219,8 @@ export function FlowStart({ k, p, flow, envs }: { k: KnowledgeData; p: DocPiece;
       {refused && <div className="notice" role="alert" style={{ margin: '0 16px 12px' }}><div><b>{tr('No se levantó.')}</b> {admissionText(d!.op!.admission!, d!.instance)}
         {d!.op!.admission!.offer && <> <ActionButton icon={Play} sm run={() => post('/api/flow-env/up', { flow: slug, from: base, stopOffered: true })}>{tr('Parar {env} y seguir', { env: d!.op!.admission!.offer!.env })}</ActionButton></>}</div></div>}
       {d?.op?.error && !refused && <div className="notice" role="alert" style={{ margin: '0 16px 12px' }}><div><b>{tr('No se pudo.')}</b> <span className="mono">{d.op.error}</span></div></div>}
-      <p className="faint" style={{ margin: '4px 16px 12px' }}>{tr('Es una instancia de')}{' '}{bases.length ? bases.join(' o ') : tr('un entorno')}{' '}{tr('entera (la aplicación llama a más servicios de los que el flujo nombra), con direcciones propias en 127.0.0.1; tu')}{' '}{bases[0] ?? tr('entorno')}{' '}{tr('no se toca salvo que confirmes pararlo para que quepa.')}</p>
+      {bases.length > 0 && <p className="faint" style={{ margin: '4px 16px 12px' }}>{tr('Es una instancia de')}{' '}{bases.join(' o ')}{' '}{tr('entera (la aplicación llama a más servicios de los que el flujo nombra), con direcciones propias en 127.0.0.1; tu')}{' '}{bases[0]}{' '}{tr('no se toca salvo que confirmes pararlo para que quepa.')}</p>}
+      {urls.length > 0 && <p className="faint" style={{ margin: '4px 16px 12px' }}>{tr('En una aplicación por URL la traza es lo que da el navegador: cada petición de la página y lo que dice en su consola.')}</p>}
     </section>
   );
 }
@@ -301,7 +306,7 @@ function ScenarioInEnv({ env, id }: { env: string; id: string }) {
   );
 }
 
-const LEVEL_WORD: Record<string, string> = { compose: tr('el compose'), app: tr('aplicativo'), env: tr('entorno'), service: tr('servicio'), flows: tr('flujos'), personal: 'personal' };
+export const LEVEL_WORD: Record<string, string> = { compose: tr('el compose'), app: tr('aplicativo'), env: tr('entorno'), service: tr('servicio'), flows: tr('flujos'), personal: 'personal' };
 
 /**
  * Which level of the vault wins for each variable a piece's code reads, in the environment you pick, and its value: this
@@ -314,6 +319,8 @@ export function VarLevels({ names, service }: { names: Array<{ name: string; sec
   const vars = useApi<VarsData>(env ? `/api/vars?env=${encodeURIComponent(env)}` : null);
   const [vals, setVals] = useState<Array<{ section: string; key: string; value: string }>>([]);
   useEffect(() => { if (env) api<{ entries: typeof vals }>('/api/vars/values', { method: 'POST', body: { env } }).then((r) => setVals(r.entries), () => setVals([])); }, [env]);
+  // a secret's value shows only when asked, as on a service's sheet
+  const [shown, setShown] = useState<Set<string>>(new Set());
   if (!names.length) return <section className="panel"><div className="empty">{tr('Su código no lee variables de entorno.')}</div></section>;
   const rows = new Map((vars.data?.rows ?? []).map((r) => [r.key, r]));
   return (
@@ -324,7 +331,7 @@ export function VarLevels({ names, service }: { names: Array<{ name: string; sec
           const r = rows.get(n.name);
           return <tr key={n.name}><td className="mono">{n.name}</td><td>{n.secret || r?.secret ? tr('secreto') : tr('variable')}</td>
             <td>{!env ? '—' : !vars.data ? '…' : !r ? <span className="faint">{tr('el vault no la conoce')}</span> : r.effective ? LEVEL_WORD[r.effective] ?? r.effective : <span className="pending">{tr('sin valor')}</span>}</td>
-            <td className="mono">{r?.effective ? (vals.find((v) => v.section === r.effective && v.key === n.name)?.value ?? <span className="faint">{r.effective === 'compose' ? tr('el del compose') : '—'}</span>) : '—'}</td>
+            <td className="mono">{r?.effective ? ((n.secret || r.secret) && !shown.has(n.name) && vals.some((v) => v.section === r.effective && v.key === n.name) ? <>••••••••<button className="linkish inline" onClick={() => setShown(new Set([...shown, n.name]))}>{tr('Mostrar')}</button></> : vals.find((v) => v.section === r.effective && v.key === n.name)?.value ?? <span className="faint">{r.effective === 'compose' ? tr('el del compose') : '—'}</span>) : '—'}</td>
             <td className="faint">{r?.levels.map((l) => LEVEL_WORD[l] ?? l).join(' › ') || '—'}{service && r && !r.readers.includes(service) ? '' : ''}</td></tr>;
         })}
       </tbody></table></div></section>

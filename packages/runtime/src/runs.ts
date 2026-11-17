@@ -19,12 +19,14 @@ import { readConfig } from './config.ts';
 import { ADMIT_SHARE } from './admission.ts';
 import { cleanDockerDetached, prune } from './disk.ts';
 import { byLabel, destroyByLabel, docker, dockerJson, dockerStream, envLock, inspectEnv, LABEL, stats, withLock, workspaceKey, type ContainerState } from './docker.ts';
-import { envDir, envMasker, envProjects, flowProjects, forgetValues, isInstance, loadEnvSpec, projectName, readState } from './env.ts';
+import { envDir, envMasker, envProjects, envUrl, flowProjects, forgetValues, isInstance, loadEnvSpec, projectName, readState } from './env.ts';
 import { appendRunnerFile, readRunnerFile, RESULTS, runnerFile, runnerFiles } from './runner-file.ts';
 import { applyPlan, applyScenario, isExclusive, ScenarioConfirm, seedScenario } from './scenarios.ts';
 import { behaviorDrift } from './behavior.ts';
 import { status, up } from './up.ts';
 import { flowsVars, injection } from './vault.ts';
+import { urlJournal, urlTap, type BrowserLogLine } from './urlenv.ts';
+import type { BrowserHit } from '@laru/trace';
 
 export const RUNNER_IMAGE = 'laru/runner:1.64.1';
 export const runsDir = (ws: Workspace) => join(stateDir(ws), 'runs');
@@ -112,6 +114,8 @@ const httpRoutes = (ws: Workspace, env: string, run?: string): Route[] => {
 
 /** Where the browser starts: the env's web front (frontend, web, ui, portal…), else its first HTTP service. */
 export function baseUrl(ws: Workspace, env: string, run?: string): string {
+  const url = envUrl(ws, env);
+  if (url) return url;
   const routes = httpRoutes(ws, env, run);
   const front = routes.find((r) => FRONT.test(r.svc)) ?? routes.find((r) => r.ports.includes(80)) ?? routes[0];
   return front ? urlOf(front) : 'http://frontend';
@@ -351,16 +355,19 @@ export function passedKeys(ws: Workspace): Map<string, Map<string, string>> {
  */
 export function runnerArgs(ws: Workspace, env: string, runLabel: string | undefined, id: string, out: string, envFile: string, specs: string[]): string[] {
   const tap = join(envDir(ws, env), ...(runLabel ? ['runs', runLabel] : []), 'tap');
+  // An env by URL has no network of Laru's: the runner goes out as any container does, and reaches this Mac by
+  // host.docker.internal (an app on localhost, through KS_HOST_RULES); its browser keeps what it asked in /ks/out.
+  const byUrl = Boolean(envUrl(ws, env));
   // A missing file would be mounted as an empty folder: the journal exists before the runner starts.
-  if (!existsSync(join(tap, 'traffic.jsonl'))) writeFileSync(join(tap, 'traffic.jsonl'), '');
-  return ['run', '-d', '--init', '--shm-size=1g', '--network', projectName(ws, env, runLabel),
+  if (!byUrl && !existsSync(join(tap, 'traffic.jsonl'))) writeFileSync(join(tap, 'traffic.jsonl'), '');
+  return ['run', '-d', '--init', '--shm-size=1g', ...(byUrl ? ['--add-host', 'host.docker.internal:host-gateway'] : ['--network', projectName(ws, env, runLabel)]),
     '--label', `${LABEL.workspace}=${workspaceKey(ws)}`, '--label', `${LABEL.app}=${ws.app}`, '--label', `${LABEL.env}=${env}`, '--label', `${LABEL.run}=${id}`, '--label', `${LABEL.service}=runner`,
     '-v', `${join(import.meta.dirname, '..', '..')}:/ks/packages:ro`, '-v', `${ws.root}:/ks/ws:ro`, '-v', `${out}:/ks/out`,
     // The runner is untrusted code: the state folder (.laru, or its old name in a workspace made before the rename)
     // holds the env's mask.json (every secret value) and the scenarios' states. An empty tmpfs hides it; `out` and the
     // tap files are mounted on their own, above.
     '--tmpfs', `/ks/ws/${basename(stateDir(ws))}:size=1m`,
-    '-v', `${join(tap, 'traffic.jsonl')}:/ks/tap/traffic.jsonl:ro`, '-v', `${join(tap, 'rules.json')}:/ks/tap/rules.json:ro`,
+    ...(byUrl ? [] : ['-v', `${join(tap, 'traffic.jsonl')}:/ks/tap/traffic.jsonl:ro`, '-v', `${join(tap, 'rules.json')}:/ks/tap/rules.json:ro`]),
     // the env's mailbox, for the `mail` and `sms` fixtures: a file only an env with a sink has (the codes in it are the ones a test needs)
     ...(existsSync(join(tap, 'mail', 'messages.jsonl')) ? ['-v', `${join(tap, 'mail', 'messages.jsonl')}:/ks/tap/messages.jsonl:ro`] : []),
     '--env-file', envFile,
@@ -402,7 +409,8 @@ export async function startRunner(ws: Workspace, env: string, runLabel: string |
  */
 export async function confirmRun(ws: Workspace, o: Pick<RunOptions, 'env' | 'flows' | 'ephemeral' | 'confirm'>): Promise<void> {
   // a flow's environment is made to be played on: its scenario goes in without asking
-  if (o.confirm || o.ephemeral || isInstance(o.env) || !loadEnvSpec(ws, o.env).persistent) return;
+  // an env by URL takes no scenario (runFlows says why): there is nothing to ask
+  if (o.confirm || o.ephemeral || isInstance(o.env) || envUrl(ws, o.env) || !loadEnvSpec(ws, o.env).persistent) return;
   const all = listFlows(ws);
   const picked = o.flows?.length ? all.filter((f) => o.flows!.includes(f.slug) || o.flows!.includes(f.id)) : all;
   // only an exclusive scenario is restored (and loses the rows of today); the others are seeded beside what is there, and nothing is asked
@@ -413,6 +421,13 @@ export async function confirmRun(ws: Workspace, o: Pick<RunOptions, 'env' | 'flo
     : [`${o.env} está parado y se levanta para jugar los flujos: ${scns.join(', ')} se aplican antes del flujo que parte de cada uno, y lo que se restaura desde una instantánea pierde las filas de hoy.`];
   throw new ScenarioConfirm(said.join('\n'));
 }
+
+/**
+ * A runner on an env by URL: its browser keeps what it asks (KS_RECORD), takes the certificate a QA's own CA signed
+ * (this Mac trusts it; the runner's Chromium does not know it), and finds an app on this Mac's localhost through
+ * host.docker.internal, its address unchanged so its cookies and CORS stay as they are (measured in the runner image).
+ */
+const URL_RUNNER = (i: number) => `KS_RECORD=/ks/out/hits-${i}.jsonl\nKS_CONSOLE=/ks/out/console-${i}.jsonl\nKS_IGNORE_HTTPS_ERRORS=1\nKS_HOST_RULES=MAP localhost host.docker.internal, MAP *.localhost host.docker.internal, MAP 127.0.0.1 host.docker.internal\n`;
 
 /** Plays the flows and writes their evidence. Resolves with the finished run; never throws for a failing test. */
 export async function runFlows(ws: Workspace, o: RunOptions): Promise<RunInfo> {
@@ -443,7 +458,12 @@ export async function runFlows(ws: Workspace, o: RunOptions): Promise<RunInfo> {
   // A flow that needs a project the env does not run is reported, not played.
   let graph = null;
   try { graph = loadGraph(ws); } catch { /* no map: no project is known */ }
-  if (ws.repos.length > 1) {
+  // An env by URL is the whole app at that address, whichever projects make it; its data live where it does, so no
+  // scenario is put in them and a flow that starts from one is reported, not played.
+  const byUrl = envUrl(ws, o.env);
+  if (byUrl) for (const f of picked.filter((x) => x.scenario)) { run.results[f.slug] = { status: 'error' }; run.error = [run.error, `${f.slug} starts from ${f.scenario}, and ${o.env} is the app at ${byUrl}, whose data Laru cannot put a scenario in`].filter(Boolean).join('. '); }
+  if (byUrl && picked.every((f) => run.results[f.slug])) { run.status = 'error'; run.phase = 'done'; run.endedAt = new Date().toISOString(); save(); return run; }
+  if (ws.repos.length > 1 && !byUrl) {
     const has = (() => { try { return envProjects(ws, o.env); } catch { return []; } })();
     for (const f of picked) {
       const lacks = flowProjects(graph, f).filter((r) => !has.includes(r));
@@ -455,6 +475,8 @@ export async function runFlows(ws: Workspace, o: RunOptions): Promise<RunInfo> {
     await withLock(`run ${id}`, async () => {
       // up: an ephemeral env of its own, or the persistent one, started if it is not ready.
       phase('up');
+      // an env by URL is not brought up: `up` says so, and why, when it does not answer
+      if (byUrl) urlTap(ws, o.env);
       if (o.ephemeral) await up(ws, { env: o.env, run: id, worktree: o.worktree });
       else if (o.worktree || (await status(ws, o.env)).state !== 'ready') await up(ws, { env: o.env, worktree: o.worktree });
       await ensureRunner();
@@ -528,7 +550,7 @@ export async function runFlows(ws: Workspace, o: RunOptions): Promise<RunInfo> {
           const a = await applyScenario(ws, u.scn, { env: o.env, confirm: true }); // said yes in `confirmRun`, or the env keeps nothing
           given = `KS_SCENARIO_JSON=${JSON.stringify({ scenario: u.scn, identities: a.identities })}\n`;
         }
-        const runner = await startRunner(ws, o.env, runLabel, id, out, join(dir, `.runner-${i}.env`), `KS_RUN=${id}\nKS_BASE_URL=${baseUrl(ws, o.env, runLabel)}\n${Object.keys(perFlow).length ? `KS_BASE_URLS_JSON=${JSON.stringify(perFlow)}\n` : ''}${Object.keys(limits).length ? `KS_FLOW_TIMEOUTS_JSON=${JSON.stringify(limits)}\n` : ''}${Object.keys(screens).length ? `KS_FLOW_SCREENS_JSON=${JSON.stringify(screens)}\n` : ''}KS_FLOW_VARS_JSON=${JSON.stringify(await flowsVars(ws))}\nKS_RETRIES=${o.retries ?? 0}\n${hold ? `KS_STEP_HOLD_MS=${hold}\n` : ''}${pace !== undefined ? `KS_STORY_PACE_MS=${pace}\n` : ''}${o.pwTrace ? 'KS_PW_TRACE=1\n' : ''}KS_EVENTS=/ks/out/events-${i}.jsonl\n${i ? `KS_RESULTS=/ks/out/results-${i}\nKS_SHARD=${i}\n` : ''}${given}`, u.flows.map((f) => f.spec));
+        const runner = await startRunner(ws, o.env, runLabel, id, out, join(dir, `.runner-${i}.env`), `KS_RUN=${id}\nKS_BASE_URL=${baseUrl(ws, o.env, runLabel)}\n${Object.keys(perFlow).length ? `KS_BASE_URLS_JSON=${JSON.stringify(perFlow)}\n` : ''}${Object.keys(limits).length ? `KS_FLOW_TIMEOUTS_JSON=${JSON.stringify(limits)}\n` : ''}${Object.keys(screens).length ? `KS_FLOW_SCREENS_JSON=${JSON.stringify(screens)}\n` : ''}KS_FLOW_VARS_JSON=${JSON.stringify(await flowsVars(ws))}\nKS_RETRIES=${o.retries ?? 0}\n${hold ? `KS_STEP_HOLD_MS=${hold}\n` : ''}${pace !== undefined ? `KS_STORY_PACE_MS=${pace}\n` : ''}${o.pwTrace ? 'KS_PW_TRACE=1\n' : ''}KS_EVENTS=/ks/out/events-${i}.jsonl\n${i ? `KS_RESULTS=/ks/out/results-${i}\nKS_SHARD=${i}\n` : ''}${byUrl ? URL_RUNNER(i) : ''}${given}`, u.flows.map((f) => f.spec));
         runners.add(runner);
         const [raw] = await dockerJson<any[]>(['inspect', runner]);
         runnerIps[i] = Object.values(raw.NetworkSettings?.Networks ?? {}).map((n: any) => n.IPAddress).find(Boolean) ?? '';
@@ -554,6 +576,16 @@ export async function runFlows(ws: Workspace, o: RunOptions): Promise<RunInfo> {
         pump();
         units.forEach((_, i) => rmSync(join(dir, 'out', `events-${i}.jsonl`), { force: true }));
       }
+      // what each runner's browser asked an env by URL, and what its pages said: the env's journals, as the tap would have written them, from that runner
+      if (byUrl) {
+        const journal = urlJournal(ws, o.env);
+        units.forEach((_, i) => {
+          for (const l of (readRunnerFile(out, `hits-${i}.jsonl`) ?? '').split('\n').filter(Boolean)) { try { journal.add(JSON.parse(l) as BrowserHit, runnerIps[i] ?? ''); } catch { lost++; } }
+          for (const l of (readRunnerFile(out, `console-${i}.jsonl`) ?? '').split('\n').filter(Boolean)) { try { journal.log(JSON.parse(l) as BrowserLogLine); } catch { lost++; } }
+          for (const f of [`hits-${i}.jsonl`, `console-${i}.jsonl`]) rmSync(join(out, f), { force: true });
+        });
+        await journal.close();
+      }
       if (lost) run.error = [run.error, `${lost} line(s) the runner wrote could not be kept: its events or log file is a link, or a line is not JSON`].filter(Boolean).join('. ');
       if (units.length > 1) log(`laru: ${shards.length} runner(s) at once for ${plain.length} flow(s), ${seeded.length} seeded with their scenario beside them, then ${exclusive.length} exclusive\n`);
       const t1 = Date.now();
@@ -567,7 +599,7 @@ export async function runFlows(ws: Workspace, o: RunOptions): Promise<RunInfo> {
       const ev = readEvents(ws, id);
       if (exit !== 0 && !ev.some((e) => e.e === 'test-end')) throw new Error(`the runner exited with ${exit} before any test ran; see .laru/runs/${id}/out/runner.log`);
       // what the data held as the flows ended (only once a test played: a run that never started left nothing of its own) (tables, queues, files, mail, variables): the flow's data screens show it with the env off
-      await recordState(ws, o.env, runLabel, dir, masker).catch((e: Error) => {
+      if (!byUrl) await recordState(ws, o.env, runLabel, dir, masker).catch((e: Error) => {
         // the run says it could not keep them, so no older run's data stand in for its own
         recordFailure(dir, o.env, e.message);
         log(`laru: the data's final state could not be kept: ${e.message}\n`);
@@ -719,7 +751,9 @@ export async function capture(ws: Workspace, env: string, run: string | undefine
   const traffic = trafficSince(['traffic.jsonl.1', 'traffic.jsonl'].map((f) => join(tapDir, f)), from).filter((r) => r.t0 <= to).map(again);
   const memo = o.memo;
   let all: ContainerState[], gateways: string[];
-  if (memo && Date.now() - memo.at < 10_000) ({ cs: all, gateways } = memo);
+  // an env by URL has no container of Laru's: its journal is what the browser asked, and the session's browser is on this Mac
+  if (envUrl(ws, env)) [all, gateways] = [[], ['127.0.0.1']];
+  else if (memo && Date.now() - memo.at < 10_000) ({ cs: all, gateways } = memo);
   else {
     let nets: string[];
     [all, nets] = await Promise.all([inspectEnv(ws, env, run), docker(['network', 'ls', '-q', ...byLabel(ws, { env, run })]).then((s) => s.split('\n').filter(Boolean), () => [] as string[])]);
@@ -745,7 +779,8 @@ export async function capture(ws: Workspace, env: string, run: string | undefine
   };
   const sql: SqlLine[] = [];
   const kafka: KafkaLine[] = [];
-  const logs: ServiceLog[] = [];
+  // an env by URL: the browser's own log (its console and the page's errors), read like its journal
+  const logs: ServiceLog[] = envUrl(ws, env) ? trafficSince<BrowserLogLine>(['console.jsonl.1', 'console.jsonl'].map((f) => join(tapDir, f)), from).filter((l) => l.t0 <= to).map((l) => ({ service: l.service, t: l.t0, line: l.line, ...(l.level ? { level: l.level } : {}) })) : [];
   if (dir) mkdirSync(join(dir, 'raw', 'logs'), { recursive: true });
   // Each container (a live session reads this every second), four at a time: its log, and a broker's segments beside it.
   await pool(cs.filter((x) => x.state === 'running' && x.service !== 'ks-tap'), 4, async (c) => {
@@ -789,7 +824,7 @@ export async function capture(ws: Workspace, env: string, run: string | undefine
  * of 100 MB is therefore not read whole every second of a live session, only its recent end. `files` are oldest first.
  */
 const SLACK_MS = 120_000, BLOCK = 1 << 20;
-export function trafficSince(files: string[], from: number): TrafficRecord[] {
+export function trafficSince<T extends { t0: number } = TrafficRecord>(files: string[], from: number): T[] {
   const picked: string[] = [];
   for (const file of [...files].reverse()) {
     if (!existsSync(file)) continue;
@@ -814,7 +849,7 @@ export function trafficSince(files: string[], from: number): TrafficRecord[] {
       if (enough) break;
     } finally { closeSync(fd); }
   }
-  return picked.join('\n').split('\n').filter(Boolean).map((l) => JSON.parse(l) as TrafficRecord).filter((r) => r.t0 >= from);
+  return picked.join('\n').split('\n').filter(Boolean).map((l) => JSON.parse(l) as T).filter((r) => r.t0 >= from);
 }
 
 /** Messages of every non-internal topic, read from the broker's own log segments with one kafka-dump-log. */

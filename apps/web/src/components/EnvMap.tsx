@@ -22,7 +22,8 @@ export function ServiceEnvMap({ g, envs, limit }: { g: Indexed | null; envs?: En
   const apps = appsOf(g), order = apps ? groupsOf(g, []).order : [];
   // with several applications, each one's services together, in the order laru.yaml lists them
   const rows = g.map.nodes.filter((n) => n.type === 'service' || n.type === 'datastore').sort((a, b) => (apps ? order.indexOf(apps.get(a.id)!) - order.indexOf(apps.get(b.id)!) : 0));
-  const cols = [...(envs ?? [])].sort((a, b) => Number(/^f-/.test(a.env)) - Number(/^f-/.test(b.env)) || a.env.localeCompare(b.env));
+  // which of the code's services each env runs: an app by URL runs none of them in Laru
+  const cols = (envs ?? []).filter((e) => !e.url).sort((a, b) => Number(/^f-/.test(a.env)) - Number(/^f-/.test(b.env)) || a.env.localeCompare(b.env));
   if (!rows.length) return <div className="empty">{tr('El mapa no tiene servicios todavía.')}</div>;
   if (!cols.length) return <div className="empty">{tr('Ningún entorno todavía:')}{' '}<code>laru env init</code>.</div>;
   const shown = limit ? rows.slice(0, limit) : rows;

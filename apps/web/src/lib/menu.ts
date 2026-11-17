@@ -92,14 +92,17 @@ function envMenu(env: string, active: string, d: MenuData, session?: string): Sc
   return {
     kind: 'scope',
     back: { label: tr('Todos los entornos'), to: href('envs') },
-    card: { icon: Container, kind: /^f-/.test(env) ? tr('Entorno de un flujo') : tr('Entorno'), title: env, sub: !e ? undefined : e.op && !e.op.done ? (e.op.kind === 'up' ? tr('Levantando') : tr('Destruyendo')) : ENV_STATE[e.state] },
+    card: { icon: Container, kind: /^f-/.test(env) ? tr('Entorno de un flujo') : e?.url ? tr('Entorno por URL') : tr('Entorno'), title: env, sub: !e ? undefined : e.url ? (e.state === 'ready' ? tr('Responde') : tr('No responde')) : e.op && !e.op.done ? (e.op.kind === 'up' ? tr('Levantando') : tr('Destruyendo')) : ENV_STATE[e.state] },
     sections: [
       { key: 'state', label: tr('Estado y servicios'), to: href('envs', env), icon: Container },
-      { key: 'data', label: tr('Bases de datos'), to: href('data', env), icon: Database },
-      { key: 'queues', label: tr('Colas'), to: href('queues', env), icon: ArrowLeftRight },
-      { key: 'storage', label: tr('Almacenamiento'), to: href('storage', env), icon: HardDrive },
-      { key: 'mail', label: tr('Correo y mensajes'), to: href('mail', env), icon: Mail },
-      { key: 'vars', label: tr('Variables y secretos'), to: href('vars', env), icon: KeyRound },
+      // an app by URL keeps its data where it lives: Laru has no store, queue or mailbox of it to open
+      ...(e?.url ? [] : [
+        { key: 'data', label: tr('Bases de datos'), to: href('data', env), icon: Database },
+        { key: 'queues', label: tr('Colas'), to: href('queues', env), icon: ArrowLeftRight },
+        { key: 'storage', label: tr('Almacenamiento'), to: href('storage', env), icon: HardDrive },
+        { key: 'mail', label: tr('Correo y mensajes'), to: href('mail', env), icon: Mail },
+        { key: 'vars', label: tr('Variables y secretos'), to: href('vars', env), icon: KeyRound },
+      ]),
       ...(live ? [{ key: 'live', label: tr('Sesión {live} en vivo', { live }), to: href('live', live), icon: Radio }] : []),
     ],
     active,

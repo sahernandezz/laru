@@ -10,7 +10,7 @@ import { stateDir, WorkspaceError, type Graph, type Workspace } from '@laru/core
 import { maskerOf, PROVIDER_HOSTS, readLearned, readMaskFile, type Masker } from '@laru/trace';
 import type { EnvSpec } from './types.ts';
 
-export const ENV_KEYS = new Set(['from', 'join', 'share', 'extends', 'refs', 'persistent', 'services', 'hybrid', 'cache', 'resources', 'health', 'seed', 'mocks', 'faults', 'intercept', 'overlay', 'hosts', 'egress']);
+export const ENV_KEYS = new Set(['from', 'join', 'url', 'share', 'extends', 'refs', 'persistent', 'services', 'hybrid', 'cache', 'resources', 'health', 'seed', 'mocks', 'faults', 'intercept', 'overlay', 'hosts', 'egress']);
 /** Env names, everywhere one is written: `envs/<env>.yaml`, the vault's `env.<env>` level. */
 export const ENV_NAME = /^[a-z0-9][a-z0-9-]*$/;
 
@@ -62,6 +62,12 @@ export function specFrom(ws: Workspace, env: string, raw: Record<string, any>, s
     if (!Array.isArray(v) || v.some((x) => typeof x !== 'string')) throw new WorkspaceError('a list of names', at(k));
     return v;
   };
+  // An env by URL is the app already running at that address: Laru opens it and records what the browser asks, and runs or changes nothing of it.
+  if (raw.url !== undefined) {
+    const other = Object.keys(raw).filter((k) => ENV_KEYS.has(k) && !['url', 'extends', 'persistent'].includes(k) && raw[k] !== undefined);
+    if (other.length) throw new WorkspaceError(`an env by URL is the app at that address, which Laru neither runs nor changes: ${other.join(', ')} ${other.length > 1 ? 'do' : 'does'} not apply`, at(other[0]));
+    return { name: env, url: appUrl(raw.url, at('url')), share: {}, refs: {}, persistent: true, hybrid: [], cache: [], resources: {}, health: {}, seed: {}, mocks: {}, faults: {}, intercept: { exclude: [], ports: {} }, overlay: {}, hosts: [], ...(ignored.length ? { ignored } : {}) };
+  }
   let from: EnvSpec['from'];
   if (raw.from !== undefined) {
     const m = String(raw.from).match(/^([a-z0-9][a-z0-9-]*):(.+)$/);
@@ -135,6 +141,22 @@ export function specFrom(ws: Workspace, env: string, raw: Record<string, any>, s
   }
   if (ignored.length) spec.ignored = ignored;
   return spec;
+}
+
+/** The address of an env by URL, as Laru opens it: http or https, with no user or password in it (a sign-in is the person's, on the page). */
+export function appUrl(v: unknown, at = 'url'): string {
+  let u: URL;
+  try { u = new URL(String(v ?? '').trim()); } catch { throw new WorkspaceError('the address of the app, like https://qa.example.com or http://localhost:4200', at); }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') throw new WorkspaceError(`http or https, not ${u.protocol.replace(/:$/, '')}`, at);
+  if (u.username || u.password) throw new WorkspaceError('no user or password in the address: the person signs in on the page', at);
+  u.hash = '';
+  return u.href;
+}
+
+/** The address of an env by URL (`url:` in its file), or undefined for any other env (one Laru runs, or one with no file). */
+export function envUrl(ws: Workspace, env: string): string | undefined {
+  if (isInstance(env) || !ENV_NAME.test(env) || !existsSync(envFile(ws, env))) return undefined;
+  try { return loadEnvSpec(ws, env).url; } catch { return undefined; }
 }
 
 /**

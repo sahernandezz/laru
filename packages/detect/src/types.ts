@@ -14,11 +14,16 @@ export type Finding =
   | { kind: 'config'; key: string; value: string; line: number; profile?: string }
   | { kind: 'outbound'; line: number; method?: string; path?: string; configKey?: string; envVar?: string; url?: string; relative?: boolean; symbol?: string }
   | { kind: 'table'; name: string; schema?: string; op: 'maps' | 'defines'; line: number; symbol?: string }
-  | { kind: 'topic'; name: string; op: 'publishes' | 'consumes' | 'defines'; line: number; symbol?: string; partitions?: number }
-  | { kind: 'channel'; name: string; dir: 'in' | 'out'; line: number; symbol?: string }
-  | { kind: 'dependency'; ecosystem: 'maven' | 'npm'; name: string; version?: string; scope?: string }
+  /** `payload`: the type of the message its code sends or takes (`FileEvent`); `key`: the type of its key; `group`: a consumer's group */
+  | { kind: 'topic'; name: string; op: 'publishes' | 'consumes' | 'defines'; line: number; symbol?: string; partitions?: number; payload?: string; key?: string; group?: string }
+  | { kind: 'channel'; name: string; dir: 'in' | 'out'; line: number; symbol?: string; payload?: string }
+  /** A data class as its code declares it, by its type's name: a record's components or a class's fields, what a message or a body carries */
+  | { kind: 'shape'; name: string; fields: Array<{ name: string; type: string }>; line: number }
+  /** `property`: the build property its version came from (`jjwt.version`); `managedBy`: with no version of its own, the parent or BOM that fixes it (`spring-boot-starter-parent 3.4.1`) */
+  | { kind: 'dependency'; ecosystem: 'maven' | 'npm'; name: string; version?: string; scope?: string; property?: string; managedBy?: string }
   | { kind: 'port'; port: number; line: number }
-  | { kind: 'tests'; count: number; level: 'unit' | 'integration' | 'e2e'; cases?: Array<{ name: string; line: number }> }
+  /** `title`: what a case says it checks in its own words (@DisplayName, the string of an `it`); the file's own, of its class or its first `describe` */
+  | { kind: 'tests'; count: number; level: 'unit' | 'integration' | 'e2e'; cases?: Array<{ name: string; line: number; title?: string }>; title?: string }
   | { kind: 'compose-service'; name: string; image?: string; build?: string; ports: Array<{ host?: number; container: number }>; env: string[]; values?: Record<string, string>; dependsOn: string[]; line: number }
   | { kind: 'proxy'; prefix: string; target: string; line: number }
   | { kind: 'constant'; name: string; value: string; line: number };

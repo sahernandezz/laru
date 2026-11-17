@@ -9,7 +9,7 @@ import { isBrowser, type Action, type Exchange, type TrafficRecord, type LogLine
 
 export interface SqlLine { store: string; t1: number; durationMs: number; ip: string; user: string; db: string; statement: string; params?: string; error?: string; /** the backend's pid (`%p`): one connection */ pid?: number }
 export interface KafkaLine { broker: string; topic: string; partition: number; offset: number; t: number; key?: string; value?: string }
-export interface ServiceLog { service: string; t: number; line: string }
+export interface ServiceLog { service: string; t: number; line: string; /** said by whoever wrote it (a browser's console says its own); else read in the line */ level?: LogLine['level'] }
 
 /** The part of the map assemble needs; structurally the core's SystemMap. */
 export interface MapLike {
@@ -366,7 +366,7 @@ export function assemble(input: AssembleInput): { traces: Trace[]; observed: Obs
       const n = (perService.get(l.service) ?? 0) + 1;
       perService.set(l.service, n);
       if (n > 400) continue; // Known limit: 400 lines per service per test; the raw log keeps the rest
-      logs.push({ id: `${l.service}:${n}`, t: rel(l.t), service: l.service, level: levelOf(l.line), line: l.line.slice(0, 2000) });
+      logs.push({ id: `${l.service}:${n}`, t: rel(l.t), service: l.service, level: l.level ?? levelOf(l.line), line: l.line.slice(0, 2000) });
     }
     logs.sort((x, y) => x.t - y.t);
 

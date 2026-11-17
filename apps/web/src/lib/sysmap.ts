@@ -348,6 +348,12 @@ export interface FlowEdge extends MapEdge {
 }
 
 const ACTOR: Record<string, string> = { browser: tr('Navegador'), runner: tr('Prueba'), host: tr('Tu máquina') };
+/**
+ * A map with nothing read: a trace is drawn from its own participants. An app by URL has no code Laru reads, and its
+ * runs and sessions still show who the browser talked to.
+ */
+export const NO_MAP: Indexed = { map: { version: 1, app: '', builtAt: '', repos: [], nodes: [], facts: [] }, nodes: new Map(), out: () => [], in: () => [] };
+
 const sub = (g: Indexed, nodes: MapNode[]): Indexed => ({ map: { ...g.map, nodes, facts: [] }, nodes: new Map(nodes.map((n) => [n.id, n])), out: () => [], in: () => [] });
 const few = (xs: string[]) => (xs.length > 2 ? `${xs.slice(0, 2).join(', ')} +${xs.length - 2}` : xs.join(', '));
 

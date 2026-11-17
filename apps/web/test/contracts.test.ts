@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import type { MapNode } from '@laru/core';
 import { endpointMatcher } from '@laru/trace/assemble';
 import type { DocPiece, SeenEndpoint } from '../src/api.ts';
-import { detailOf, diffsOf, errorsOf, groupApi, opOfCall, opsOf, pathRe, serviceApi, unlisted } from '../src/lib/contracts.ts';
+import { detailOf, diffsOf, errorsOf, groupApi, noteParts, opOfCall, opsOf, pathRe, serviceApi, unlisted } from '../src/lib/contracts.ts';
 
 const contract = (id: string, operations: Array<Record<string, string>>, errors: Array<Record<string, string>> = []) =>
   ({ id, type: 'contract', title: id, status: 'implemented', summary: '', fields: { operations, errors } }) as unknown as DocPiece;
@@ -115,4 +115,9 @@ test('diffsOf: what the runs and the code say that the operation does not', () =
   const created = { ...row, op: { ...row.op!, response: '201 con el fichero' } };
   assert.deepEqual(diffsOf(created, { ...seen, statuses: { 200: 2 }, samples: {}, drift: [] }).filter((d) => d.key === 'success-differs'), [{ key: 'success-differs', status: '200', declared: '201', from: 'runs' }]);
   assert.deepEqual(diffsOf({ ...row, op: undefined }, seen), [{ key: 'mock', text: 'GET /api/files/{id} without the header' }], 'without an operation there is nothing to differ from');
+});
+
+test('noteParts: a note cut at its commas, a type whole', () => {
+  assert.deepEqual(noteParts('payload Map<String, List<Integer>>, key String, group file-service-group'), ['payload Map<String, List<Integer>>', 'key String', 'group file-service-group']);
+  assert.deepEqual(noteParts('through api-gateway /api/files/**, GET /api/files/${id}'), ['through api-gateway /api/files/**', 'GET /api/files/${id}']);
 });

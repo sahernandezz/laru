@@ -6,6 +6,49 @@ Todos los cambios de Laru que importan a quien lo usa quedan aquí. El formato s
 
 ## [Sin publicar]
 
+## [0.1.0-beta.21] - 2026-11-17
+
+### Añadido
+
+- **Flujos contra una aplicación que ya corre fuera de Laru: el entorno por URL.** Hasta ahora «Probar en vivo» y «Ejecutar» pedían un entorno levantado por Laru desde el compose de un proyecto, así que una app en tu máquina, un QA desplegado o un sitio público no se podía grabar ni probar. Ahora basta su dirección: «Nuevo entorno por URL» en Entornos, `laru env init <nombre> --url <dirección>` en la terminal o `url:` en `envs/<nombre>.yaml`.
+  - Laru no la levanta, no la para y no la cambia. El entorno «Responde» mientras la app contesta en esa dirección, aunque sea con una redirección a su inicio de sesión o con un certificado en el que solo confía tu Mac.
+  - El navegador es la traza. Cada petición de la página es un salto del flujo: método, dirección, estado, cabeceras, el cuerpo cuando es texto (sus primeros 64 KB), cuánto tardó y el error si falló. Lo que la página dice en su consola y los errores que lanza son el log del «Navegador», cada línea con su nivel.
+  - En el estudio («Abrir en el estudio», o «Probar en vivo» desde la ficha de un flujo) la app se abre en el navegador de la sesión, que solo navega dentro de esa dirección. Al parar, «Convertir en flujo» escribe su borrador como con cualquier entorno.
+  - Sus pruebas corren contra esa dirección: «Probar aquí», «Ejecutar prueba automática», «Ejecutar en…» en la ficha del flujo o `laru test --env <nombre>`. El runner llega a una app de tu `localhost` sin cambiarle la dirección, así que sus cookies y su CORS siguen igual. También acepta el certificado de un QA firmado por la CA de tu empresa.
+  - El mapa de un run o de una sesión se dibuja con lo observado cuando no hay código leído, por ejemplo Navegador → `localhost:4200`.
+  - Lo que pasa detrás de la app (sus servicios, bases y colas) no se ve, porque no corre en Laru. Por eso este entorno no tiene pantallas de datos ni entorno propio por flujo, y no admite escenarios: sus datos viven donde vive la app. Una sesión o un run que pida un escenario lo dice en vez de fallar por dentro.
+  - El agente lo sabe: su guía explica cuándo crearlo, y `flow_run` con ese entorno juega ahí.
+
+### Cambiado
+
+- **La ficha de un servicio explica lo que enseña.** Sus pestañas Pruebas, Librerías, Variables y Conexiones listaban ficheros, coordenadas y rutas sin decir para qué era cada cosa, todo con el mismo peso.
+  - **Pruebas:** cada caso dice lo que comprueba con sus propias palabras, que son su `@DisplayName` o el texto de su `it`, con el método al lado. Los casos se ven sin abrir nada. Cada nivel explica qué arranca y qué señala su fallo: una unitaria prueba una clase sola, una de integración arranca la aplicación.
+  - **Librerías:** dice qué es cada una. Laru conoce las comunes de Spring, Quarkus, los drivers, las pruebas y JavaScript; de las demás da un enlace a Maven Central o npm. Si las «Dependencias críticas» del stack lo explican, añade por qué la necesita la aplicación. La versión es la de verdad: «3.4.1, la que fija Spring Boot 3.4.1» o «0.12.6, de la propiedad jjwt.version», en vez de «la que fije su build».
+  - **Variables y secretos:** es una sola tabla. Cada variable dice para qué es, dónde la lee su código, quién se la pasa y su valor legible («86.400.000 ms · 1 d»). El para qué sale de la pieza «Secretos», del significado de las comunes como `SPRING_PROFILES_ACTIVE` o de lo que dice su nombre. Un secreto se ve solo al pulsar «Mostrar», también en la documentación.
+  - **Conexiones:** cada pieza se resume en una frase: cuántas llamadas hace, a cuántos endpoints, a través de quién y si los runs lo han visto. Cada llamada dice la ruta que llama su código, a qué endpoint llega, para qué es según su contrato (también tras un gateway) y dónde está en el código. Las notas del mapa salen en español.
+  - **En la documentación:** el id de una pieza (`flow:registro-e-inicio`, `[[mod:carpetas]]`) se lee por su título y la abre. El texto corrido va en un tono más suave, para que destaquen los títulos, las negritas y los nombres.
+  - **Para verlo:** los títulos de los casos y las versiones resueltas aparecen después de «Releer el código».
+- **Los diagramas ya no tienen un fondo propio en los temas oscuros.** Antes cada diagrama de la documentación, del visor y del editor de Excalidraw se dibujaba sobre un papel casi negro fijo, que chocaba con el fondo del tema. Ahora toma el fondo del tema, incluidos los halos que separan las líneas que se cruzan. En los temas claros conserva su papel oscuro, porque sus colores están pensados para él, y el SVG que se descarga también lo conserva.
+- **Los eventos y los reenvíos del gateway enseñan su contrato.** En la pestaña Eventos cada tema solo tenía una línea «Contenido:», y una ruta del gateway que reenvía (`/api/files/**`) solo decía a qué servicio.
+  - **Eventos:** cada tema es una tarjeta con su contrato y, aparte, lo que vieron los runs. El contrato dice para qué es, qué lleva y por qué clave va, y debajo de cada cosa lo que dice su código: el tipo que envía o recibe con sus campos (`FileEvent`: `fileId UUID`, `storedName String`…), el tipo de su clave y el grupo en el que consume. También dice quién más lo publica o lo consume, con lo que lleva cada uno y su grupo.
+  - **Reenvíos:** una ruta que solo reenvía lista las operaciones que alcanza (`GET /api/files/**` alcanza cada GET de file-service bajo `/api/files`), cada una con su para qué, lo que recibe, lo que responde y su contrato. La fila dice cuántas tienen contrato y cuenta como documentada cuando todas lo tienen. Si no alcanza ninguna, lo dice: «batch-service no tiene ninguna operación PUT bajo /api/batch/».
+  - **Endpoints:** cuando el cuerpo que recibe o lo que devuelve es un tipo con campos en su código, se ven esos campos.
+  - **Contratos:** la tabla de eventos tiene ahora «Para qué» y «Clave». Un evento sin su para qué o sin su contenido baja la nota del contrato y queda pendiente para el agente, como ya pasaba con las operaciones.
+  - **Para verlo:** los tipos, las claves y los grupos del código aparecen después de «Releer el código».
+- **Un diagrama ya no parece una rejilla de bordes.** En un modelo de datos, el contorno de cada tabla tenía el mismo color y grosor que sus relaciones, así que una relación que pasaba al lado se leía como un segundo borde. Además, el diagrama iba dentro de un marco propio, dentro de la sección.
+  - El contorno de una tabla es ahora suave: la tabla se reconoce por su cabecera y las líneas son las relaciones. El diagrama de la documentación ya no lleva marco.
+  - Dos relaciones ya no comparten tramo. Las que salen de un mismo lado se reparten en el orden en que se alejan, así que no se cruzan al salir. Las que giran hacia el mismo lado lo hacen a distancias distintas, también al llegar. En los 49 diagramas de cajas de VaultFlow, los tramos compartidos bajan de 65 a 28.
+  - De cada diagrama se trazan las dos versiones, la de antes y la nueva, y se queda la que menos estorba a quien lee: líneas que atraviesan piezas, tramos compartidos, etiquetas que se pisan o caen sobre una pieza, y cruces.
+  - La relación de una tabla consigo misma (una carpeta que contiene carpetas) es un bucle a la derecha de la tabla, con su etiqueta al lado. Antes atravesaba la tabla y salía por donde llegaban las demás relaciones.
+  - Cada cardinalidad queda fuera de su tabla. La de una relación que salía por debajo se escribía dentro de la caja, donde no se leía.
+- **El índice de una pieza marca dónde estás.** La sección o el apartado que tienes en pantalla aparece resaltado, con una barra sobre la línea del índice; si es un apartado, también su sección. Al pulsar un enlace se marca ese apartado, y al llegar al final de la página, el último.
+
+### Corregido
+
+- En un diagrama de entidades, un campo con comentario (`scan_status "PENDING, CLEAN o INFECTED"`) se escribía encima de su tipo, porque cada entidad medía 220 px, dijeran lo que dijeran sus campos. Ahora la entidad es tan ancha como su campo más largo, hasta un tope. Pasado el tope, el nombre se corta con «…» antes del tipo y se lee entero en su tooltip.
+
+- El nombre de un entorno conjunto nuevo no se comprobaba en el formulario: su patrón tenía un guion sin escapar, que los navegadores actuales rechazan, y aceptaba cualquier cosa hasta que respondía el servicio.
+
 ## [0.1.0-beta.20] - 2026-11-17
 
 ### Añadido
@@ -427,7 +470,8 @@ Primera beta pública.
   - `CLAUDE.md` y `AGENTS.md` generados.
   - Hooks para Claude Code.
 
-[Sin publicar]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.20...HEAD
+[Sin publicar]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.21...HEAD
+[0.1.0-beta.21]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.20...v0.1.0-beta.21
 [0.1.0-beta.20]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.19...v0.1.0-beta.20
 [0.1.0-beta.19]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.18...v0.1.0-beta.19
 [0.1.0-beta.18]: https://github.com/sahernandezz/laru/compare/v0.1.0-beta.17...v0.1.0-beta.18

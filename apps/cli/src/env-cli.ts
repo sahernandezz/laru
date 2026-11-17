@@ -8,7 +8,7 @@ import { endpointMatcher, sessionSummary, summarize } from '@laru/trace';
 import { execIn, flowEnvDown, flowEnvStatus, flowEnvUp, instanceOf,
   connection, docker, dockerAvailable, dockerHint, inWsl, down, envMasker, mongo, rabbit, redis, query as dbQuery, reset as dbReset, schema as dbSchema, snapshot as dbSnapshot, storeOf, stores as dbStores, storePassword, envDir, envFile, EnvError, exportKey, hybridEnv, importEnvFile, importKey, interpolations, listEnvs, listInstances, logs, missingVars, readState, revealVar,
   sqs, mail, sweepOrphans, calibrate, writeConfig, clearFaults, readRules, saveFaults, setFaults, setMockMode, kafka, storage, cancelRun, compareRuns, failedFlows, markSession, openSessionBrowser, runSessionBrowser, sessionToFlow, sessionToScenario, sessionTrace, startSession, stopSession, applyScenario, listScenarios, provisionScenario, ScenarioConfirm, scenarioState, approveBehavior, behaviorIn, readApproved, fidelity, fidelityText, listFlows, listRuns, readRun, readTrace, runFlows, runsDir, runTraces,
-  rebuildText, setVar, status, unsetVar, up, varTable, vaultKey, vaultServices, brokersOf, envFor, envProjects, flowProjects, loadEnvSpec, specFrom, ENV_NAME, diskReport, prune, heldByEnvs, envLock, runnerFiles, withLock, workspaceKey, type ComposeDoc, type EnvEvent, type EnvStatus, type Level, type PruneWhat, type VaultService,
+  rebuildText, setVar, status, unsetVar, up, varTable, vaultKey, vaultServices, brokersOf, envFor, envProjects, flowProjects, loadEnvSpec, specFrom, ENV_NAME, appUrl, envUrl, isInstance, diskReport, prune, heldByEnvs, envLock, runnerFiles, withLock, workspaceKey, type ComposeDoc, type EnvEvent, type EnvStatus, type Level, type PruneWhat, type VaultService,
 } from '@laru/runtime';
 
 type Out = { log: (s: string) => void; err: (s: string) => void };
@@ -113,6 +113,20 @@ const graphOrNull = (w: Workspace) => { try { return loadGraph(w); } catch { ret
  * written: kebab-case names (so every file lands in envs/), members, and share ends against the members' unique names
  * in the map. An error names its field and leaves the disk as it was. Returns the files written.
  */
+/**
+ * An env by URL: the app already running at that address, which Laru opens and records through the browser and never
+ * runs or changes. The name is any env's (not a flow's own `f-…`); the address is validated as its file would be. Returns the file written.
+ */
+export function writeUrlEnv(w: Workspace, name: string, url: string): string {
+  if (typeof name !== 'string' || !ENV_NAME.test(name)) throw new WorkspaceError('env names are kebab-case', 'name');
+  if (isInstance(name)) throw new WorkspaceError('f-<flow> is the name of a flow\'s own env', 'name');
+  if (existsSync(envFile(w, name))) throw new WorkspaceError(`envs/${name}.yaml already exists`, 'name');
+  const at = appUrl(url, 'url');
+  mkdirSync(join(w.root, 'envs'), { recursive: true });
+  writeFileSync(envFile(w, name), `# The app already running at this address: Laru opens it, records what the browser asks and what the page says, and never runs or changes it\nurl: ${JSON.stringify(at)}\n`);
+  return `envs/${name}.yaml`;
+}
+
 export function writeJoint(w: Workspace, name: string, members: string[], share: Record<string, string> = {}, create: Array<{ env: string; from: string }> = []): string[] {
   const named = (n: unknown, at: string) => { if (typeof n !== 'string' || !ENV_NAME.test(n)) throw new WorkspaceError('env names are kebab-case', at); };
   named(name, 'name');
@@ -216,7 +230,8 @@ export async function sessionStart(w: Workspace): Promise<string> {
   const d = await dockerAvailable();
   const where = d.ok ? (await docker(['info', '--format', '{{.Name}} · {{.OperatingSystem}}'], { timeoutMs: 10_000 }).then((v) => v.trim(), () => '')) : '';
   const host = process.env.DOCKER_HOST ? `, DOCKER_HOST=${process.env.DOCKER_HOST}` : '';
-  const envs = await Promise.all([...listEnvs(w), ...listInstances(w)].map(async (e) => `${e} ${d.ok ? (await status(w, e).catch(() => null))?.state ?? '?' : '?'}`));
+  // an env by URL is said with its address, and answers or not with or without Docker
+  const envs = await Promise.all([...listEnvs(w), ...listInstances(w)].map(async (e) => { const url = envUrl(w, e); return url ? `${e} (the app at ${url}) ${(await status(w, e).catch(() => null))?.state ?? '?'}` : `${e} ${d.ok ? (await status(w, e).catch(() => null))?.state ?? '?' : '?'}`; }));
   const last = lastResults(w), flows = listFlows(w);
   const agr = loadAgreement(w);
   // where the app's mail and messages land: what each env's mailbox receives and holds
@@ -228,7 +243,7 @@ export async function sessionStart(w: Workspace): Promise<string> {
   return [
     `Laru workspace «${w.title}» (${w.app}) at ${w.root}. Use Laru's tools (MCP server \`laru\`, or \`laru <command>\`) for everything below: read its guide (the workspace's CLAUDE.md or AGENTS.md) before acting.`,
     `Docker, as Laru reaches it (Laru runs on ${process.platform}${inWsl() ? ' inside WSL2' : ''}${host}): ${d.ok ? `engine ${d.server}${where ? ` (${where})` : ''}` : `not answering: ${d.error}`}. Your own shell may not see Docker where Laru does (Windows with the engine in WSL, another DOCKER_HOST): never conclude there is none from \`docker\` in your shell, and never run docker or compose on Laru's envs yourself; ask env_status or \`laru doctor\`.`,
-    `Envs: ${envs.join(', ') || 'none yet (laru env init local --from <repo>:<compose file>)'}. A flow is worked on in its own env f-<flow> (flow_env up, then flow_run of that flow plays there): never on an env other flows or a person are using.`,
+    `Envs: ${envs.join(', ') || 'none yet (laru env init local --from <repo>:<compose file>, or --url <address> for an app already running elsewhere)'}. A flow is worked on in its own env f-<flow> (flow_env up, then flow_run of that flow plays there): never on an env other flows or a person are using. An app by URL is played on itself (flow_run with its env).`,
     `Mail and messages the app sends: ${boxes.join('; ') || 'no env yet'}. The person reads them in Laru's mailbox («Correo y mensajes»), you with mail_list: a messaging mock you build publishes each message it receives to http://laru-mailbox/messages (see the guide), or a Laru sink receives them.`,
     `Flows (${flows.length}): ${flows.slice(0, 30).map((f) => `${f.slug} ${last[f.slug] ?? (f.exists ? 'never run' : 'no spec')}`).join('; ') || 'none yet'}${flows.length > 30 ? '; …' : ''}.`,
     agr ? agreementText(agr) : 'No working agreement yet: when the person tells you how they work here, write it (knowledge_write, type agreement).',
@@ -310,13 +325,18 @@ export async function runtimeCommand(cmd: string, args: string[], o: Opts, ws: (
         if (!ENV_NAME.test(args[1])) { io.err(`${args[1]}: env names are kebab-case`); return 1; }
         const f = envFile(w, args[1]);
         if (existsSync(f)) { io.err(`envs/${args[1]}.yaml already exists`); return 1; }
+        if (typeof o.url === 'string') {
+          writeUrlEnv(w, args[1], o.url);
+          io.log(`envs/${args[1]}.yaml written: ${appUrl(o.url)}. Nothing to bring up: open a session on it (laru session start --env ${args[1]}) or run its flows there (laru test --env ${args[1]})`);
+          return 0;
+        }
         if (o.join) {
           const share: Record<string, string> = Object.fromEntries((list(o.share) ?? []).map((x) => x.split('=').map((y) => y.trim()) as [string, string]));
           writeJoint(w, args[1], list(o.join)!, share);
           io.log(`envs/${args[1]}.yaml written. Next: laru up ${args[1]}`);
           return 0;
         }
-        if (!o.from || !/^[a-z0-9-]+:.+/.test(String(o.from))) { io.err('usage: laru env init <name> --from <repo>:<compose file>[,<file>…] | --join <env>,<env> [--share <svc>=<svc>]'); return 2; }
+        if (!o.from || !/^[a-z0-9-]+:.+/.test(String(o.from))) { io.err('usage: laru env init <name> --from <repo>:<compose file>[,<file>…] | --join <env>,<env> [--share <svc>=<svc>] | --url <address>'); return 2; }
         mkdirSync(join(w.root, 'envs'), { recursive: true });
         writeFileSync(f, `from: ${String(o.from)}\npersistent: true\n`);
         io.log(`envs/${args[1]}.yaml written. Next: laru up ${args[1]}`);

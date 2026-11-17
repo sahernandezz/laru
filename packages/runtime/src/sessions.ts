@@ -13,12 +13,13 @@ import { createServer } from 'node:http';
 import { appendFileSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { checkFlowSpec, knowledgeWrite, loadGraph, loadKnowledge, slugify, specPath, type FlowCheck, type Issue, type Workspace } from '@laru/core';
-import { assemble, draftFromSession, scenarioFromSession, sessionEvents, type RunInfo, type SessionBrowserLog, type Trace } from '@laru/trace';
-import { envMasker, isInstance, loadEnvSpec } from './env.ts';
+import { assemble, consoleLevel, draftFromSession, hitOf, scenarioFromSession, sessionEvents, type RunInfo, type SessionBrowserLog, type Trace } from '@laru/trace';
+import { envMasker, envUrl, isInstance, loadEnvSpec } from './env.ts';
 import { instanceNarrowed, widenInstance } from './flowenv.ts';
 import { baseUrl, capture, captureMemo, FFMPEG, keepEvidence, nextId, readRun, readTrace, recordObserved, runDir, withFields, type CaptureMemo } from './runs.ts';
 import { applyScenario, scenarioStorage } from './scenarios.ts';
 import { status } from './up.ts';
+import { urlJournal, urlTap } from './urlenv.ts';
 
 export const SESSION = 'session';
 
@@ -63,7 +64,10 @@ export async function startSession(ws: Workspace, o: { env: string; title?: stri
   // a flow's environment from before they were whole is widened first: a part left out would answer nothing to the person trying it
   if (isInstance(o.env) && instanceNarrowed(ws, o.env)) await widenInstance(ws, o.env);
   const st = await status(ws, o.env);
-  if (st.state !== 'ready') throw new Error(`${o.env} is ${st.state}; bring it up first: laru up ${o.env}`);
+  const byUrl = envUrl(ws, o.env);
+  if (st.state !== 'ready') throw new Error(byUrl ? `${o.env} does not answer at ${byUrl}: start the app where it lives` : `${o.env} is ${st.state}; bring it up first: laru up ${o.env}`);
+  if (byUrl && o.scenario) throw new Error(`${o.env} is the app at ${byUrl}, whose data live where it does: Laru cannot put ${o.scenario} in them`);
+  if (byUrl) urlTap(ws, o.env);
   // the state first, so the session sees only what the person does
   const applied = o.scenario ? await applyScenario(ws, o.scenario, { env: o.env, confirm: o.confirm }) : undefined;
   const id = nextId(ws);
@@ -89,6 +93,7 @@ export function markSession(ws: Workspace, id: string, text: string): { t: numbe
  * drift). What the person did is stamped by this machine and what the services did by the tap, so the first is moved onto the second.
  */
 export async function tapSkew(ws: Workspace, env: string): Promise<number> {
+  if (envUrl(ws, env)) return 0; // an env by URL has no tap: its browser stamps what it asks with this machine's clock
   const port = new URL(await entranceOf(ws, env)).port;
   const samples: number[] = [];
   for (let i = 0; i < 3; i++) {
@@ -208,6 +213,10 @@ export const FPS = 10;
 export function isEntranceUrl(url: string, app: string, port: string): boolean {
   try { const u = new URL(url); return u.protocol === 'http:' && u.port === port && u.hostname.endsWith(`.${app}.localhost`) && !u.username && !u.password; } catch { return false; }
 }
+/** On an env by URL, an address of the app itself: its origin, never another site nor a user or password in it. */
+export function isAppUrl(url: string, app: string): boolean {
+  try { const u = new URL(url); return u.origin === new URL(app).origin && !u.username && !u.password; } catch { return false; }
+}
 
 /** What the screen sends, in the page's own pixels; the one input of the embedded browser. */
 export type ScreenInput =
@@ -232,6 +241,7 @@ export async function runSessionBrowser(ws: Workspace, id: string, o: { /** a te
   try {
     const url = await entranceOf(ws, r.env, r.front);
     const port = new URL(url).port;
+    const byUrl = envUrl(ws, r.env);
     const { chromium } = await import('playwright-core');
     const browser = await chromium.launch({ channel: 'chrome', headless: true, args: ['--no-first-run', '--no-default-browser-check'] });
     // a scenario whose setup ended signed in opens the app as that person: its setup signed in on the env's network
@@ -240,8 +250,18 @@ export async function runSessionBrowser(ws: Workspace, id: string, o: { /** a te
     const context = await browser.newContext({ viewport: r.device === 'phone' ? PHONE : SCREEN, ...(storage ? { storageState: movedTo(JSON.parse(readFileSync(storage, 'utf8')), baseUrl(ws, r.env), url) } : {}) });
     await context.exposeBinding('__ksAct', (_src, a: { kind: string; target?: string; key?: string }) => add(ws, id, 'actions.jsonl', { t0: Date.now(), kind: a.kind, ...(a.target ? { target: a.target } : {}), ...(a.key ? { key: a.key } : {}) }));
     await context.addInitScript(RECORDER);
-    // what does not reach the tap leaves no trace there: it is named instead (never its query)
-    context.on('request', (q) => {
+    // An env by URL has no tap: this browser is it, and keeps each request it makes in the env's journal, as from this
+    // Mac, and what its pages say in the console and the errors they throw, as the browser's log.
+    const journal = byUrl ? urlJournal(ws, r.env) : undefined;
+    const reading = new Set<Promise<unknown>>();
+    if (journal) {
+      const keep = (q: import('playwright-core').Request) => { const p: Promise<unknown> = hitOf(q).then((h) => h && journal.add(h, '127.0.0.1'), () => undefined).finally(() => reading.delete(p)); reading.add(p); };
+      context.on('requestfinished', keep);
+      context.on('requestfailed', keep);
+      context.on('console', (msg) => journal.log({ t0: Date.now(), service: 'browser', line: msg.text(), level: consoleLevel(msg.type()) }));
+      context.on('weberror', (e) => journal.log({ t0: Date.now(), service: 'browser', line: e.error().message, level: 'error' }));
+    } else context.on('request', (q) => {
+      // what does not reach the tap leaves no trace there: it is named instead (never its query)
       const u = new URL(q.url());
       if (/^https?:$/.test(u.protocol) && !(u.hostname.endsWith('.localhost') && u.port === port)) add(ws, id, 'outside.jsonl', { t: Date.now(), url: `${u.origin}${u.pathname}` });
     });
@@ -281,7 +301,7 @@ export async function runSessionBrowser(ws: Workspace, id: string, o: { /** a te
       else if (i.t === 'text') await page.keyboard.insertText(i.text);
       else if (i.t === 'files') { await chooser?.setFiles(i.files.map((f) => ({ name: f.name, mimeType: f.mimeType, buffer: Buffer.from(f.b64, 'base64') }))); chooser = undefined; }
       else if (i.t === 'nav' && i.to === 'goto') {
-        if (!isEntranceUrl(i.url, ws.app, port)) throw new Error('the session browser only opens addresses of this env\'s own entrance');
+        if (byUrl ? !isAppUrl(i.url, byUrl) : !isEntranceUrl(i.url, ws.app, port)) throw new Error(byUrl ? `the session browser only opens addresses of the app at ${new URL(byUrl).origin}` : 'the session browser only opens addresses of this env\'s own entrance');
         if (i.device) await page.setViewportSize(i.device === 'phone' ? PHONE : SCREEN);
         await page.goto(new URL(i.url).href);
       }
@@ -328,8 +348,10 @@ export async function runSessionBrowser(ws: Workspace, id: string, o: { /** a te
     send('closed', '');
     server.close();
     server.closeAllConnections();
+    await Promise.all([...reading]);
     await context.close().catch(() => undefined);
     await browser.close().catch(() => undefined);
+    await journal?.close();
     setBrowser(ws, id, { state: 'closed', url, videoT0: screen.t0, ...(file ? { video: relative(out, file) } : {}) });
   } catch (e) {
     setBrowser(ws, id, { state: 'error', error: (e as Error).message.split('\n')[0] });

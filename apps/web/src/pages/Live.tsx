@@ -14,7 +14,7 @@ import { plural } from '../lib/es.ts';
 import { href } from '../lib/route.ts';
 import { sayCtx } from '../lib/say.ts';
 import { layoutSeq } from '../lib/seq.ts';
-import { archGraph, layout as mapLayout } from '../lib/sysmap.ts';
+import { archGraph, layout as mapLayout, NO_MAP } from '../lib/sysmap.ts';
 import { ExchangeIO, Journey } from './Journey.tsx';
 import { ExchangeTable, FlowMap, LogsTab, NetTab, SeqView, Splitter, Tracks, useStudioPanels } from './Runs.tsx';
 import { devicesOf, onlyDevice } from '../lib/devices.ts';
@@ -40,8 +40,9 @@ export interface Preset { flow: string; title: string; scenario?: string; env?: 
 export function Start({ preset }: { preset?: Preset }) {
   const envs = useApi<EnvSummary[]>('/api/envs');
   const runs = useApi<RunInfo[]>('/api/runs');
-  // Without a flow, the project's environments; with one, only its own: each flow runs isolated.
-  const ready = (envs.data ?? []).filter((e) => e.state === 'ready' && (preset ? e.env === `f-${preset.flow}` : !/^f-/.test(e.env)));
+  // Without a flow, the project's environments; with one, only its own: each flow runs isolated. An app by URL is
+  // nobody's instance: any flow is tried on it.
+  const ready = (envs.data ?? []).filter((e) => e.state === 'ready' && (preset ? e.env === `f-${preset.flow}` || Boolean(e.url) : !/^f-/.test(e.env)));
   const [env, setEnv] = useState<string>();
   const [title, setTitle] = useState(preset?.title ?? '');
   const map = useApi<SystemMap | null>('/api/map');
@@ -56,25 +57,27 @@ export function Start({ preset }: { preset?: Preset }) {
   const kindOf = (svc: string) => g?.nodes.get(`svc:${svc}`)?.kind;
   const fronts = frontsOf(ready.find((e) => e.env === pick)?.addresses ?? [], kindOf);
   const chosen = fronts.find((f) => f.service === front)?.service ?? fronts[0]?.service;
+  // an app by URL is recorded by Laru's own browser only: in the person's, nothing stands between it and the app
+  const byUrl = ready.find((e) => e.env === pick)?.url;
   // The person's own browser opens now, while the click still counts as theirs, and goes to the app once it is known.
   // An env that keeps its data asks first (409): the tab closes, and «Aplicar y empezar» opens it again with a click of its own.
   const start = (browser: boolean) => askFirst((confirm) => {
     const tab = browser ? null : window.open('about:blank', '_blank');
-    return api<{ run: RunInfo }>('/api/session/start', { method: 'POST', body: { env: pick, title: title.trim() || undefined, browser, scenario: scenario || undefined, flow: preset?.flow, ...(fronts.length > 1 ? { front: chosen, device: kindOf(chosen!) === 'mobile' ? 'phone' : undefined } : {}), confirm } })
+    return api<{ run: RunInfo }>('/api/session/start', { method: 'POST', body: { env: pick, title: title.trim() || undefined, browser, scenario: (!byUrl && scenario) || undefined, flow: preset?.flow, ...(fronts.length > 1 ? { front: chosen, device: kindOf(chosen!) === 'mobile' ? 'phone' : undefined } : {}), confirm } })
       .then(({ run }) => { if (tab && run.entrance) tab.location.href = run.entrance; else tab?.close(); location.hash = preset ? preset.to(run.id) : href('live', run.id); }, (e) => { tab?.close(); throw e; });
   }, tr('Aplicar y empezar'));
   return (
     <div className={preset ? undefined : 'page'}>
       {!preset && <div className="head"><div><h1>{tr('En vivo')}</h1><p>{tr('Usa el aplicativo y mira, mientras lo haces, cada salto que provoca: de servicio en servicio, en las bases y en las colas. Al parar, la sesión queda guardada como un run.')}</p></div></div>}
       {envs.error ? <div className="notice" role="alert"><CircleX />{envs.error}</div> : !envs.data ? <Skeleton lines={4} /> : !ready.length ? (
-        <section className="panel"><div className="empty">{tr('Ningún entorno está arriba.')}{' '}{preset ? <>{tr('Aprovisiona el de este flujo aquí arriba, o levanta otro en')}{' '}</> : <>{tr('Levanta uno en')}{' '}</>}<a className="rowlink" href={href('envs')}>{tr('Entornos')}</a>{tr(', o con')}{' '}<code>laru up local</code>.</div></section>
+        <section className="panel"><div className="empty">{tr('Ningún entorno está arriba.')}{' '}{preset ? <>{tr('Aprovisiona el de este flujo aquí arriba, o levanta otro en')}{' '}</> : <>{tr('Levanta uno en')}{' '}</>}<a className="rowlink" href={href('envs')}>{tr('Entornos')}</a>{tr(', o con')}{' '}<code>laru up local</code>.{' '}{tr('Si la aplicación ya corre en otra parte, créale allí un entorno por URL.')}</div></section>
       ) : (
         <section className="panel">
           <header><h3>{tr('Empezar una sesión')}</h3></header>
           <div className="body live-start">
             {ready.length > 1 && <label className="field"><span>{tr('Entorno')}</span><Segmented label={tr('Entorno')} options={ready.map((e) => ({ key: e.env, label: e.env }))} value={pick!} onChange={setEnv} /></label>}
             {fronts.length > 1 && <label className="field"><span>{tr('Cliente')}</span><Segmented label={tr('Cliente')} options={fronts.map((f) => ({ key: f.service, label: frontLabel(f.service, kindOf(f.service)) }))} value={chosen!} onChange={setFront} /></label>}
-            {usable.length > 0 && (
+            {usable.length > 0 && !byUrl && (
               <div className="field"><span>{tr('Desde qué estado')}</span>
                 <ul className="places" role="radiogroup" aria-label={tr('Desde qué estado')}>
                   {[{ id: '', title: tr('Como esté ahora'), note: tr('sin aplicar nada') }, ...usable.map((s) => ({ id: s.id, title: s.title, note: s.state ? (s.state.mode === 'snapshot' ? tr('desde instantáneas') : tr('vuelve a prepararse')) : tr('se prepara la primera vez') }))].map((o) => (
@@ -86,9 +89,10 @@ export function Start({ preset }: { preset?: Preset }) {
             <label className="field"><span>{tr('Qué vas a probar')}</span><input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={tr('Por ejemplo: subir un fichero infectado')} maxLength={120} /></label>
             <div className="row-actions">
               <ActionButton icon={Play} primary run={() => start(true)}>{tr('Empezar')}</ActionButton>
-              <ActionButton icon={Globe} run={() => start(false)}>{tr('Empezar en mi navegador')}</ActionButton>
+              {!byUrl && <ActionButton icon={Globe} run={() => start(false)}>{tr('Empezar en mi navegador')}</ActionButton>}
             </div>
-            <p className="faint">{tr('El aplicativo se abre aquí mismo, en un Chrome sin ventana con un perfil aparte, que graba el vídeo y tus acciones, nunca lo que escribes. En tu navegador se ve el mismo tráfico, sin vídeo; las marcas las pones tú.')}</p>
+            <p className="faint">{byUrl ? tr('La aplicación de {url} se abre aquí mismo, en un Chrome sin ventana con un perfil aparte: Laru graba cada petición que hace la página, lo que dice en su consola, el vídeo y tus acciones, nunca lo que escribes.', { url: new URL(byUrl).host })
+              : tr('El aplicativo se abre aquí mismo, en un Chrome sin ventana con un perfil aparte, que graba el vídeo y tus acciones, nunca lo que escribes. En tu navegador se ve el mismo tráfico, sin vídeo; las marcas las pones tú.')}</p>
           </div>
         </section>
       )}
@@ -332,8 +336,9 @@ function LiveViews({ trace, g, base, open, sel, setSel }: { trace: Trace; g: Ind
   const ctx = useMemo(() => sayCtx({ trace, rows: layout.rows, chain: chainOf(trace), map: g?.map }), [trace, layout, g]);
   const wrap = useRef<HTMLDivElement>(null);
   const arch = useMemo(() => {
-    if (!g || !trace.exchanges.length) return null;
-    const a = archGraph(g, [trace]);
+    if (!trace.exchanges.length) return null;
+    // with no code read (an app by URL), the map is who the browser talked to
+    const a = archGraph(g ?? NO_MAP, [trace]);
     return { lay: mapLayout(a.sub, a.edges, { keep: true, bands: true }), pieces: a.pieces, lit: a.lits[0] };
   }, [g, trace]);
   const hot = useMemo(() => new Set(trace.exchanges.filter((e) => now - e.t0 < 3000).map((e) => e.id)), [trace, now]);
@@ -347,7 +352,6 @@ function LiveViews({ trace, g, base, open, sel, setSel }: { trace: Trace; g: Ind
       </div>
       {view === 'journey' ? <Journey trace={trace} ctx={ctx} lanes={layout.lanes} sel={layout.rows[sel]?.ex.id} onPick={(id) => setSel(layout.rows.findIndex((r) => r.ex.id === id && !r.reply))} hot={open ? hot : undefined} time={(t) => clock(t, base)} follow={open} />
         : view === 'seq' ? (layout.rows.length ? <><SeqView layout={layout} now={now} sel={sel} onPick={setSel} wrap={wrap} still={!open} />{layout.rows[sel] && <LiveHop ex={layout.rows[sel].ex} base={base} names={new Map(layout.lanes.map((l) => [l.id, l.name]))} />}</> : <div className="empty">{tr('Todavía no ha pasado nada.')}</div>)
-        : !g ? <div className="empty">{tr('Sin map no hay mapa: lee el código en Proyectos o con')}{' '}<code>laru map</code>.</div>
         : arch ? <div className="live-map"><FlowMap lay={arch.lay} pieces={arch.pieces} lit={arch.lit} hot={hot} /></div>
         : <div className="empty">{tr('Todavía no ha pasado nada.')}</div>}
     </div>
@@ -404,6 +408,8 @@ function Screen({ id, env, g, open, browser, entrance, wide, setWide, compact }:
   // The web fronts of this env: several when it joins projects (a flow that enters by one and calls the other's back can be seen from the other's front)
   const kindOf = (svc: string) => g?.nodes.get(`svc:${svc}`)?.kind;
   const fronts = frontsOf(envs.data?.find((e) => e.env === env)?.addresses ?? [], kindOf);
+  // an app by URL: the person's own browser reaches it as it is, with nothing of Laru's between to record it
+  const ownTitle = envs.data?.find((e) => e.env === env)?.url ? tr('Abrir en tu navegador: es la aplicación tal cual, y lo que hagas allí no se graba') : undefined;
   const img = useRef<HTMLImageElement>(null);
   const keys = useRef<HTMLTextAreaElement>(null);
   const picker = useRef<HTMLInputElement>(null);
@@ -463,8 +469,8 @@ function Screen({ id, env, g, open, browser, entrance, wide, setWide, compact }:
           </select>
         )}
         <span className="addr mono" title={url || entrance}>{(url || entrance || '').replace(/^https?:\/\//, '')}</span>
-        {entrance && (compact ? <a className="icon-btn" href={entrance} target="_blank" rel="noreferrer" aria-label={tr('Abrir en el navegador')} title={tr('Abrir en tu navegador: se ve el mismo tráfico, sin vídeo ni acciones grabadas')}><ExternalLink /></a>
-          : <a className="btn sm" href={entrance} target="_blank" rel="noreferrer" title={tr('Tu navegador: se ve el mismo tráfico, sin vídeo ni acciones grabadas')}><ExternalLink />{tr('Abrir en el navegador')}</a>)}
+        {entrance && (compact ? <a className="icon-btn" href={entrance} target="_blank" rel="noreferrer" aria-label={tr('Abrir en el navegador')} title={ownTitle ?? tr('Abrir en tu navegador: se ve el mismo tráfico, sin vídeo ni acciones grabadas')}><ExternalLink /></a>
+          : <a className="btn sm" href={entrance} target="_blank" rel="noreferrer" title={ownTitle ?? tr('Tu navegador: se ve el mismo tráfico, sin vídeo ni acciones grabadas')}><ExternalLink />{tr('Abrir en el navegador')}</a>)}
         {!compact && <button className="icon-btn" onClick={() => setWide(!wide)} aria-label={wide ? tr('Reducir') : tr('Ampliar')} title={wide ? tr('Reducir') : tr('Ampliar')}>{wide ? <Minimize2 /> : <Maximize2 />}</button>}
       </div>
       {asks && (

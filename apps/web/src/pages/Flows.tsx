@@ -36,19 +36,24 @@ export type FlowPick = ReturnType<typeof usePick>;
  * env is the smallest that runs every project the flows need, and the run starts it when it is not up.
  */
 export function RunFlows({ chosen, envs, single }: { chosen: FlowInfo[]; envs?: EnvSummary[]; single?: boolean }) {
-  if (chosen.some((f) => f.projects !== undefined)) return <RunAcross chosen={chosen} single={single} />;
+  if (chosen.some((f) => f.projects !== undefined)) return <RunAcross chosen={chosen} envs={envs} single={single} />;
   return <RunOnReady chosen={chosen} envs={envs} single={single} />;
 }
 
-function RunAcross({ chosen, single }: { chosen: FlowInfo[]; single?: boolean }) {
+function RunAcross({ chosen, envs, single }: { chosen: FlowInfo[]; envs?: EnvSummary[]; single?: boolean }) {
   const runnable = chosen.filter((f) => f.exists);
   const on = useApi<{ env: string; ready: boolean }>(runnable.length ? `/api/runs/env?flows=${encodeURIComponent(runnable.map((f) => f.slug).join(','))}` : null);
-  const why = single && !runnable.length ? tr('Sin prueba') : !runnable.length ? tr('Marca los flujos que quieres ejecutar') : on.error ? on.error : undefined;
+  // '' is the env Laru picks for the projects the flows need; an app by URL that answers runs them all, as it is
+  const urls = (envs ?? []).filter((e) => e.url && e.state === 'ready').map((e) => e.env);
+  const [picked, setPicked] = useState('');
+  const env = urls.includes(picked) ? picked : !on.data && on.error && urls.length ? urls[0] : '';
+  const why = single && !runnable.length ? tr('Sin prueba') : !runnable.length ? tr('Marca los flujos que quieres ejecutar') : env ? undefined : on.error ? on.error : undefined;
   return (
     <>
-      <ActionButton icon={Play} primary={!single} disabled={Boolean(why) || !on.data} title={why}
-        run={() => askFirst((confirm) => api<{ id: string }>('/api/runs/start', { method: 'POST', body: { flows: runnable.map((f) => f.slug), confirm, pwTrace: true } }).then((r) => { location.hash = href('runs', r.id); }), tr('Ejecutar'))}>
-        {single ? tr('Ejecutar prueba automática') : !runnable.length ? tr('Ejecutar') : tr('Ejecutar {plural}', { plural: plural(runnable.length, tr('flujo'), tr('flujos')) })}{!single && on.data ? tr(' en {env}{p1}', { env: on.data.env, p1: on.data.ready ? '' : tr(' (se levanta)') }) : ''}
+      {urls.length > 0 && (on.data || on.error) && <Segmented label={tr('Entorno')} value={env} onChange={setPicked} options={[...(on.data ? [{ key: '', label: on.data.env }] : []), ...urls.map((u) => ({ key: u, label: u }))]} />}
+      <ActionButton icon={Play} primary={!single} disabled={Boolean(why) || (!env && !on.data)} title={why}
+        run={() => askFirst((confirm) => api<{ id: string }>('/api/runs/start', { method: 'POST', body: { flows: runnable.map((f) => f.slug), confirm, pwTrace: true, ...(env ? { env } : {}) } }).then((r) => { location.hash = href('runs', r.id); }), tr('Ejecutar'))}>
+        {single ? tr('Ejecutar prueba automática') : !runnable.length ? tr('Ejecutar') : tr('Ejecutar {plural}', { plural: plural(runnable.length, tr('flujo'), tr('flujos')) })}{!single && env ? tr(' en {env}', { env }) : !single && on.data ? tr(' en {env}{p1}', { env: on.data.env, p1: on.data.ready ? '' : tr(' (se levanta)') }) : ''}
       </ActionButton>
     </>
   );

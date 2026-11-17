@@ -7,6 +7,8 @@ import { RUNNER_DEFAULTS as D } from './runner-defaults.ts';
 
 // the screens' sizes reach the fixtures (flow.ts) through the workers' environment, which they inherit from here
 process.env.KS_SCREENS = JSON.stringify(D.screens);
+// an env by URL: an app on the Mac's localhost is reached through host.docker.internal, the address the page keeps the same
+const args = process.env.KS_HOST_RULES ? [`--host-resolver-rules=${process.env.KS_HOST_RULES}`] : [];
 
 export default defineConfig({
   testDir: '/ks/ws',
@@ -28,12 +30,15 @@ export default defineConfig({
     viewport: D.viewport,
     video: 'off',
     trace: process.env.KS_PW_TRACE === '1' ? 'on' : 'off',
+    // an env by URL: a QA's certificate is signed by its company's CA, which the Mac trusts and this Chromium does not know
+    ignoreHTTPSErrors: process.env.KS_IGNORE_HTTPS_ERRORS === '1',
+    launchOptions: { args },
     screenshot: 'only-on-failure',
     actionTimeout: D.actionTimeoutMs,
   },
   // Stories are recorded; scenario setups are not. One worker plays both projects in turn.
   projects: [
-    { name: 'story', grep: /@story/, use: { video: { mode: 'on', size: { width: 1280, height: 720 } }, launchOptions: { slowMo: Number(process.env.KS_STORY_PACE_MS ?? D.storyPaceMs) } } },
+    { name: 'story', grep: /@story/, use: { video: { mode: 'on', size: { width: 1280, height: 720 } }, launchOptions: { args, slowMo: Number(process.env.KS_STORY_PACE_MS ?? D.storyPaceMs) } } },
     { name: 'case', grepInvert: /@story/ },
   ],
 });

@@ -25,6 +25,7 @@ import { Scenarios } from './Scenarios.tsx';
 import { Accept, fixPrompt } from '../components/Accept.tsx';
 import { ownerOf } from '../lib/findingOwner.ts';
 import { PieceForm } from './PieceForm.tsx';
+import { TestLevels } from '../components/TestList.tsx';
 import { AppSummary, Architecture, FidelityByEnv, FlowLists, FlowLive, FlowStart, FrontCards, ModuleCards, PieceKinds, ProjectsEnvs, ReferencedBy, ScenarioExtras, VarLevels } from './Sheets.tsx';
 import { DiagramViewer } from '../components/Viewer.tsx';
 import type { FlowView } from './Runs.tsx';
@@ -442,6 +443,7 @@ export function owedText(k: KnowledgeData, p: DocPiece, o: DocNote['owed'][numbe
   if (o.key === 'vague') return tr('Dilo en concreto: {join}.', { join: String(o.params?.words ?? '').split(', ').map((w) => `«${w}»`).join(', ') });
   if (o.key === 'unknown-endpoint') return tr('Nombra endpoints que el código no tiene: {p0}.', { p0: o.params?.endpoints });
   if (o.key === 'operation-detail') return tr('Operaciones sin su resumen, su petición o su respuesta: {p0}.', { p0: o.params?.operations });
+  if (o.key === 'event-detail') return tr('Eventos sin su para qué o su contenido: {p0}.', { p0: o.params?.events });
   return o.at;
 }
 /** One thing a container still owes, in words. */
@@ -567,10 +569,7 @@ function LiveTab({ p, which }: { p: DocPiece; which: 'interfaces' | 'data' | 'te
   return (
     <section className="panel"><header><h3>{tr('Pruebas de su código')}</h3><div className="meta"><Origin of="extracted" /> · {plural(total, tr('prueba'), tr('pruebas'))}{' '}{tr('en')}{' '}{plural(d.tests.length, tr('fichero'), tr('ficheros'))}</div></header>
       <p className="faint" style={{ padding: '0 16px' }}>{tr('Una prueba es de esta pieza si su fichero cuelga de la carpeta de sus anclas o de su espejo en')}{' '}<code>src/test</code>.</p>
-      {d.tests.length ? <div className="body">{d.tests.map((t) => (
-        <details key={t.file} className="test-file"><summary><span className="mono">{t.file.slice(t.file.indexOf(':') + 1).split('/').at(-1)}</span> <span className="faint">· {t.level} · {plural(t.count, tr('prueba'), tr('pruebas'))} · {t.file}</span></summary>
-          <ul>{t.cases.map((c) => <li key={c.line}><span>{c.name}</span> <span className="mono faint">:{c.line}</span></li>)}</ul></details>
-      ))}</div> : <div className="empty">{tr('Ninguna prueba cuelga de sus anclas.')}</div>}
+      {d.tests.length ? <TestLevels files={d.tests} /> : <div className="empty">{tr('Ninguna prueba cuelga de sus anclas.')}</div>}
     </section>
   );
 }
@@ -699,6 +698,38 @@ function EstadoBody({ k, g, p, all, envs, toCode }: { k: KnowledgeData; g: Index
   );
 }
 
+/**
+ * The heading of these the reader is in: the last whose top has passed the top of the index, the last on screen once the
+ * page can scroll no further, or the one picked in the index until the reader scrolls by hand.
+ */
+function useReading(ids: string[], nav: React.RefObject<HTMLElement | null>): [string | undefined, (id: string) => void] {
+  const [at, setAt] = useState<string>();
+  const picked = useRef<string | undefined>(undefined);
+  const key = ids.join(' ');
+  useEffect(() => {
+    if (!ids.length) return;
+    const spy = (e?: Event) => {
+      const line = (nav.current?.getBoundingClientRect().top ?? 0) + 40;
+      const tops = ids.map((id) => [id, document.getElementById(id)?.getBoundingClientRect().top] as const).filter((x): x is readonly [string, number] => x[1] !== undefined);
+      let now = [...tops].reverse().find(([, top]) => top <= line)?.[0] ?? ids[0];
+      // a last section too short to reach the line is still where the reader is once the page ends
+      const pane = e?.target === document ? document.scrollingElement : e?.target instanceof Element ? e.target : null;
+      if (pane && nav.current && pane.contains(nav.current) && pane.scrollTop + pane.clientHeight >= pane.scrollHeight - 2) {
+        const bottom = Math.min(innerHeight, pane.getBoundingClientRect().bottom);
+        now = [...tops].reverse().find(([, top]) => top < bottom)?.[0] ?? now;
+      }
+      setAt(picked.current ?? now);
+    };
+    const free = () => { picked.current = undefined; };
+    const by = ['wheel', 'touchmove', 'keydown', 'pointerdown'] as const;
+    spy();
+    document.addEventListener('scroll', spy, { capture: true, passive: true });
+    for (const t of by) addEventListener(t, free, { passive: true });
+    return () => { document.removeEventListener('scroll', spy, { capture: true }); for (const t of by) removeEventListener(t, free); };
+  }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
+  return [at, (id) => { picked.current = id; setAt(id); }];
+}
+
 /** A piece's own fields and its links, as written. */
 export function PieceFields({ k, p, skip, only, empty }: { k: KnowledgeData; p: DocPiece; skip?: string[]; only?: string[]; empty?: string }) {
   // A link reads as what it points at: a piece by its title, a map node by its name (its id is the title attribute).
@@ -706,7 +737,10 @@ export function PieceFields({ k, p, skip, only, empty }: { k: KnowledgeData; p: 
   const shown = k.shapes[p.type].fields.filter((f) => hasValue(p.fields[f.name]) && !skip?.includes(f.name) && (!only || only.includes(f.name)));
   // a piece of three sections or more reads with its index beside it: each section, and the headings written inside it
   const index = shown.length >= 3 ? shown.map((f) => ({ id: `f-${f.name}`, title: f.heading, subs: typeof p.fields[f.name] === 'string' ? [...String(p.fields[f.name]).replace(/```[\s\S]*?```/g, '').matchAll(/^#{1,3}\s+(.+?)\s*#*$/gm)].map((m) => m[1]) : [] })) : [];
-  const go = (id: string) => (e: React.MouseEvent) => { e.preventDefault(); document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+  const nav = useRef<HTMLElement>(null);
+  const [reading, pick] = useReading(index.flatMap((x) => [x.id, ...x.subs.map(anchorOf)]), nav);
+  const go = (id: string) => (e: React.MouseEvent) => { e.preventDefault(); pick(id); document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+  const here = (id: string) => (reading === id ? 'location' as const : undefined);
   return (
     <section className={`panel${index.length ? ' with-index' : ''}`}><div className="body fields">
       {empty && !k.shapes[p.type].fields.some((f) => hasValue(p.fields[f.name]) && (!only || only.includes(f.name))) && <p className="faint">{empty}</p>}
@@ -716,11 +750,11 @@ export function PieceFields({ k, p, skip, only, empty }: { k: KnowledgeData; p: 
       {Object.entries(p.meta ?? {}).sort(([a], [b]) => metaAt(a) - metaAt(b)).map(([m, v]) => <section key={m} className="field-view"><h3>{META[m] ?? m}</h3><p className="chips-inline">{(Array.isArray(v) ? v : [v]).map((id) => <a key={id} className="chip" href={pageOf(id)} title={id}>{named(id)}{m === 'realizes' ? ' ›' : ''}</a>)}</p></section>)}
     </div>
     {index.length > 0 && (
-      <nav className="piece-index" aria-label={tr('Contenido de la pieza')}>
+      <nav ref={nav} className="piece-index" aria-label={tr('Contenido de la pieza')}>
         <h4>{tr('Contenido')}</h4>
         <ol>{index.map((x) => (
-          <li key={x.id}><a href={`#${x.id}`} onClick={go(x.id)}>{x.title}</a>
-            {x.subs.length > 0 && <ol>{x.subs.map((t) => <li key={t}><a href={`#${anchorOf(t)}`} onClick={go(anchorOf(t))}>{t}</a></li>)}</ol>}
+          <li key={x.id} className={x.subs.some((t) => anchorOf(t) === reading) ? 'in' : undefined}><a href={`#${x.id}`} onClick={go(x.id)} aria-current={here(x.id)}>{x.title}</a>
+            {x.subs.length > 0 && <ol>{x.subs.map((t) => <li key={t}><a href={`#${anchorOf(t)}`} onClick={go(anchorOf(t))} aria-current={here(anchorOf(t))}>{t}</a></li>)}</ol>}
           </li>
         ))}</ol>
       </nav>
